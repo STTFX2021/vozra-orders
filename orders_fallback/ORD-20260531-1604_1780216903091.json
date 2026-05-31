@@ -1,0 +1,109 @@
+{
+  "savedAt": "2026-05-31T08:41:43.091Z",
+  "orderId": "ORD-20260531-1604",
+  "ticket": "═════════════════════════════════════\n🍕 PEDIDO ORD-20260531-1604\n📅 31/05/2026  ⏰ 08:41h\n🏠 RECOGIDA\n─────────────────────────────────────\n👤 Carlos  📞 612345678\n─────────────────────────────────────\nPRODUCTOS:\n\n  1× BARBACOA [GRANDE]\n\n─────────────────────────────────────\n💶 TOTAL ESTIMADO: 12.00 EUR\n─────────────────────────────────────\n✅ Sin alergias declaradas\n─────────────────────────────────────\n✅ Confirmado por cliente\n═════════════════════════════════════",
+  "order": {
+    "orderId": "ORD-20260531-1604",
+    "callId": "DA",
+    "status": "customer_confirmed",
+    "createdAt": "2026-05-31T08:41:42.956Z",
+    "updatedAt": "2026-05-31T08:41:43.019Z",
+    "expiresAt": 1780224103019,
+    "customerName": "Carlos",
+    "phone": "612345678",
+    "phoneConfirmed": false,
+    "phoneAttempts": 0,
+    "orderType": "pickup",
+    "address": {
+      "street": null,
+      "number": null,
+      "floor": null,
+      "city": null,
+      "raw": null
+    },
+    "items": [
+      {
+        "id": "pizza_barbacoa",
+        "displayName": "Barbacoa",
+        "category": "pizza_rossa",
+        "price": 12,
+        "quantity": 1,
+        "size": "grande",
+        "modifiers": [],
+        "allergyFlags": [],
+        "kitchenNote": null,
+        "productConfidence": 0.9
+      }
+    ],
+    "allergies": [],
+    "allergyNotes": null,
+    "paymentMethod": null,
+    "estimatedTotal": null,
+    "confidence": {
+      "product": null,
+      "modifier": null,
+      "address": null,
+      "phone": null,
+      "overall": null
+    },
+    "flags": {
+      "requiresKitchenReview": false,
+      "requiresProviderReview": false,
+      "lowConfidence": false,
+      "allergyRisk": false,
+      "addressRisk": false,
+      "productAmbiguity": false,
+      "deliveryRisk": false
+    },
+    "dispatchChannel": null,
+    "dispatchAt": null,
+    "dispatchAckAt": null,
+    "kitchenAckAt": null,
+    "turns": 0,
+    "lastText": null,
+    "confirmationAttempts": 0,
+    "notes": null,
+    "events": [
+      {
+        "eventType": "order_created",
+        "timestamp": "2026-05-31T08:41:42.956Z",
+        "status": "draft",
+        "detail": "callId=DA"
+      },
+      {
+        "eventType": "slot_filled",
+        "timestamp": "2026-05-31T08:41:42.997Z",
+        "status": "draft",
+        "detail": "item añadido: undefined"
+      }
+    ],
+    "confidence.phone": 0.99
+  },
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "allergenConflicts": [],
+    "dietaryFlags": [],
+    "flags": {
+      "requiresKitchenReview": false,
+      "requiresProviderReview": false,
+      "lowConfidence": false,
+      "allergyRisk": false,
+      "addressRisk": false,
+      "productAmbiguity": false,
+      "deliveryRisk": false
+    },
+    "estimatedTotal": 12,
+    "priceBreakdown": [
+      {
+        "label": "Barbacoa",
+        "qty": 1,
+        "unitPrice": 12,
+        "modifiers": [],
+        "subtotal": 12
+      }
+    ],
+    "currency": "EUR"
+  }
+}

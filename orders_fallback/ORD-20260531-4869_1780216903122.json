@@ -1,0 +1,109 @@
+{
+  "savedAt": "2026-05-31T08:41:43.122Z",
+  "orderId": "ORD-20260531-4869",
+  "ticket": "═════════════════════════════════════\n🍕 PEDIDO ORD-20260531-4869\n📅 31/05/2026  ⏰ 08:41h\n🏠 RECOGIDA\n─────────────────────────────────────\n👤 Luis  📞 611222333\n─────────────────────────────────────\nPRODUCTOS:\n\n  1× MARGHERITA\n\n─────────────────────────────────────\n💶 TOTAL ESTIMADO: 9.50 EUR\n─────────────────────────────────────\n✅ Sin alergias declaradas\n─────────────────────────────────────\n✅ Confirmado por cliente\n═════════════════════════════════════",
+  "order": {
+    "orderId": "ORD-20260531-4869",
+    "callId": "DC",
+    "status": "customer_confirmed",
+    "createdAt": "2026-05-31T08:41:43.114Z",
+    "updatedAt": "2026-05-31T08:41:43.121Z",
+    "expiresAt": 1780224103121,
+    "customerName": "Luis",
+    "phone": "611222333",
+    "phoneConfirmed": false,
+    "phoneAttempts": 0,
+    "orderType": "pickup",
+    "address": {
+      "street": null,
+      "number": null,
+      "floor": null,
+      "city": null,
+      "raw": null
+    },
+    "items": [
+      {
+        "id": "pizza_margherita",
+        "displayName": "Margherita",
+        "category": "pizza_rossa",
+        "price": 9.5,
+        "quantity": 1,
+        "size": null,
+        "modifiers": [],
+        "allergyFlags": [],
+        "kitchenNote": null,
+        "productConfidence": 0.85
+      }
+    ],
+    "allergies": [],
+    "allergyNotes": null,
+    "paymentMethod": null,
+    "estimatedTotal": null,
+    "confidence": {
+      "product": null,
+      "modifier": null,
+      "address": null,
+      "phone": null,
+      "overall": null
+    },
+    "flags": {
+      "requiresKitchenReview": false,
+      "requiresProviderReview": false,
+      "lowConfidence": false,
+      "allergyRisk": false,
+      "addressRisk": false,
+      "productAmbiguity": false,
+      "deliveryRisk": false
+    },
+    "dispatchChannel": null,
+    "dispatchAt": null,
+    "dispatchAckAt": null,
+    "kitchenAckAt": null,
+    "turns": 0,
+    "lastText": null,
+    "confirmationAttempts": 0,
+    "notes": null,
+    "events": [
+      {
+        "eventType": "order_created",
+        "timestamp": "2026-05-31T08:41:43.114Z",
+        "status": "draft",
+        "detail": "callId=DC"
+      },
+      {
+        "eventType": "slot_filled",
+        "timestamp": "2026-05-31T08:41:43.116Z",
+        "status": "draft",
+        "detail": "item añadido: undefined"
+      }
+    ],
+    "confidence.phone": 0.99
+  },
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "allergenConflicts": [],
+    "dietaryFlags": [],
+    "flags": {
+      "requiresKitchenReview": false,
+      "requiresProviderReview": false,
+      "lowConfidence": false,
+      "allergyRisk": false,
+      "addressRisk": false,
+      "productAmbiguity": false,
+      "deliveryRisk": false
+    },
+    "estimatedTotal": 9.5,
+    "priceBreakdown": [
+      {
+        "label": "Margherita",
+        "qty": 1,
+        "unitPrice": 9.5,
+        "modifiers": [],
+        "subtotal": 9.5
+      }
+    ],
+    "currency": "EUR"
+  }
+}

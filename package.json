@@ -1,0 +1,30 @@
+{
+  "name": "vozra-orders-backend",
+  "version": "0.1.0",
+  "description": "Vozra Orders — Agente de voz para pedidos de restaurante",
+  "main": "server.js",
+  "scripts": {
+    "sim": "node simulator.js",
+    "sim:full": "node simulator.js --show-order --ticket",
+    "sim:ticket": "node simulator.js --ticket",
+    "test:fase4": "node test-orders-fase4.cjs",
+    "test:fase5": "node test-orders-fase5.cjs",
+    "test:fase6": "node test-orders-fase6.cjs",
+    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs",
+    "test:all": "npm test",
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "vozra",
+    "orders",
+    "restaurant",
+    "voice",
+    "agent"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2"
+  }
+}
