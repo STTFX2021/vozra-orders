@@ -1,3 +1,5 @@
 ﻿node_modules/
 .env
+orders_fallback/
 *.log
+Allergy taxonomy.v1.json
