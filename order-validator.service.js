@@ -25,7 +25,7 @@ let _modsTax    = null;
 
 function loadAllergyTaxonomy() {
   if (!_allergyTax) {
-    const p = path.join(__dirname, "..", "data", "taxonomies", "allergy-taxonomy.v1.json");
+    const p = path.join(__dirname, "data", "taxonomies", "allergy-taxonomy.v1.json");
     _allergyTax = JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, ""));
   }
   return _allergyTax;
@@ -33,7 +33,7 @@ function loadAllergyTaxonomy() {
 
 function loadMenuTaxonomy() {
   if (!_menuTax) {
-    const p = path.join(__dirname, "..", "data", "taxonomies", "menu-taxonomy.v1.json");
+    const p = path.join(__dirname, "data", "taxonomies", "menu-taxonomy.v1.json");
     _menuTax = JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, ""));
   }
   return _menuTax;
@@ -41,7 +41,7 @@ function loadMenuTaxonomy() {
 
 function loadModifiersTaxonomy() {
   if (!_modsTax) {
-    const p = path.join(__dirname, "..", "data", "taxonomies", "modifiers-taxonomy.v1.json");
+    const p = path.join(__dirname, "data", "taxonomies", "modifiers-taxonomy.v1.json");
     _modsTax = JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, ""));
   }
   return _modsTax;

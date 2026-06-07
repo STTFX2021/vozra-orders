@@ -1,0 +1,2167 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-05-30",
+  "restaurantId": "la_locanda_cancelada",
+  "restaurantName": "La Locanda de Cancelada",
+  "currency": "EUR",
+  "vatIncluded": true,
+  "taxNote": "Precios con IVA incluido.",
+  "gfNote": "La base sin gluten supone una sustitución de la masa, no un suplemento aditivo. El horno es compartido — trazas posibles. No apto para celiaquía severa sin confirmación del equipo.",
+  "allergenPolicy": "ESCALATE_ALWAYS",
+  "modifierPolicy": "STRICT_WHITELIST",
+  "maxModifiersPerPizza": 6,
+  "groupMenuThreshold": 7,
+  "categories": [
+    "starters",
+    "salads",
+    "pasta_risotto",
+    "mains_meat",
+    "pizza_rossa",
+    "pizza_bianca",
+    "pizza_speciale",
+    "pizza_ripiena",
+    "desserts",
+    "beverages"
+  ],
+  "items": [
+    {
+      "id": "antipasto_italiano",
+      "displayName": "Antipasto Italiano",
+      "displayNameEN": "Italian Antipasto Board",
+      "category": "starters",
+      "price": 25,
+      "description": "Tabla de embutidos, quesos y acompañamientos italianos seleccionados. Para compartir.",
+      "dietaryTags": [
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "gluten"
+      ],
+      "traceAllergens": [
+        "egg",
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "proactiveRecommend": true,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "antipasto",
+        "tabla italiana",
+        "embutidos",
+        "para compartir",
+        "entrante",
+        "para picar",
+        "picoteo",
+        "starter"
+      ]
+    },
+    {
+      "id": "tabla_quesos_italianos",
+      "displayName": "Tabla de quesos italianos",
+      "displayNameEN": "Italian Cheese Board",
+      "category": "starters",
+      "price": 18,
+      "description": "Selección de quesos artesanales italianos con acompañamientos.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "gluten"
+      ],
+      "traceAllergens": [
+        "egg"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "quesos",
+        "tabla quesos",
+        "cheese board",
+        "formaggio"
+      ]
+    },
+    {
+      "id": "carpaccio_bresaola",
+      "displayName": "Carpaccio de Bresaola",
+      "displayNameEN": "Bresaola Carpaccio",
+      "category": "starters",
+      "price": 13.5,
+      "description": "Finas lonchas de bresaola (cecina de ternera curada) con rúcula, parmesano y aceite de oliva virgen extra.",
+      "dietaryTags": [
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "carpaccio",
+        "bresaola",
+        "ternera curada",
+        "crudo"
+      ]
+    },
+    {
+      "id": "verduras_plancha",
+      "displayName": "Verduras a la plancha",
+      "displayNameEN": "Grilled Vegetables",
+      "category": "starters",
+      "price": 10,
+      "description": "Selección de verduras de temporada a la plancha con aceite de oliva virgen extra.",
+      "dietaryTags": [
+        "vegetarian",
+        "vegan"
+      ],
+      "knownAllergens": [],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "verduras",
+        "vegetal",
+        "grilladas",
+        "vegan",
+        "sin carne"
+      ]
+    },
+    {
+      "id": "berenjenas_parmigiana",
+      "displayName": "Berenjenas Parmigiana",
+      "displayNameEN": "Aubergine Parmigiana",
+      "category": "starters",
+      "price": 11,
+      "description": "Berenjenas horneadas en capas con salsa de tomate, mozzarella y queso parmesano.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [
+        "egg"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "parmigiana",
+        "berenjenas",
+        "aubergine",
+        "melanzane"
+      ]
+    },
+    {
+      "id": "provoletta",
+      "displayName": "Provoletta",
+      "category": "starters",
+      "price": 12,
+      "description": "Queso provolone a la plancha, servido caliente con tomates y hierbas.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "nlpKeywords": [
+        "provoletta",
+        "provolone",
+        "queso caliente",
+        "queso plancha"
+      ]
+    },
+    {
+      "id": "suppli_di_riso",
+      "displayName": "Suppli di riso",
+      "displayNameEN": "Roman Rice Croquettes",
+      "category": "starters",
+      "price": 6.5,
+      "description": "Croquetas de arroz rellenas de mozzarella, rebozadas y fritas. Típico romano.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy",
+        "contains_gluten"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "gluten",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "suppli",
+        "croquetas arroz",
+        "bolitas arroz",
+        "supplì"
+      ]
+    },
+    {
+      "id": "bruschetta_burrata_cherry",
+      "displayName": "Bruschetta Burrata e Cherry",
+      "displayNameEN": "Bruschetta with Burrata & Cherry Tomatoes",
+      "category": "starters",
+      "price": 13,
+      "description": "Pan tostado con burrata fresca, tomates cherry y albahaca.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy",
+        "contains_gluten"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "gluten"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "nlpKeywords": [
+        "bruschetta",
+        "burrata",
+        "cherry",
+        "pan tostado"
+      ]
+    },
+    {
+      "id": "arrosticini",
+      "displayName": "Arrosticini (10 uds)",
+      "displayNameEN": "Arrosticini Lamb Skewers (10 pcs)",
+      "category": "starters",
+      "price": 16,
+      "description": "Brochetas de cordero típicas de Abruzzo, asadas a la brasa. Ración de 10 piezas.",
+      "dietaryTags": [],
+      "knownAllergens": [],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "nlpKeywords": [
+        "arrosticini",
+        "brochetas",
+        "cordero",
+        "lamb skewers",
+        "pinchos"
+      ]
+    },
+    {
+      "id": "mini_calzoni_fritti",
+      "displayName": "Mini calzoni fritti",
+      "displayNameEN": "Fried Mini Calzoni",
+      "category": "starters",
+      "price": 12.5,
+      "description": "Mini calzones fritos rellenos. Masa de pizza frita crujiente.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 10,
+      "modifierNote": "No admite base sin gluten — producto frito, no horno.",
+      "nlpKeywords": [
+        "calzoni fritti",
+        "mini calzone",
+        "frito",
+        "fried"
+      ]
+    },
+    {
+      "id": "ensalada_clasica_mixta",
+      "displayName": "Clásica Mixta",
+      "displayNameEN": "Classic Mixed Salad",
+      "category": "salads",
+      "price": 9.5,
+      "description": "Lechuga, tomate, atún, cebolla, maíz y pepino.",
+      "dietaryTags": [
+        "contains_fish"
+      ],
+      "knownAllergens": [
+        "fish"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "ensalada mixta",
+        "ensalada clásica",
+        "mixed salad",
+        "ensalada atún",
+        "ensalada",
+        "una ensalada",
+        "la ensalada",
+        "ensalada verde"
+      ]
+    },
+    {
+      "id": "la_caesar",
+      "displayName": "La Caesar",
+      "displayNameEN": "Caesar Salad",
+      "category": "salads",
+      "price": 10,
+      "description": "Lechuga, pollo a la plancha, picatostes, hojuelas de parmesano y salsa César.",
+      "dietaryTags": [
+        "contains_dairy",
+        "contains_gluten",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "gluten",
+        "egg",
+        "fish",
+        "mustard"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "caesar",
+        "césar",
+        "ensalada pollo",
+        "chicken salad"
+      ]
+    },
+    {
+      "id": "caprese_bufala",
+      "displayName": "Caprese con Bufala",
+      "displayNameEN": "Caprese with Buffalo Mozzarella",
+      "category": "salads",
+      "price": 12,
+      "description": "Mozzarella de búfala, tomate, albahaca y aguacate.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "caprese",
+        "bufala",
+        "búfala",
+        "mozzarella",
+        "aguacate",
+        "avocado"
+      ]
+    },
+    {
+      "id": "la_italiana",
+      "displayName": "La italiana",
+      "displayNameEN": "Italian Salad",
+      "category": "salads",
+      "price": 13,
+      "description": "Tomate seco, burrata y pesto.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_dairy",
+        "contains_nuts"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "italiana",
+        "tomate seco",
+        "burrata",
+        "pesto",
+        "piñones"
+      ]
+    },
+    {
+      "id": "lasagna",
+      "displayName": "Lasagna",
+      "category": "pasta_risotto",
+      "price": 12,
+      "description": "Lasaña tradicional italiana con carne, bechamel y queso gratinado.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "lasaña",
+        "lasagna",
+        "pasta horneada"
+      ]
+    },
+    {
+      "id": "spaghetti_bolognese",
+      "displayName": "Spaghetti alla bolognese",
+      "displayNameEN": "Spaghetti Bolognese",
+      "category": "pasta_risotto",
+      "price": 10,
+      "description": "Espaguetis con ragú de carne italiana cocinado lentamente.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg",
+        "celery"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "espagueti",
+        "spaghetti",
+        "bolognese",
+        "boloñesa",
+        "pasta carne"
+      ]
+    },
+    {
+      "id": "spaghetti_carbonara",
+      "displayName": "Spaghetti alla Carbonara",
+      "displayNameEN": "Spaghetti Carbonara",
+      "category": "pasta_risotto",
+      "price": 12,
+      "description": "Espaguetis con salsa de huevo, guanciale (o panceta), queso pecorino y pimienta negra.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "proactiveRecommend": true,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "carbonara",
+        "spaghetti carbonara",
+        "pasta huevo",
+        "guanciale"
+      ]
+    },
+    {
+      "id": "spaghetti_frutti_di_mare",
+      "displayName": "Spaghetti ai Frutti di Mare",
+      "displayNameEN": "Seafood Spaghetti",
+      "category": "pasta_risotto",
+      "price": 14,
+      "description": "Espaguetis con frutos del mar frescos en salsa de tomate y vino blanco.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_shellfish",
+        "contains_fish"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "fish",
+        "shellfish",
+        "molluscs",
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "frutti di mare",
+        "mariscos",
+        "seafood pasta",
+        "pasta mariscos",
+        "pasta mar"
+      ]
+    },
+    {
+      "id": "trofie_al_pesto",
+      "displayName": "Trofie al pesto",
+      "displayNameEN": "Trofie with Pesto",
+      "category": "pasta_risotto",
+      "price": 10,
+      "description": "Pasta trofie con salsa pesto genovese de albahaca fresca, piñones y parmesano.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "contains_nuts"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "trofie",
+        "pesto",
+        "albahaca",
+        "genovese",
+        "vegetarian pasta"
+      ]
+    },
+    {
+      "id": "ravioli_ricotta_spinaci",
+      "displayName": "Ravioli di ricotta e spinaci",
+      "displayNameEN": "Ricotta & Spinach Ravioli",
+      "category": "pasta_risotto",
+      "price": 12,
+      "description": "Ravioli rellenos de ricotta y espinacas, con mantequilla y salvia o salsa de tomate.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "nlpKeywords": [
+        "ravioli",
+        "ricotta",
+        "espinacas",
+        "spinach ravioli",
+        "pasta rellena vegetariana"
+      ]
+    },
+    {
+      "id": "risotto_espinacas_gambas",
+      "displayName": "Risotto con Espinacas, Gambas, Mozzarella",
+      "displayNameEN": "Risotto with Spinach, Prawns & Mozzarella",
+      "category": "pasta_risotto",
+      "price": 13,
+      "description": "Risotto cremoso con espinacas frescas, gambas salteadas y mozzarella fundida.",
+      "dietaryTags": [
+        "contains_dairy",
+        "contains_shellfish"
+      ],
+      "knownAllergens": [
+        "dairy",
+        "shellfish"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "risotto gambas",
+        "risotto espinacas",
+        "arroz cremoso",
+        "risotto mozzarella"
+      ]
+    },
+    {
+      "id": "risotto_frutti_di_mare",
+      "displayName": "Risotto ai Frutti di Mare",
+      "displayNameEN": "Seafood Risotto",
+      "category": "pasta_risotto",
+      "price": 14,
+      "description": "Risotto con mariscos frescos, almejas, mejillones y gambas en caldo de pescado.",
+      "dietaryTags": [
+        "contains_shellfish",
+        "contains_fish",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "shellfish",
+        "fish",
+        "molluscs",
+        "dairy",
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "nlpKeywords": [
+        "risotto mariscos",
+        "seafood risotto",
+        "risotto mar",
+        "arroz mariscos"
+      ]
+    },
+    {
+      "id": "ravioli_agnello_taleggio",
+      "displayName": "Ravioli di agnello e taleggio",
+      "displayNameEN": "Lamb & Taleggio Ravioli",
+      "category": "pasta_risotto",
+      "price": 15,
+      "description": "Ravioli rellenos de cordero y queso taleggio, con mantequilla de hierbas.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "nlpKeywords": [
+        "ravioli cordero",
+        "ravioli agnello",
+        "taleggio",
+        "lamb ravioli"
+      ]
+    },
+    {
+      "id": "burger_casero",
+      "displayName": "Burguer Casero",
+      "displayNameEN": "Homemade Burger",
+      "category": "mains_meat",
+      "price": 11,
+      "description": "Hamburguesa casera con ensalada o patatas fritas a elegir.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg",
+        "mustard"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [
+        "meat_side_choice"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "hamburguesa",
+        "burger",
+        "hamburguesa casera"
+      ]
+    },
+    {
+      "id": "milanesa_pollo",
+      "displayName": "Milanesa de pollo",
+      "displayNameEN": "Chicken Milanese",
+      "category": "mains_meat",
+      "price": 11.5,
+      "description": "Pechuga de pollo empanada a la milanesa con ensalada o patatas fritas.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "egg"
+      ],
+      "traceAllergens": [
+        "dairy"
+      ],
+      "modifierGroups": [
+        "meat_side_choice",
+        "meat_pasta_upgrade"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "milanesa pollo",
+        "pollo empanado",
+        "chicken milanese",
+        "escalope pollo"
+      ]
+    },
+    {
+      "id": "milanesa_pollo_spaghetti",
+      "displayName": "Milanesa de pollo con spaghetti",
+      "displayNameEN": "Chicken Milanese with Spaghetti",
+      "category": "mains_meat",
+      "price": 13,
+      "description": "Pechuga de pollo a la milanesa con espaguetis como acompañamiento.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_egg",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "modifierNote": "Versión combinada. Sin modificadores de side — el acompañamiento ya está fijado.",
+      "nlpKeywords": [
+        "milanesa pollo pasta",
+        "pollo spaghetti",
+        "chicken pasta"
+      ]
+    },
+    {
+      "id": "milanesa_ternera",
+      "displayName": "Milanesa de Ternera",
+      "displayNameEN": "Veal Milanese",
+      "category": "mains_meat",
+      "price": 13.5,
+      "description": "Ternera empanada a la milanesa con ensalada o patatas fritas.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_egg"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "egg"
+      ],
+      "traceAllergens": [
+        "dairy"
+      ],
+      "modifierGroups": [
+        "meat_side_choice",
+        "meat_pasta_upgrade"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "milanesa ternera",
+        "ternera empanada",
+        "veal milanese",
+        "escalope ternera"
+      ]
+    },
+    {
+      "id": "milanesa_ternera_spaghetti",
+      "displayName": "Milanesa de ternera con spaghetti",
+      "displayNameEN": "Veal Milanese with Spaghetti",
+      "category": "mains_meat",
+      "price": 15,
+      "description": "Ternera a la milanesa con espaguetis como acompañamiento.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_egg",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "modifierNote": "Versión combinada. Sin modificadores de side.",
+      "nlpKeywords": [
+        "milanesa ternera pasta",
+        "ternera spaghetti",
+        "veal pasta"
+      ]
+    },
+    {
+      "id": "pizza_margherita",
+      "displayName": "Margherita",
+      "displayNameEN": "Margherita Pizza",
+      "category": "pizza_rossa",
+      "price": 9.5,
+      "description": "La clásica. Base de tomate y mozzarella fior di latte.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": true,
+      "proactiveRecommend": true,
+      "sortOrder": 1,
+      "suggestedModifiers": [
+        "mod_burratina",
+        "mod_bufala",
+        "mod_jamon_parma_serrano"
+      ],
+      "nlpKeywords": [
+        "margherita",
+        "margarita",
+        "pizza clásica",
+        "pizza sencilla",
+        "solo queso",
+        "plain pizza",
+        "básica"
+      ]
+    },
+    {
+      "id": "pizza_tonno_cipolle",
+      "displayName": "Tonno & Cipolle",
+      "displayNameEN": "Tuna & Onion Pizza",
+      "category": "pizza_rossa",
+      "price": 11,
+      "description": "Tomate, mozzarella, atún y cebolla.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_fish",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "fish"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "tonno",
+        "atún",
+        "tuna pizza",
+        "pizza atún cebolla"
+      ]
+    },
+    {
+      "id": "pizza_prosciutto_funghi",
+      "displayName": "Prosciutto & Funghi",
+      "displayNameEN": "Ham & Mushroom Pizza",
+      "category": "pizza_rossa",
+      "price": 11,
+      "description": "Tomate, mozzarella, jamón York y champiñones.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "prosciutto funghi",
+        "jamón champiñones",
+        "ham mushroom pizza"
+      ]
+    },
+    {
+      "id": "pizza_napoli",
+      "displayName": "Napoli",
+      "displayNameEN": "Neapolitan Pizza",
+      "category": "pizza_rossa",
+      "price": 11,
+      "description": "Tomate, mozzarella, aceitunas negras y anchoas.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_fish",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "fish"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "napoli",
+        "napolitana",
+        "aceitunas anchoas",
+        "neapolitan"
+      ]
+    },
+    {
+      "id": "pizza_hawaiiana",
+      "displayName": "Hawaiiana",
+      "displayNameEN": "Hawaiian Pizza",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella, jamón York y piña.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "hawaiiana",
+        "hawaiian",
+        "piña",
+        "jamón piña",
+        "pineapple pizza"
+      ]
+    },
+    {
+      "id": "pizza_diavola",
+      "displayName": "Diavola",
+      "displayNameEN": "Devil's Pizza (Spicy Salami)",
+      "category": "pizza_rossa",
+      "price": 11,
+      "description": "Tomate, mozzarella y salchichón picante.",
+      "dietaryTags": [
+        "spicy",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "nlpKeywords": [
+        "diavola",
+        "picante",
+        "spicy pizza",
+        "salchichón picante",
+        "diablo"
+      ]
+    },
+    {
+      "id": "pizza_capricciosa",
+      "displayName": "Capricciosa",
+      "displayNameEN": "Capricciosa Pizza",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella, champiñones, aceitunas, jamón York y alcachofas.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "capricciosa",
+        "caprichosa",
+        "pizza con todo"
+      ]
+    },
+    {
+      "id": "pizza_quattro_stagioni",
+      "displayName": "Quattro Stagioni",
+      "displayNameEN": "Four Seasons Pizza",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella, champiñones, salchicha picante, alcachofas y pimiento.",
+      "dietaryTags": [
+        "spicy",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "celery",
+        "sulphites"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "nlpKeywords": [
+        "quattro stagioni",
+        "cuatro estaciones",
+        "four seasons pizza"
+      ]
+    },
+    {
+      "id": "pizza_barbacoa",
+      "displayName": "Barbacoa",
+      "displayNameEN": "BBQ Pizza",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella, bacon, pollo y salsa barbacoa.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites",
+        "celery"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "nlpKeywords": [
+        "barbacoa",
+        "bbq",
+        "bacon pollo",
+        "pizza barbacoa"
+      ]
+    },
+    {
+      "id": "pizza_bufala",
+      "displayName": "Búfala",
+      "displayNameEN": "Buffalo Mozzarella Pizza",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella de búfala y albahaca fresca.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 10,
+      "modifierNote": "Ya incluye mozzarella de búfala. Añadir mod_bufala sería duplicado — agente debe advertir.",
+      "nlpKeywords": [
+        "búfala",
+        "bufala",
+        "mozzarella búfala",
+        "buffalo mozzarella pizza"
+      ]
+    },
+    {
+      "id": "pizza_la_locanda",
+      "displayName": "La Locanda",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Tomate, mozzarella, jamón York, pimiento y huevo.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 11,
+      "nlpKeywords": [
+        "pizza locanda",
+        "la locanda pizza",
+        "especial del restaurante"
+      ]
+    },
+    {
+      "id": "pizza_quattro_formaggi",
+      "displayName": "Quattro Formaggi",
+      "displayNameEN": "Four Cheese Pizza",
+      "category": "pizza_rossa",
+      "price": 11.5,
+      "description": "Tomate y cuatro variedades de queso italiano.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 12,
+      "nlpKeywords": [
+        "quattro formaggi",
+        "cuatro quesos",
+        "four cheese",
+        "pizza queso"
+      ]
+    },
+    {
+      "id": "pizza_parmigiana",
+      "displayName": "Parmigiana",
+      "displayNameEN": "Aubergine Parmigiana Pizza",
+      "category": "pizza_rossa",
+      "price": 10,
+      "description": "Tomate, mozzarella, berenjenas y queso parmesano.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 13,
+      "nlpKeywords": [
+        "parmigiana pizza",
+        "berenjenas pizza",
+        "aubergine pizza"
+      ]
+    },
+    {
+      "id": "pizza_anto",
+      "displayName": "Anto",
+      "category": "pizza_rossa",
+      "price": 11.5,
+      "description": "Tomate, mozzarella, patatas fritas y wurstel (salchicha alemana).",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites",
+        "mustard"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 14,
+      "nlpKeywords": [
+        "anto",
+        "pizza patatas",
+        "wurstel",
+        "salchicha patatas"
+      ]
+    },
+    {
+      "id": "pizza_de_cris",
+      "displayName": "La pizza de Cris",
+      "category": "pizza_rossa",
+      "price": 14,
+      "description": "Tomate, mozzarella, salchicón picante, cebolla y gorgonzola.",
+      "dietaryTags": [
+        "spicy",
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 15,
+      "modifierNote": "Pizza de autor — sin modificadores estándar.",
+      "nlpKeywords": [
+        "pizza cris",
+        "gorgonzola picante",
+        "salchicón gorgonzola"
+      ]
+    },
+    {
+      "id": "pizza_de_fili",
+      "displayName": "La pizza de Fili",
+      "category": "pizza_rossa",
+      "price": 10,
+      "description": "Tomate, mozzarella, wurstel y aceitunas negras.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites",
+        "mustard"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 16,
+      "modifierNote": "Pizza de autor — sin modificadores estándar.",
+      "nlpKeywords": [
+        "pizza fili",
+        "wurstel aceitunas"
+      ]
+    },
+    {
+      "id": "calzone",
+      "displayName": "Calzone",
+      "displayNameEN": "Folded Pizza (Calzone)",
+      "category": "pizza_rossa",
+      "price": 12,
+      "description": "Calzone horneado relleno de jamón York y champiñones.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": true,
+      "sortOrder": 17,
+      "nlpKeywords": [
+        "calzone",
+        "pizza cerrada",
+        "pizza doblada",
+        "folded pizza"
+      ]
+    },
+    {
+      "id": "pizza_adam",
+      "displayName": "Adam",
+      "category": "pizza_rossa",
+      "price": 11,
+      "description": "Tomate, mozzarella, champiñones y pollo.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 18,
+      "modifierNote": "Pizza de autor — sin modificadores estándar.",
+      "nlpKeywords": [
+        "adam",
+        "pizza pollo champiñones"
+      ]
+    },
+    {
+      "id": "pizza_nonna",
+      "displayName": "Nonna",
+      "category": "pizza_rossa",
+      "price": 10.5,
+      "description": "Tomate, mozzarella, salsa bolognese y albahaca.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "celery"
+      ],
+      "traceAllergens": [
+        "egg",
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 19,
+      "modifierNote": "Pizza de autor — sin modificadores estándar.",
+      "nlpKeywords": [
+        "nonna",
+        "bolognese pizza",
+        "pizza abuela"
+      ]
+    },
+    {
+      "id": "focaccia",
+      "displayName": "Focaccia",
+      "category": "pizza_bianca",
+      "price": 6,
+      "description": "Masa de pizza con ajo, orégano, romero y aceite de oliva virgen extra.",
+      "dietaryTags": [
+        "vegetarian",
+        "vegan",
+        "contains_gluten",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "focaccia",
+        "pan pizza",
+        "focaccia italiana"
+      ]
+    },
+    {
+      "id": "pizza_leo",
+      "displayName": "Leo",
+      "category": "pizza_bianca",
+      "price": 11,
+      "description": "Mozzarella, patatas al horno, champiñones y salchicha italiana.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "pizza leo",
+        "patatas champiñones salchicha",
+        "bianca patatas"
+      ]
+    },
+    {
+      "id": "pizza_vegetariana",
+      "displayName": "Vegetariana",
+      "displayNameEN": "Vegetarian Pizza",
+      "category": "pizza_bianca",
+      "price": 11,
+      "description": "Mozzarella y verduras horneadas de temporada (sin salsa de tomate).",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "pizza vegetariana",
+        "vegetarian pizza",
+        "verduras pizza",
+        "sin carne pizza"
+      ]
+    },
+    {
+      "id": "pizza_carbonara_bianca",
+      "displayName": "Carbonara",
+      "displayNameEN": "Carbonara White Pizza",
+      "category": "pizza_bianca",
+      "price": 11,
+      "description": "Mozzarella, nata, cebolla y bacon (sin salsa de tomate).",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_egg",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "carbonara pizza",
+        "pizza carbonara",
+        "bacon nata pizza"
+      ]
+    },
+    {
+      "id": "pizza_marcelo",
+      "displayName": "Marcelo",
+      "category": "pizza_bianca",
+      "price": 14.5,
+      "description": "Mozzarella, alcachofas, gorgonzola y langostinos (sin salsa de tomate).",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_shellfish"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "shellfish"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "modifierNote": "Pizza de autor premium — sin modificadores estándar.",
+      "nlpKeywords": [
+        "marcelo",
+        "gorgonzola langostinos",
+        "pizza marisco gorgonzola"
+      ]
+    },
+    {
+      "id": "pizza_roma",
+      "displayName": "Roma",
+      "displayNameEN": "Rome Pizza",
+      "category": "pizza_speciale",
+      "price": 13,
+      "description": "Tomate, mozzarella, mortadella y pistachos.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_nuts",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "roma",
+        "mortadella pistacho",
+        "pizza pistachos"
+      ]
+    },
+    {
+      "id": "pizza_abruzzo",
+      "displayName": "Abruzzo",
+      "category": "pizza_speciale",
+      "price": 15,
+      "description": "Tomate, rúcula, tomates cherry, langostinos y aceitunas negras.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_shellfish",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "shellfish"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "abruzzo",
+        "pizza langostinos",
+        "pizza marisco rúcula"
+      ]
+    },
+    {
+      "id": "pizza_paradiso",
+      "displayName": "Paradiso",
+      "category": "pizza_speciale",
+      "price": 14,
+      "description": "Tomate, mozzarella, aceitunas negras, tomates cherry, aguacate y albahaca.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "paradiso",
+        "pizza aguacate",
+        "paradise pizza"
+      ]
+    },
+    {
+      "id": "pizza_estate",
+      "displayName": "Estate",
+      "displayNameEN": "Summer Pizza",
+      "category": "pizza_speciale",
+      "price": 16,
+      "description": "Tomate, mozzarella, rúcula, tomates cherry, jamón serrano y queso parmesano. La pizza estrella del restaurante.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": true,
+      "proactiveRecommend": true,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "estate",
+        "pizza verano",
+        "jamón serrano pizza",
+        "la mejor pizza",
+        "recomendada",
+        "favorita",
+        "especial",
+        "summer pizza"
+      ]
+    },
+    {
+      "id": "pizza_ludy",
+      "displayName": "Ludy",
+      "category": "pizza_speciale",
+      "price": 14.5,
+      "description": "Tomate seco, provola affumicata (queso ahumado), tomates cherry amarillos y albahaca.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "ludy",
+        "provola ahumada",
+        "tomate seco pizza",
+        "cherry amarillo pizza"
+      ]
+    },
+    {
+      "id": "pizza_bb",
+      "displayName": "B&B",
+      "category": "pizza_speciale",
+      "price": 16,
+      "description": "Tomate, burratina, crema de berenjena ahumada, rúcula y tomates cherry.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "modifierNote": "Ya incluye burratina. Añadir mod_burratina sería duplicado — agente debe advertir.",
+      "nlpKeywords": [
+        "b&b",
+        "burratina berenjena",
+        "berenjena ahumada pizza"
+      ]
+    },
+    {
+      "id": "pizza_totta",
+      "displayName": "Totta",
+      "category": "pizza_speciale",
+      "price": 14.5,
+      "description": "Mozzarella, gorgonzola, berenjena frita y miel.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy",
+        "gluten_free_available"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [
+        "pizza_base_swap",
+        "pizza_premium_topping",
+        "pizza_standard_topping"
+      ],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "totta",
+        "gorgonzola miel",
+        "berenjena frita pizza",
+        "miel pizza"
+      ]
+    },
+    {
+      "id": "pizza_fritta",
+      "displayName": "Pizza Fritta",
+      "displayNameEN": "Fried Pizza",
+      "category": "pizza_speciale",
+      "price": 15,
+      "description": "Pizza frita napolitana: tomate, mozzarella, ricotta y salchichón picante.",
+      "dietaryTags": [
+        "spicy",
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "egg"
+      ],
+      "traceAllergens": [
+        "sulphites"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "modifierNote": "Pizza frita — no admite base sin gluten. El proceso de fritura implica contaminación cruzada.",
+      "nlpKeywords": [
+        "pizza fritta",
+        "pizza frita",
+        "fried pizza",
+        "napolitana frita"
+      ]
+    },
+    {
+      "id": "pizza_mateo",
+      "displayName": "Pizza de Mateo",
+      "category": "pizza_speciale",
+      "price": 13,
+      "description": "Patatas al horno, provola affumicata, gorgonzola y alcachofas.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [
+        "celery"
+      ],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "modifierNote": "Pizza de autor — sin modificadores estándar.",
+      "nlpKeywords": [
+        "pizza mateo",
+        "provola alcachofa",
+        "gorgonzola patatas pizza"
+      ]
+    },
+    {
+      "id": "pizza_ripiena_italia",
+      "displayName": "Italia",
+      "displayNameEN": "Italy Stuffed Pizza",
+      "category": "pizza_ripiena",
+      "price": 20,
+      "description": "Pizza ripiena (rellena) con rúcula, pomodoro seco y stracciatella.",
+      "dietaryTags": [
+        "vegetarian",
+        "contains_gluten",
+        "contains_dairy"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "modifierNote": "Pizza ripiena artesanal — no admite modificadores. Precio fijo.",
+      "nlpKeywords": [
+        "pizza ripiena",
+        "pizza rellena",
+        "italia pizza",
+        "stracciatella pizza",
+        "stuffed pizza"
+      ]
+    },
+    {
+      "id": "pizza_ripiena_isaac",
+      "displayName": "Isaac",
+      "displayNameEN": "Isaac Stuffed Pizza",
+      "category": "pizza_ripiena",
+      "price": 16,
+      "description": "Pizza ripiena con mortadella, burrata y pesto.",
+      "dietaryTags": [
+        "contains_gluten",
+        "contains_dairy",
+        "contains_nuts"
+      ],
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "modifierNote": "Pizza ripiena artesanal — no admite modificadores. Precio fijo. Ya incluye burrata — advertir si cliente solicita mod_burratina.",
+      "nlpKeywords": [
+        "isaac",
+        "mortadella burrata",
+        "pizza rellena mortadella"
+      ]
+    }
+  ],
+  "priceRanges": {
+    "starters": {
+      "min": 6.5,
+      "max": 25,
+      "avg": 13
+    },
+    "salads": {
+      "min": 9.5,
+      "max": 13,
+      "avg": 11.13
+    },
+    "pasta_risotto": {
+      "min": 10,
+      "max": 15,
+      "avg": 12
+    },
+    "mains_meat": {
+      "min": 11,
+      "max": 15,
+      "avg": 13
+    },
+    "pizza_rossa": {
+      "min": 9.5,
+      "max": 14,
+      "avg": 11.34
+    },
+    "pizza_bianca": {
+      "min": 6,
+      "max": 14.5,
+      "avg": 10.9
+    },
+    "pizza_speciale": {
+      "min": 13,
+      "max": 16,
+      "avg": 14.56
+    },
+    "pizza_ripiena": {
+      "min": 16,
+      "max": 20,
+      "avg": 18
+    },
+    "desserts": {
+      "min": null,
+      "max": null,
+      "avg": null
+    },
+    "beverages": {
+      "min": null,
+      "max": null,
+      "avg": null
+    }
+  },
+  "intentCategoryMap": {
+    "quiero_picar": {
+      "categories": [
+        "starters"
+      ],
+      "suggestedItemIds": [
+        "antipasto_italiano",
+        "suppli_di_riso",
+        "mini_calzoni_fritti"
+      ],
+      "agentResponse": "Para picar tenemos una selección de entrantes italianos. El Antipasto Italiano es perfecto para compartir a 25€, o los Suppli di Riso a 6,50€ si quieren algo más ligero."
+    },
+    "pizza_clasica": {
+      "categories": [
+        "pizza_rossa"
+      ],
+      "suggestedItemIds": [
+        "pizza_margherita",
+        "pizza_prosciutto_funghi",
+        "pizza_quattro_formaggi"
+      ],
+      "agentResponse": "Para una pizza clásica les recomendaría la Margherita desde 9,50€, la Prosciutto & Funghi a 11€, o la Quattro Formaggi a 11,50€."
+    },
+    "pizza_especial": {
+      "categories": [
+        "pizza_speciale"
+      ],
+      "suggestedItemIds": [
+        "pizza_estate",
+        "pizza_bb",
+        "pizza_abruzzo"
+      ],
+      "agentResponse": "Nuestra pizza estrella es la Estate a 16€: rúcula, tomates cherry, jamón serrano y parmesano. También está la B&B con burratina y crema de berenjena ahumada."
+    },
+    "sin_gluten": {
+      "categories": [
+        "pizza_rossa",
+        "pizza_bianca",
+        "pizza_speciale"
+      ],
+      "suggestedItemIds": [
+        "pizza_margherita",
+        "pizza_estate",
+        "pizza_vegetariana"
+      ],
+      "agentResponse": "Podemos hacer cualquier pizza de la carta con base sin gluten por un suplemento de 4,50€. Ten en cuenta que el horno es compartido, así que puede haber trazas de gluten."
+    },
+    "vegetariano": {
+      "categories": [
+        "pizza_rossa",
+        "pizza_bianca",
+        "pizza_speciale",
+        "salads",
+        "pasta_risotto",
+        "starters"
+      ],
+      "suggestedItemIds": [
+        "pizza_margherita",
+        "pizza_vegetariana",
+        "pizza_estate",
+        "trofie_al_pesto",
+        "caprese_bufala"
+      ],
+      "agentResponse": "Tenemos muchas opciones vegetarianas: pizzas como la Margherita, Vegetariana o la Estate, ensaladas como la Caprese con Búfala, y pasta como las Trofie al Pesto."
+    },
+    "pasta_risotto": {
+      "categories": [
+        "pasta_risotto"
+      ],
+      "suggestedItemIds": [
+        "spaghetti_carbonara",
+        "spaghetti_bolognese",
+        "ravioli_ricotta_spinaci"
+      ],
+      "agentResponse": "En pasta tenemos desde clásicos como la Carbonara o la Boloñesa hasta opciones más elaboradas como los Ravioli de Ricotta y Espinacas o el Risotto ai Frutti di Mare."
+    },
+    "para_ninos": {
+      "categories": [
+        "pizza_rossa",
+        "mains_meat"
+      ],
+      "suggestedItemIds": [
+        "pizza_margherita",
+        "pizza_hawaiiana",
+        "milanesa_pollo",
+        "burger_casero"
+      ],
+      "agentResponse": "Para los más pequeños, la Margherita y la Hawaiiana son siempre un éxito, o la Milanesa de Pollo con patatas a 11,50€."
+    },
+    "picante": {
+      "categories": [
+        "pizza_rossa",
+        "pizza_speciale"
+      ],
+      "suggestedItemIds": [
+        "pizza_diavola",
+        "pizza_de_cris",
+        "pizza_fritta"
+      ],
+      "agentResponse": "Para los que les gusta el picante: la Diavola con salchichón picante a 11€, o la Pizza de Cris con gorgonzola y salchicón a 14€."
+    },
+    "mariscos": {
+      "categories": [
+        "pasta_risotto",
+        "pizza_speciale",
+        "pizza_rossa"
+      ],
+      "suggestedItemIds": [
+        "spaghetti_frutti_di_mare",
+        "risotto_frutti_di_mare",
+        "pizza_abruzzo"
+      ],
+      "agentResponse": "Para amantes del marisco: los Spaghetti ai Frutti di Mare a 14€, el Risotto ai Frutti di Mare a 14€, o la Pizza Abruzzo con langostinos a 15€."
+    },
+    "recomienda": {
+      "categories": [
+        "pizza_speciale",
+        "starters",
+        "pasta_risotto"
+      ],
+      "suggestedItemIds": [
+        "pizza_estate",
+        "antipasto_italiano",
+        "spaghetti_carbonara"
+      ],
+      "agentResponse": "Nuestra recomendación: empezar con el Antipasto Italiano para compartir, la pizza Estate como plato principal — es la favorita de nuestros clientes — y la Carbonara si prefieren pasta."
+    }
+  }
+}

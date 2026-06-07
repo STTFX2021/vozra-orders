@@ -45,7 +45,7 @@ const path = require("path");
 let _allergyTax = null;
 function loadAllergyTaxonomy() {
   if (!_allergyTax) {
-    const p = path.join(__dirname, "..", "data", "taxonomies", "allergy-taxonomy.v1.json");
+    const p = path.join(__dirname, "data", "taxonomies", "allergy-taxonomy.v1.json");
     _allergyTax = JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, ""));
   }
   return _allergyTax;

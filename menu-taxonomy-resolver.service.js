@@ -7,7 +7,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const TAXONOMY_DIR = path.join(__dirname, "..", "data", "taxonomies");
+const TAXONOMY_DIR = path.join(__dirname, "data", "taxonomies");
 const MENU_PATH    = path.join(TAXONOMY_DIR, "menu-taxonomy.v1.json");
 const MODS_PATH    = path.join(TAXONOMY_DIR, "modifiers-taxonomy.v1.json");
 

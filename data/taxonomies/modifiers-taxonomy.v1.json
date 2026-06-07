@@ -1,0 +1,312 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-05-30",
+  "restaurantId": "la_locanda_cancelada",
+  "modifierGroups": [
+    "pizza_base_swap",
+    "pizza_premium_topping",
+    "pizza_standard_topping",
+    "meat_side_choice",
+    "meat_pasta_upgrade"
+  ],
+  "modifiers": [
+    {
+      "id": "mod_sin_gluten",
+      "group": "pizza_base_swap",
+      "displayName": "Base sin gluten",
+      "displayNameEN": "Gluten-Free Base",
+      "price": 4.50,
+      "priceType": "substitution",
+      "description": "Sustitución de la masa estándar por masa certificada sin gluten. IMPORTANTE: el horno es compartido — trazas posibles. No apto para celiaquía severa sin confirmación del equipo.",
+      "addedAllergens": [],
+      "duplicateRiskItemIds": [],
+      "isAvailable": true,
+      "nlpKeywords": ["sin gluten", "gluten free", "sin trigo", "celiaco", "celiaca", "celíaco", "celíaca", "intolerante gluten", "GF", "base sin gluten"]
+    },
+    {
+      "id": "mod_burratina",
+      "group": "pizza_premium_topping",
+      "displayName": "Burratina",
+      "price": 6.00,
+      "priceType": "additive",
+      "description": "Burrata entera sobre la pizza al sacar del horno.",
+      "addedAllergens": ["dairy"],
+      "duplicateRiskItemIds": ["pizza_bb", "pizza_ripiena_isaac"],
+      "isAvailable": true,
+      "nlpKeywords": ["burrata", "burratina", "añadir burrata", "con burrata"]
+    },
+    {
+      "id": "mod_jamon_parma_serrano",
+      "group": "pizza_premium_topping",
+      "displayName": "Jamón de Parma o Serrano",
+      "displayNameEN": "Parma Ham or Iberian Ham",
+      "price": 2.50,
+      "priceType": "additive",
+      "description": "Finas lonchas de jamón curado de alta calidad añadidas tras el horneado.",
+      "addedAllergens": [],
+      "duplicateRiskItemIds": ["pizza_estate"],
+      "isAvailable": true,
+      "nlpKeywords": ["jamón parma", "jamón serrano", "prosciutto", "ibérico", "parma ham", "serrano ham", "jamón curado"]
+    },
+    {
+      "id": "mod_gambas",
+      "group": "pizza_premium_topping",
+      "displayName": "Gambas",
+      "displayNameEN": "Prawns",
+      "price": 2.50,
+      "priceType": "additive",
+      "description": "Gambas salteadas añadidas a la pizza.",
+      "addedAllergens": ["shellfish"],
+      "duplicateRiskItemIds": ["pizza_abruzzo", "pizza_marcelo"],
+      "isAvailable": true,
+      "nlpKeywords": ["gambas", "prawns", "shrimp", "añadir gambas", "marisco pizza", "con gambas"]
+    },
+    {
+      "id": "mod_bufala",
+      "group": "pizza_premium_topping",
+      "displayName": "Mozzarella de búfala",
+      "displayNameEN": "Buffalo Mozzarella",
+      "price": 3.50,
+      "priceType": "additive",
+      "description": "Mozzarella de búfala DOP en lugar de (o además de) la mozzarella estándar.",
+      "addedAllergens": ["dairy"],
+      "duplicateRiskItemIds": ["pizza_bufala", "caprese_bufala"],
+      "isAvailable": true,
+      "nlpKeywords": ["búfala", "bufala", "mozzarella búfala", "buffalo", "DOP", "con búfala"]
+    },
+    {
+      "id": "mod_bresaola",
+      "group": "pizza_premium_topping",
+      "displayName": "Bresaola",
+      "price": 2.50,
+      "priceType": "additive",
+      "description": "Lonchas de bresaola (cecina de ternera curada italiana) añadidas tras el horneado.",
+      "addedAllergens": [],
+      "duplicateRiskItemIds": [],
+      "isAvailable": true,
+      "nlpKeywords": ["bresaola", "cecina", "ternera curada pizza", "con bresaola"]
+    },
+    {
+      "id": "mod_atun",
+      "group": "pizza_standard_topping",
+      "displayName": "Atún",
+      "displayNameEN": "Tuna",
+      "price": 1.50,
+      "priceType": "additive",
+      "description": "Atún en conserva de calidad añadido a la pizza.",
+      "addedAllergens": ["fish"],
+      "duplicateRiskItemIds": ["pizza_tonno_cipolle"],
+      "isAvailable": true,
+      "nlpKeywords": ["atún", "tuna", "añadir atún", "con atún"]
+    },
+    {
+      "id": "mod_ingrediente_extra",
+      "group": "pizza_standard_topping",
+      "displayName": "Ingrediente extra",
+      "displayNameEN": "Extra ingredient",
+      "price": 1.50,
+      "priceType": "additive",
+      "description": "Ingrediente adicional estándar: aceitunas, cebolla, pimiento, champiñones, alcachofas, anchoas, etc. Confirmar qué ingrediente específico.",
+      "addedAllergens": [],
+      "duplicateRiskItemIds": [],
+      "isAvailable": true,
+      "nlpKeywords": ["extra", "añadir", "más ingrediente", "add topping", "ingrediente adicional", "con más", "ponle", "añádele"]
+    },
+    {
+      "id": "mod_ensalada_side",
+      "group": "meat_side_choice",
+      "displayName": "Ensalada",
+      "displayNameEN": "Side Salad",
+      "price": 0,
+      "priceType": "substitution",
+      "description": "Ensalada mixta como acompañamiento (incluido en el precio del plato).",
+      "addedAllergens": [],
+      "duplicateRiskItemIds": [],
+      "isAvailable": true,
+      "nlpKeywords": ["con ensalada", "ensalada", "salad side", "de acompañamiento ensalada"]
+    },
+    {
+      "id": "mod_patatas_fritas_side",
+      "group": "meat_side_choice",
+      "displayName": "Patatas fritas",
+      "displayNameEN": "French Fries",
+      "price": 0,
+      "priceType": "substitution",
+      "description": "Patatas fritas como acompañamiento (incluido en el precio del plato).",
+      "addedAllergens": ["gluten"],
+      "duplicateRiskItemIds": [],
+      "isAvailable": true,
+      "nlpKeywords": ["con patatas", "patatas fritas", "french fries", "chips", "de acompañamiento patatas"]
+    }
+  ],
+  "modifierRules": [
+    {
+      "modifierId": "mod_sin_gluten",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_fritta", "mini_calzoni_fritti", "pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "La base sin gluten tiene un suplemento de 4,50€. ¿Lo añado?"
+    },
+    {
+      "modifierId": "mod_burratina",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "La burratina tiene un suplemento de 6€. ¿La añado?"
+    },
+    {
+      "modifierId": "mod_jamon_parma_serrano",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "El jamón de Parma/Serrano tiene un suplemento de 2,50€. ¿Lo añado?"
+    },
+    {
+      "modifierId": "mod_gambas",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "Las gambas tienen un suplemento de 2,50€. ¿Las añado?"
+    },
+    {
+      "modifierId": "mod_bufala",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_bufala", "pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "La mozzarella de búfala tiene un suplemento de 3,50€. ¿La añado?"
+    },
+    {
+      "modifierId": "mod_bresaola",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "La bresaola tiene un suplemento de 2,50€. ¿La añado?"
+    },
+    {
+      "modifierId": "mod_atun",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_tonno_cipolle", "pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 1,
+      "requiresConfirmation": true,
+      "confirmationMessage": "El atún tiene un suplemento de 1,50€. ¿Lo añado?"
+    },
+    {
+      "modifierId": "mod_ingrediente_extra",
+      "appliesTo": ["pizza_rossa", "pizza_bianca", "pizza_speciale"],
+      "excludes": ["pizza_de_cris", "pizza_de_fili", "pizza_adam", "pizza_nonna", "pizza_mateo", "pizza_marcelo", "pizza_ripiena_italia", "pizza_ripiena_isaac", "pizza_fritta"],
+      "maxPerItem": 5,
+      "requiresConfirmation": true,
+      "confirmationMessage": "Cada ingrediente extra tiene un suplemento de 1,50€. ¿Lo añado?"
+    },
+    {
+      "modifierId": "mod_ensalada_side",
+      "appliesTo": ["burger_casero", "milanesa_pollo", "milanesa_ternera"],
+      "excludes": [],
+      "maxPerItem": 1,
+      "requiresConfirmation": false,
+      "confirmationMessage": null
+    },
+    {
+      "modifierId": "mod_patatas_fritas_side",
+      "appliesTo": ["burger_casero", "milanesa_pollo", "milanesa_ternera"],
+      "excludes": [],
+      "maxPerItem": 1,
+      "requiresConfirmation": false,
+      "confirmationMessage": null
+    }
+  ],
+  "upsellRules": [
+    {
+      "triggerItemId": "pizza_margherita",
+      "suggestModifierIds": ["mod_burratina", "mod_jamon_parma_serrano"],
+      "suggestItemIds": [],
+      "upsellMessage": "¿Le gustaría añadir una burratina por 6€ más, o jamón serrano por 2,50€?",
+      "maxUpsellAttempts": 1
+    },
+    {
+      "triggerItemId": "pizza_quattro_formaggi",
+      "suggestModifierIds": ["mod_jamon_parma_serrano"],
+      "suggestItemIds": [],
+      "upsellMessage": "¿Quiere acompañarla con jamón de Parma por 2,50€?",
+      "maxUpsellAttempts": 1
+    },
+    {
+      "triggerItemId": "milanesa_pollo",
+      "suggestModifierIds": [],
+      "suggestItemIds": ["milanesa_pollo_spaghetti"],
+      "upsellMessage": "¿Prefiere la versión con spaghetti incluidos a 13€ en lugar de a 11,50€?",
+      "maxUpsellAttempts": 1
+    },
+    {
+      "triggerItemId": "milanesa_ternera",
+      "suggestModifierIds": [],
+      "suggestItemIds": ["milanesa_ternera_spaghetti"],
+      "upsellMessage": "¿Le apetece la versión con espaguetis por 15€?",
+      "maxUpsellAttempts": 1
+    }
+  ],
+  "nlpPatterns": {
+    "add": [
+      "añádele {ingrediente}",
+      "ponle {ingrediente}",
+      "con {ingrediente}",
+      "más {ingrediente}",
+      "también quiero {ingrediente}",
+      "y {ingrediente}",
+      "añade {ingrediente}",
+      "pon {ingrediente}"
+    ],
+    "remove": [
+      "sin {ingrediente}",
+      "quítame el {ingrediente}",
+      "quítame la {ingrediente}",
+      "no le pongas {ingrediente}",
+      "sin {ingrediente} por favor",
+      "retira el {ingrediente}",
+      "retira la {ingrediente}",
+      "nada de {ingrediente}",
+      "quitar {ingrediente}",
+      "sin nada de {ingrediente}"
+    ],
+    "extra": [
+      "con extra de {ingrediente}",
+      "con extra {ingrediente}",
+      "extra de {ingrediente}",
+      "ponle más {ingrediente}",
+      "un poco más de {ingrediente}"
+    ],
+    "double": [
+      "doble {ingrediente}",
+      "con doble {ingrediente}",
+      "doble de {ingrediente}",
+      "el doble de {ingrediente}",
+      "dos veces {ingrediente}"
+    ],
+    "change_size": [
+      "mejor {tamaño}",
+      "cámbiala a {tamaño}",
+      "la quiero {tamaño}",
+      "ponla {tamaño}",
+      "de {tamaño_anterior} a {tamaño_nuevo}",
+      "cámbiame la {tamaño} por {tamaño_nuevo}"
+    ],
+    "change_product": [
+      "mejor la {producto}",
+      "en vez de {producto_anterior} ponme {producto_nuevo}",
+      "cámbiame la {producto_anterior} por {producto_nuevo}",
+      "prefiero la {producto}",
+      "mejor {producto}"
+    ],
+    "note": [
+      "que {instruccion_libre}",
+      "por favor {instruccion_libre}",
+      "{instruccion_libre} para cocina"
+    ]
+  }
+}
