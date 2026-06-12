@@ -257,10 +257,48 @@ router.get("/health", (req, res) => {
   res.json({
     ok:        true,
     service:   "vozra-orders-elevenlabs",
-    version:   "1.0.0",
+    version:   "1.0.1",
     restaurant: meta.restaurantName,
     timestamp: new Date().toISOString()
   });
+});
+
+// ─── DEBUG: prueba de Telegram ────────────────────────────────────────────────
+// GET /debug/telegram  (protegido con el mismo Bearer)
+// Intenta enviar un mensaje real al grupo de cocina y devuelve el error exacto
+// de la API de Telegram. NO expone el token (solo el bot id público).
+router.get("/debug/telegram", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  const { getActiveChannels } = require("./provider-profile.config.js");
+  const { sendTelegram }      = require("./dispatch-adapter.service.js");
+
+  const tg  = getActiveChannels("la-locanda").find(c => c.type === "telegram");
+  const cfg = (tg && tg.config) || {};
+  const token = cfg.botToken || "";
+  const info = {
+    hasBotToken:    !!token,
+    botId:          token ? String(token).split(":")[0] : null,   // id público del bot
+    hasChatId:      !!cfg.chatId,
+    chatId:         cfg.chatId || null,                            // los chat id de grupo no son secretos
+    chatIdNegative: cfg.chatId ? String(cfg.chatId).trim().startsWith("-") : null,
+    usedVar: {
+      botTokenLaLocanda: !!process.env.TELEGRAM_BOT_TOKEN_LA_LOCANDA,
+      botTokenGeneric:   !!process.env.TELEGRAM_BOT_TOKEN,
+      chatIdLaLocanda:   !!process.env.TELEGRAM_CHAT_ID_LA_LOCANDA,
+      chatIdGeneric:     !!process.env.TELEGRAM_CHAT_ID
+    }
+  };
+
+  try {
+    const r = await sendTelegram(cfg, "🔧 Vozra → cocina: mensaje de DIAGNÓSTICO. Si lo ves, la conexión funciona.");
+    let parsed = null;
+    try { parsed = r && r.raw && r.raw.body ? JSON.parse(r.raw.body) : null; } catch (_) {}
+    return res.json({ ok: true, info, telegram: parsed || r });
+  } catch (e) {
+    return res.json({ ok: false, info, error: e.message });
+  }
 });
 
 module.exports = router;
