@@ -19,6 +19,7 @@
 
 const express  = require("express");
 const { processTurn, buildKitchenTicket } = require("./order-slot-filler.service.js");
+const { generateMartaReply } = require("./marta-llm.service.js");
 const { getOrCreateOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
 const { validateOrder }   = require("./order-validator.service.js");
 const { buildTicket }     = require("./kitchen-ticket-builder.service.js");
@@ -174,25 +175,34 @@ router.post("/v1/chat/completions", async (req, res) => {
 
   console.log(`[EL] turn | callId=${callId} | user="${userText.slice(0, 60)}"`);
 
-  try {
-    // ── TURNO 0: Saludo inicial ────────────────────────────────────────────
-    // ElevenLabs puede enviar una primera llamada sin mensaje de usuario
-    // (solo mensajes de sistema). En ese caso saludamos.
-    if (!userText.trim()) {
-      return sendStreamResponse(
-        res,
-        "¡Hola! La Locanda de Cancelada, soy Marta. ¿Qué te pongo?",
-        id, model
-      );
-    }
+  // ── TURNO 0: Saludo inicial ──────────────────────────────────────────────
+  // ElevenLabs puede enviar una primera llamada sin mensaje de usuario
+  // (solo mensajes de sistema). En ese caso saludamos sin gastar LLM.
+  if (!userText.trim()) {
+    return sendStreamResponse(
+      res,
+      "¡Hola! La Locanda de Cancelada, soy Marta. ¿Qué te apetece hoy?",
+      id, model
+    );
+  }
 
-    // ── PROCESAR TURNO ────────────────────────────────────────────────────
+  // ── CEREBRO LLM (OpenAI) ─────────────────────────────────────────────────
+  // Marta entiende lenguaje natural vía gpt-4o-mini y, al confirmar el cliente,
+  // dispara el pedido a cocina dentro de generateMartaReply.
+  try {
+    const { reply, dispatched, action } = await generateMartaReply(callId, body.messages || []);
+    console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(reply).slice(0,60)}"`);
+    return sendStreamResponse(res, reply, id, model);
+  } catch (errLLM) {
+    console.error(`[EL] LLM brain falló, fallback a reglas | callId=${callId}:`, errLLM.message);
+  }
+
+  // ── FALLBACK: parser por reglas (si OpenAI no responde) ───────────────────
+  try {
     const { order, response, action } = processTurn(callId, userText);
 
     console.log(`[EL] action=${action} | status=${order.status} | response="${response.slice(0,60)}"`);
 
-    // ── POST-CONFIRMACIÓN ASÍNCRONA ───────────────────────────────────────
-    // Si el cliente confirmó el pedido, disparar dispatch sin bloquear
     if (action === "customer_confirmed") {
       setImmediate(() => handlePostConfirmation(order, callId));
     }
