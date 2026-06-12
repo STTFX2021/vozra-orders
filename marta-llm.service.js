@@ -4,19 +4,10 @@
  * VOZRA ORDERS — Marta LLM Brain (OpenAI)
  * Fase 8: Sustituye el slot-filler por reglas por un LLM real (gpt-4o-mini).
  *
- * Responsabilidad:
- *   - Recibe el historial de la conversación (formato OpenAI) que envía ElevenLabs.
- *   - Construye un system prompt con la persona de Marta + el menú real.
- *   - Llama a OpenAI Chat Completions con la herramienta `submit_order`.
- *   - Si el cliente confirma → el modelo llama a submit_order → mapeamos el pedido
- *     a la sesión, validamos y disparamos a cocina (Telegram), reutilizando los
- *     servicios existentes (order-validator, kitchen-ticket-builder, dispatch-adapter).
- *   - Devuelve el texto de Marta para que el endpoint lo envíe por SSE a ElevenLabs.
- *
- * Diseño:
- *   - Sin estado de conversación propio: el historial lo aporta ElevenLabs.
- *   - La sesión del pedido solo se usa en el momento del dispatch.
- *   - Si OpenAI falla o no hay API key → el llamador hace fallback al brain antiguo.
+ * Recibe el historial (formato OpenAI) que envía ElevenLabs, construye un system
+ * prompt con la persona de Marta + el menú real, llama a OpenAI con la herramienta
+ * submit_order y, al confirmar el cliente, arma el pedido y lo dispara a cocina
+ * reutilizando order-validator, kitchen-ticket-builder y dispatch-adapter.
  */
 
 const fs    = require("fs");
@@ -50,10 +41,6 @@ const CATEGORY_LABELS = {
   pizza_ripiena:  "PIZZAS RELLENAS"
 };
 
-/**
- * Genera el texto del menú para el system prompt, agrupado por categoría.
- * Incluye id (para que el modelo lo pase exacto), nombre y precio.
- */
 function buildMenuText() {
   const menu = loadMenu();
   const byCat = {};
@@ -61,17 +48,16 @@ function buildMenuText() {
     if (it.isAvailable === false) continue;
     (byCat[it.category] = byCat[it.category] || []).push(it);
   }
-  const order = Object.keys(CATEGORY_LABELS);
   const lines = [];
-  for (const cat of order) {
+  for (const cat of Object.keys(CATEGORY_LABELS)) {
     const items = byCat[cat];
     if (!items || !items.length) continue;
-    lines.push(`\n## ${CATEGORY_LABELS[cat] || cat}`);
+    lines.push("\n## " + (CATEGORY_LABELS[cat] || cat));
     items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
     for (const it of items) {
-      const price = it.price != null ? `${it.price}€` : "s/p";
-      const desc  = it.description ? ` — ${String(it.description).slice(0, 80)}` : "";
-      lines.push(`- ${it.displayName} (id:${it.id}) · ${price}${desc}`);
+      const price = it.price != null ? it.price + "€" : "s/p";
+      const desc  = it.description ? " — " + String(it.description).slice(0, 80) : "";
+      lines.push("- " + it.displayName + " (id:" + it.id + ") · " + price + desc);
     }
   }
   return lines.join("\n");
@@ -86,14 +72,12 @@ function getMenuItemByName(name) {
   if (!name) return null;
   const norm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   const n = norm(name);
+  if (!n) return null;
   const menu = loadMenu();
-  // exacto por displayName
   let hit = menu.items.find(i => norm(i.displayName) === n);
   if (hit) return hit;
-  // por keyword
   hit = menu.items.find(i => (i.nlpKeywords || []).some(kw => norm(kw) === n));
   if (hit) return hit;
-  // contiene
   hit = menu.items.find(i => norm(i.displayName).includes(n) || n.includes(norm(i.displayName)));
   return hit || null;
 }
@@ -103,26 +87,35 @@ function getMenuItemByName(name) {
 function buildSystemPrompt() {
   const menu = loadMenu();
   const restaurant = menu.restaurantName || "La Locanda de Cancelada";
-  return `Eres Marta, la teleoperadora de pedidos de ${restaurant}, un restaurante italiano en Cancelada (Málaga, España). Hablas español de España, con trato cercano, natural y profesional, como una camarera veterana. Respuestas BREVES y habladas (esto se convierte en voz): frases cortas, sin listas ni markdown, sin emojis.
-
-TU OBJETIVO: tomar el pedido completo, correcto y confirmado, y enviarlo a cocina.
-
-REGLAS DE LA CONVERSACIÓN:
-1. Saluda solo si es el primer turno. No repitas el saludo.
-2. Deja que el cliente pida con naturalidad. Puede pedir VARIOS platos a la vez: apúntalos TODOS. Si menciona alternativas ("una caprese, y si no una diábolo"), pregunta cuál quiere; no inventes.
-3. Usa SOLO platos de la carta de abajo. Si piden algo que no existe, dilo y ofrece lo más parecido.
-4. Si un plato admite cambios (sin un ingrediente, extra de algo), apúntalo.
-5. Pregunta si es para RECOGER o a DOMICILIO. Si es a domicilio, pide la dirección completa con número.
-6. Pide el NOMBRE y un TELÉFONO de contacto.
-7. ALERGIAS: si el cliente menciona alergia o intolerancia, anótala y avisa de que cocina lo revisará; no garantices ausencia de trazas.
-8. Antes de enviar, HAZ UN RESUMEN del pedido (productos, cantidades, total aproximado sumando los precios de la carta) y pregunta "¿Te lo confirmo así?".
-9. SOLO cuando el cliente confirme expresamente, llama a la función submit_order con todos los datos. No la llames antes de tener: al menos un producto, tipo de pedido, nombre, teléfono (y dirección si es domicilio), y la confirmación del cliente.
-10. Si el cliente dice que algo está mal, corrige y vuelve a resumir.
-
-Tras enviar el pedido, despídete con amabilidad.
-
-CARTA DE ${restaurant.toUpperCase()} (usa el id exacto al llamar a submit_order):
-${buildMenuText()}`;
+  return [
+"Eres Marta, la voz de " + restaurant + ", una pizzería italiana en Cancelada (Málaga). Coges el teléfono para tomar pedidos. Hablas español de España, tuteando, cercana y con chispa, como una camarera de toda la vida: simpática, resuelta y con salero, pero sin pasarte.",
+"",
+"ESTO ES UNA LLAMADA DE VOZ. Habla como se habla, no como se escribe:",
+"- Frases CORTAS y naturales. Una o dos por turno, no sueltes parrafadas.",
+"- Nada de listas, ni markdown, ni emojis, ni leer la carta entera de carrerilla.",
+"- Suena humana: usa con naturalidad cosas como \"vale\", \"genial\", \"estupendo\", \"marchando\", \"perfecto\", \"venga\". Sin abusar.",
+"- NO repitas el pedido entero como un robot en cada turno. Reacciona breve y sigue.",
+"- NO machaques con \"¿algo más?\" en cada frase. Pregúntalo como mucho una vez, cuando toque.",
+"- Si no entiendes algo (es voz, puede oírse mal), pide que te lo repita con naturalidad.",
+"",
+"COMO LLEVAR EL PEDIDO (con soltura, sin guion rígido):",
+"- Si el cliente saluda o duda, pónselo fácil: \"Dime, ¿qué te pongo?\".",
+"- Apunta TODO lo que pida, aunque diga varias cosas de golpe. Si pide algo que no está en la carta, dilo con simpatía y ofrece lo más parecido.",
+"- Si da alternativas (\"una caprese o si no una diávola\"), pregunta cuál quiere; no elijas tú.",
+"- Apunta cambios (sin un ingrediente, extra de algo) sin darle vueltas.",
+"- En algún momento natural, entérate de si es para RECOGER o a DOMICILIO. Si es a domicilio, pide la dirección con número.",
+"- Pide nombre y teléfono juntos y una sola vez: \"¿A nombre de quién, y un teléfono de contacto?\".",
+"- Si menciona una alergia, anótala con tranquilidad y dile que en cocina lo tienen en cuenta; no prometas que no haya trazas.",
+"",
+"CERRAR EL PEDIDO:",
+"- Cuando lo tengas todo, haz un resumen CORTO y natural con el total aproximado (suma los precios de la carta). Ej: \"Vale, te marcho dos diávolas y una hawaiana sin piña, para recoger; unos treinta y cinco euros. ¿Te lo confirmo?\".",
+"- En cuanto diga que sí, llama a submit_order con todos los datos. No la llames antes de tener: algún producto, tipo de pedido, nombre, teléfono (y dirección si es a domicilio) y el sí del cliente.",
+"- Si te corrige, ajusta y remata rápido.",
+"- Tras enviarlo, despídete cortita y con cariño.",
+"",
+"CARTA DE " + restaurant.toUpperCase() + " (usa el id exacto al llamar a submit_order):",
+buildMenuText()
+  ].join("\n");
 }
 
 // ─── HERRAMIENTA submit_order ───────────────────────────────────────────────
@@ -179,7 +172,6 @@ const SUBMIT_ORDER_TOOL = {
 function callOpenAI(payload) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return Promise.reject(new Error("OPENAI_API_KEY no configurada"));
-
   const body = JSON.stringify(payload);
   const options = {
     hostname: "api.openai.com",
@@ -188,10 +180,9 @@ function callOpenAI(payload) {
     headers: {
       "Content-Type":   "application/json",
       "Content-Length": Buffer.byteLength(body),
-      "Authorization":  `Bearer ${apiKey}`
+      "Authorization":  "Bearer " + apiKey
     }
   };
-
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = "";
@@ -200,10 +191,8 @@ function callOpenAI(payload) {
         try {
           const json = JSON.parse(data);
           if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
-          else reject(new Error(`OpenAI HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
-        } catch (e) {
-          reject(new Error(`OpenAI parse error: ${e.message}`));
-        }
+          else reject(new Error("OpenAI HTTP " + res.statusCode + ": " + data.slice(0, 300)));
+        } catch (e) { reject(new Error("OpenAI parse error: " + e.message)); }
       });
     });
     req.on("error", reject);
@@ -215,15 +204,11 @@ function callOpenAI(payload) {
 
 // ─── MAPEO DEL PEDIDO + DISPATCH ────────────────────────────────────────────
 
-/**
- * Convierte un item de la herramienta en un item de pedido válido para el ticket.
- */
 function mapToolItem(toolItem) {
   const menuItem = getMenuItemById(toolItem.menu_item_id) || getMenuItemByName(toolItem.name);
   const modifiers = (toolItem.modifiers || [])
     .filter(m => m && m.value)
     .map(m => ({ type: m.type || "note", value: String(m.value), raw: String(m.value), confidence: 1 }));
-
   return {
     id:          menuItem ? menuItem.id : (toolItem.menu_item_id || null),
     displayName: menuItem ? menuItem.displayName : (toolItem.name || "Producto"),
@@ -238,16 +223,10 @@ function mapToolItem(toolItem) {
   };
 }
 
-/**
- * Procesa la llamada submit_order: rellena la sesión, valida y dispara a cocina.
- * Retorna { ok, order, reply, validation }.
- */
 async function handleSubmitOrder(callId, args) {
   getOrCreateOrderSession(callId);
-
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
   const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
-
   const patch = {
     items,
     orderType,
@@ -261,67 +240,40 @@ async function handleSubmitOrder(callId, args) {
   if (orderType === "delivery" && args.address) {
     patch.address = { street: null, number: null, floor: null, city: null, raw: args.address };
   }
-
   let order = updateOrderSession(callId, patch);
-
   let validation = {};
   try { validation = validateOrder(order); } catch (e) { validation = { ok: false, errors: [{ message: e.message }] }; }
-
   let dispatch;
-  try {
-    dispatch = await dispatchOrder(order, validation);
-  } catch (e) {
-    dispatch = { ok: false, error: e.message, order };
-  }
-
-  if (dispatch && dispatch.ok) {
-    try { startKitchenWatch(dispatch.order); } catch (_) {}
-  }
-
-  const name = args.customer_name ? `, ${String(args.customer_name).split(" ")[0]}` : "";
-  const totalTxt = validation && validation.estimatedTotal != null
-    ? ` El total son unos ${validation.estimatedTotal} euros.` : "";
-  const wayTxt = orderType === "delivery"
-    ? "Te lo llevamos a domicilio en cuanto esté listo."
-    : "Puedes pasar a recogerlo en cuanto esté listo.";
-
+  try { dispatch = await dispatchOrder(order, validation); }
+  catch (e) { dispatch = { ok: false, error: e.message, order }; }
+  if (dispatch && dispatch.ok) { try { startKitchenWatch(dispatch.order); } catch (_) {} }
+  const name = args.customer_name ? ", " + String(args.customer_name).split(" ")[0] : "";
+  const totalTxt = validation && validation.estimatedTotal != null ? " El total son unos " + validation.estimatedTotal + " euros." : "";
+  const wayTxt = orderType === "delivery" ? "Te lo llevamos a domicilio en cuanto esté listo." : "Puedes pasar a recogerlo en cuanto esté listo.";
   const reply = dispatch && dispatch.ok
-    ? `¡Perfecto${name}! Tu pedido queda confirmado y lo paso a cocina ahora mismo.${totalTxt} ${wayTxt} Si surge cualquier cosa te llamamos. ¡Gracias y hasta luego!`
-    : `He tomado tu pedido${name} y lo dejo registrado, pero ha habido un problemilla al enviarlo a cocina; lo revisamos enseguida. Si quieres, también puedes llamarnos directamente al local. ¡Gracias!`;
-
+    ? "¡Perfecto" + name + "! Tu pedido queda confirmado y lo paso a cocina ahora mismo." + totalTxt + " " + wayTxt + " Si surge cualquier cosa te llamamos. ¡Gracias y hasta luego!"
+    : "He tomado tu pedido" + name + " y lo dejo registrado, pero ha habido un problemilla al enviarlo a cocina; lo revisamos enseguida. Si quieres, también puedes llamarnos directamente al local. ¡Gracias!";
   return { ok: !!(dispatch && dispatch.ok), order: dispatch ? dispatch.order : order, reply, validation };
 }
 
 // ─── ENTRADA PRINCIPAL ──────────────────────────────────────────────────────
 
-/**
- * Genera la respuesta de Marta para un turno.
- * @param {string} callId
- * @param {Array}  incomingMessages  mensajes en formato OpenAI que envía ElevenLabs
- * @returns {Promise<{reply: string, dispatched: boolean, action: string}>}
- */
-async function generateMartaReply(callId, incomingMessages = []) {
-  // Mantener solo el diálogo real (descartar el system de ElevenLabs; usamos el nuestro)
+async function generateMartaReply(callId, incomingMessages) {
   const dialogue = (incomingMessages || [])
     .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
     .map(m => ({ role: m.role, content: String(m.content) }));
-
-  const messages = [{ role: "system", content: buildSystemPrompt() }, ...dialogue];
-
+  const messages = [{ role: "system", content: buildSystemPrompt() }].concat(dialogue);
   const payload = {
     model: "gpt-4o-mini",
-    temperature: 0.3,
-    max_tokens: 350,
+    temperature: 0.4,
+    max_tokens: 300,
     messages,
     tools: [SUBMIT_ORDER_TOOL],
     tool_choice: "auto"
   };
-
   const completion = await callOpenAI(payload);
   const choice = completion && completion.choices && completion.choices[0];
   const msg = choice ? choice.message : null;
-
-  // ¿El modelo decidió enviar el pedido?
   const toolCall = msg && msg.tool_calls && msg.tool_calls.find(tc => tc.function && tc.function.name === "submit_order");
   if (toolCall) {
     let args = {};
@@ -329,10 +281,7 @@ async function generateMartaReply(callId, incomingMessages = []) {
     const result = await handleSubmitOrder(callId, args);
     return { reply: result.reply, dispatched: result.ok, action: "customer_confirmed" };
   }
-
-  const reply = (msg && msg.content && msg.content.trim())
-    ? msg.content.trim()
-    : "Perdona, ¿me lo repites? No te he entendido bien.";
+  const reply = (msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.";
   return { reply, dispatched: false, action: "in_progress" };
 }
 
