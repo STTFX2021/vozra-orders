@@ -74,6 +74,19 @@ const COOKING_MAP = {
   "cortada": "cortada", "cortado": "cortada"
 };
 
+// Recorta colas de tipo-de-pedido / cortesía que se cuelan en el valor de un
+// modificador (ej. "queso para recoger" → "queso").
+function cleanModifierValue(value) {
+  return String(value)
+    // Cortar cuando empieza otro modificador encadenado con "y" ("queso y sin cebolla" → "queso")
+    .replace(/\s+y\s+(?:sin|con|extra|doble|m[aá]s|nada\s+de|qu[íi]tame|ponle|a[ñn][aá]dele?)\b.*$/i, "")
+    // Cortar colas de tipo-de-pedido / cortesía ("queso para recoger" → "queso")
+    .replace(/\b(?:para\s+recoger|para\s+llevar|para\s+recogida|a\s+domicilio|a\s+casa|de\s+reparto|por\s+favor|gracias)\b.*$/i, "")
+    .replace(/[,.;]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseModifiers(text) {
   const modifiers = [];
   const norm = normalizeText(text);
@@ -81,22 +94,22 @@ function parseModifiers(text) {
   for (const pattern of PATTERNS.remove) {
     const match = norm.match(pattern);
     if (match && match[1]) {
-      const value = match[1].trim().replace(/\s+/g, " ");
-      if (!SIZE_MAP[value]) modifiers.push({ type: "remove", value, raw: match[0].trim(), confidence: 0.9 });
+      const value = cleanModifierValue(match[1]);
+      if (value && !SIZE_MAP[value]) modifiers.push({ type: "remove", value, raw: match[0].trim(), confidence: 0.9 });
     }
   }
   for (const pattern of PATTERNS.extra) {
     const match = norm.match(pattern);
     if (match && match[1]) {
-      const value = match[1].trim().replace(/^de\s+/, "").trim();
-      if (!SIZE_MAP[value]) modifiers.push({ type: "extra", value, raw: match[0].trim(), confidence: 0.9 });
+      const value = cleanModifierValue(match[1].replace(/^de\s+/, ""));
+      if (value && !SIZE_MAP[value]) modifiers.push({ type: "extra", value, raw: match[0].trim(), confidence: 0.9 });
     }
   }
   for (const pattern of PATTERNS.double) {
     const match = norm.match(pattern);
     if (match && match[1]) {
-      const value = match[1].trim().replace(/^de\s+/, "").trim();
-      modifiers.push({ type: "double", value, raw: match[0].trim(), confidence: 0.9 });
+      const value = cleanModifierValue(match[1].replace(/^de\s+/, ""));
+      if (value) modifiers.push({ type: "double", value, raw: match[0].trim(), confidence: 0.9 });
     }
   }
   for (const pattern of PATTERNS.change_size) {
@@ -124,7 +137,7 @@ function parseModifiers(text) {
   const conPattern = /\bcon\s+(?!extra\b)(.+?)(?:,|$|\.| y )/i;
   const conMatch = norm.match(conPattern);
   if (conMatch && conMatch[1]) {
-    const value = conMatch[1].trim();
+    const value = cleanModifierValue(conMatch[1]);
     if (!SIZE_MAP[value] && !alreadyCaptured.has(conMatch[0].trim()) &&
         !Object.keys(COOKING_MAP).some(k => value.includes(k)) && value.length > 2) {
       modifiers.push({ type: "add", value, raw: conMatch[0].trim(), confidence: 0.7 });
@@ -163,7 +176,32 @@ function detectQuantity(text) {
 }
 
 function detectCancellation(text) {
-  return /\b(cancela|dejalo|d[eé]jalo|no quiero nada|olv[íi]dalo|nada|cancel)\b/.test(normalizeText(text));
+  const norm = normalizeText(text);
+  // "nada más" / "no más" significan "no más productos" (cierre), NO cancelar el pedido.
+  if (/\b(?:nada|no)\s+m[aá]s\b/.test(norm)) return false;
+  return /\b(cancela|cancelar|dejalo|d[eé]jalo|no quiero nada|olv[íi]dalo|an[uú]lalo|cancel)\b/.test(norm);
+}
+
+// Señal de "ya he terminado de pedir" → cerrar la toma de productos y avanzar.
+// NO es cancelar, NO es un nombre y NO es un modificador.
+function detectDoneAddingItems(text) {
+  const norm = normalizeText(text).trim();
+  // Frases de cierre explícitas
+  if (/\b(nada\s+m[aá]s|no\s+m[aá]s|eso\s+es\s+todo|eso\s+ser[ií]a\s+todo|ser[ií]a\s+todo|ya\s+est[aá]\b|ya\s+estar[ií]a|ya\s+est[aá]\s+todo|listo|con\s+eso\s+vale|con\s+eso\s+est[aá]\s+bien|as[ií]\s+est[aá]\s+bien|con\s+eso\s+ya|nada\s+mas\s+gracias|nada\s+m[aá]s\s+por\s+ahora)\b/.test(norm)) {
+    return true;
+  }
+  // Negación corta y aislada en el gate de "¿algo más?" ("no", "no gracias", "nop"...)
+  if (/^(no|no\s+gracias|no\s+nada|nop|que\s+va|ninguno|ninguna|ya|ya\s+esta|listo)\.?$/.test(norm)) {
+    return true;
+  }
+  return false;
+}
+
+// Cliente quiere SEGUIR pidiendo ("quiero más", "ponme otra") sin nombrar aún el
+// producto. Mantiene el pedido abierto; NO es un nombre.
+function detectWantsMore(text) {
+  const norm = normalizeText(text).trim();
+  return /\b(quiero\s+m[aá]s|quiero\s+otra|quiero\s+otro|ponme\s+(?:otra|otro|m[aá]s)|pon\s+(?:otra|otro)|dame\s+(?:otra|otro|m[aá]s)|a[ñn][aá]de(?:le|me)?\s+(?:otra|otro|m[aá]s)|otra\s+m[aá]s|una\s+m[aá]s|otro\s+m[aá]s|m[aá]s\s+cosas|s[ií]\s+quiero\s+m[aá]s|s[ií]\s+algo\s+m[aá]s)\b/.test(norm);
 }
 function detectConfirmation(text) {
   return /\b(s[íi]|correcto|eso es|perfecto|adelante|vale|ok|de acuerdo|exacto|genial|bien|as[íi] es)\b/.test(normalizeText(text));
@@ -179,4 +217,4 @@ function detectOrderType(text) {
 }
 
 module.exports = { parseModifiers, detectSize, detectQuantity, detectCancellation,
-  detectConfirmation, detectTransferRequest, detectOrderType, SIZE_MAP, COOKING_MAP };
+  detectDoneAddingItems, detectWantsMore, detectConfirmation, detectTransferRequest, detectOrderType, SIZE_MAP, COOKING_MAP };

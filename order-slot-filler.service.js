@@ -32,6 +32,8 @@ const {
   detectSize,
   detectQuantity,
   detectCancellation,
+  detectDoneAddingItems,
+  detectWantsMore,
   detectConfirmation,
   detectTransferRequest,
   detectOrderType
@@ -383,8 +385,15 @@ function processTurn(callId, text) {
     }
   }
 
+  // ── SEÑAL DE CIERRE DE PEDIDO ("ya está", "nada más", "con eso vale") ──────
+  // No es cancelar, no es un nombre ni un modificador: cerrar la toma de
+  // productos y avanzar a recogida de datos / confirmación.
+  const doneAdding = order.items.length > 0 && !order.customerName && detectDoneAddingItems(text);
+  // Cliente quiere seguir pidiendo ("quiero más", "ponme otra") sin nombrar producto.
+  const wantsMore = order.items.length > 0 && !order.customerName && detectWantsMore(text);
+
   // ── NOMBRE DEL CLIENTE ────────────────────────────────────────────────────
-  if (!order.customerName && order.items.length > 0) {
+  if (!order.customerName && order.items.length > 0 && !doneAdding && !wantsMore) {
     // Limpiar prefijos comunes antes de guardar el nombre
     let nameCandidate = text.trim()
       .replace(/^(?:me\s+llamo|soy|mi\s+nombre\s+es|me\s+llamas)\s+/i, "")
@@ -441,7 +450,7 @@ function processTurn(callId, text) {
   // ── MULTI-ITEM: dividir en " y " / " más " para capturar varios productos ──
   // "una margarita y una barbacoa" → procesar cada fragmento por separado
   const itemSeparators = /\s+(?:y|mas|más|también|tambien|y\s+también|y\s+tambien)\s+(?:una?|dos|tres|cuatro)\s/i;
-  if (itemSeparators.test(text) && !order.customerName) {
+  if (itemSeparators.test(text) && !order.customerName && !doneAdding) {
     // Dividir solo en el primer separador para evitar romper "sin cebolla y con extra"
     const parts = text.split(itemSeparators);
     if (parts.length >= 2) {
@@ -483,7 +492,7 @@ function processTurn(callId, text) {
   const textForItemLookup = stripModifierFragments(text);
   const { item: resolvedItem, confidence, ambiguous, candidates } = resolveItem(textForItemLookup);
 
-  if (ambiguous && confidence < 0.85) {
+  if (ambiguous && confidence < 0.85 && !doneAdding) {
     return {
       order,
       response: buildMartaResponse(order, { action: "item_ambiguous", candidates }),
@@ -492,7 +501,7 @@ function processTurn(callId, text) {
     };
   }
 
-  if (resolvedItem && confidence >= 0.7) {
+  if (resolvedItem && confidence >= 0.7 && !doneAdding) {
     // Detectar cantidad y tamaño del mismo turno
     const quantity = detectQuantity(text) || 1;
     const size = detectSize(text);
@@ -533,7 +542,7 @@ function processTurn(callId, text) {
   // ── MODIFICADOR A ÍTEM EXISTENTE ─────────────────────────────────────────
   // Si no es un item nuevo pero sí hay modificadores → aplicar al último item
   const mods = parseModifiers(text);
-  if (mods.length > 0 && order.items.length > 0) {
+  if (mods.length > 0 && order.items.length > 0 && !doneAdding && !wantsMore) {
     const lastIndex = order.items.length - 1;
     const lastItem = order.items[lastIndex];
     const existingMods = lastItem.modifiers || [];
@@ -546,6 +555,11 @@ function processTurn(callId, text) {
       action: "item_modified",
       needsInput: true
     };
+  }
+
+  // ── CLIENTE QUIERE MÁS PRODUCTOS (sin nombrarlos aún) ─────────────────────
+  if (wantsMore && order.items.length > 0 && !order.customerName) {
+    return { order, response: "¡Claro! ¿Qué más te pongo?", action: "ask_more", needsInput: true };
   }
 
   // ── FLUJOS DE RECOGIDA DE DATOS ───────────────────────────────────────────
