@@ -67,20 +67,81 @@ const LA_LOCANDA = {
   acceptsHalfAndHalf:  false,    // mitad y mitad no soportado por defecto
   maxModifiersPerPizza: 3,
 
-  // ── Horario de operación (para Fase 5+) ──────────────────────────────────
+  // ── Horario de COCINA (para pedidos) ─────────────────────────────────────
+  // Cada día: lista de turnos [{ open:"HH:MM", close:"HH:MM" }]. Usa "24:00"
+  // para medianoche. [] = cerrado ese día. EDITAR AQUÍ las horas reales del local.
   timezone: "Europe/Madrid",
   openHours: {
-    // null = sin restricción (acepta siempre)
-    // { open: "HH:MM", close: "HH:MM" } = horario estricto
-    monday:    null,
-    tuesday:   null,
-    wednesday: null,
-    thursday:  null,
-    friday:    null,
-    saturday:  null,
-    sunday:    null
+    monday:    [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    tuesday:   [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    wednesday: [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    thursday:  [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    friday:    [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    saturday:  [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }],
+    sunday:    [{ open: "12:00", close: "16:00" }, { open: "19:00", close: "24:00" }]
   }
 };
+
+// ─── ESTADO DE COCINA (abierta/cerrada según horario) ─────────────────────────
+
+const _DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+function hhmmToMin(s) {
+  const m = String(s).match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+function minToHHMM(min) {
+  const m = ((min % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+
+/**
+ * Devuelve el estado de la cocina en la zona horaria del proveedor.
+ * @returns { openNow, nowHHMM, weekday, todayWindows:[{open,close}], nextOpen:{hhmm,dayLabel,isToday}|null }
+ */
+function getKitchenStatus(slug = "la-locanda", date = new Date()) {
+  const prov = getProvider(slug);
+  const tz = prov.timezone || "Europe/Madrid";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false
+  }).formatToParts(date);
+  const get = t => (parts.find(p => p.type === t) || {}).value;
+  const wdShort = (get("weekday") || "").toLowerCase();
+  const wdIndex = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }[wdShort];
+  let hh = parseInt(get("hour"), 10); if (hh === 24) hh = 0;
+  const nowMin = hh * 60 + parseInt(get("minute"), 10);
+  const oh = prov.openHours || {};
+
+  const windowsFor = i => (oh[_DAYS[((i % 7) + 7) % 7]] || []).map(w => ({ open: hhmmToMin(w.open), close: hhmmToMin(w.close) }));
+  const today = windowsFor(wdIndex);
+
+  const openNow = today.some(w => w.open != null && w.close != null && nowMin >= w.open && nowMin < w.close);
+
+  // Próxima apertura (hoy si queda algún turno; si no, busca en los próximos 7 días)
+  let nextOpen = null;
+  const todayNext = today.filter(w => w.open != null && w.open > nowMin).sort((a, b) => a.open - b.open)[0];
+  if (!openNow && todayNext) {
+    nextOpen = { hhmm: minToHHMM(todayNext.open), dayLabel: "hoy", isToday: true };
+  } else if (!openNow) {
+    for (let d = 1; d <= 7; d++) {
+      const w = windowsFor(wdIndex + d).filter(x => x.open != null).sort((a, b) => a.open - b.open)[0];
+      if (w) {
+        const labels = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+        nextOpen = { hhmm: minToHHMM(w.open), dayLabel: (d === 1 ? "mañana" : labels[((wdIndex + d) % 7 + 7) % 7]), isToday: false };
+        break;
+      }
+    }
+  }
+
+  return {
+    openNow,
+    nowHHMM: minToHHMM(nowMin),
+    weekday: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][wdIndex],
+    todayWindows: today.map(w => ({ open: minToHHMM(w.open), close: minToHHMM(w.close) })),
+    nextOpen
+  };
+}
 
 // ─── REGISTRO DE PROVEEDORES ──────────────────────────────────────────────────
 
@@ -102,4 +163,4 @@ function getActiveChannels(slug = "la-locanda") {
     .sort((a, b) => a.priority - b.priority);
 }
 
-module.exports = { getProvider, getActiveChannels, PROVIDERS, LA_LOCANDA };
+module.exports = { getProvider, getActiveChannels, getKitchenStatus, PROVIDERS, LA_LOCANDA };

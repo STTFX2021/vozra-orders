@@ -20,6 +20,7 @@ const { dispatchOrder } = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
 const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
+const { getKitchenStatus } = require("./provider-profile.config.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,17 @@ function getMenuItemByName(name) {
 function buildSystemPrompt() {
   const menu = loadMenu();
   const restaurant = menu.restaurantName || "La Locanda de Cancelada";
+
+  // Estado de cocina (horario) en tiempo real
+  let ks = null;
+  try { ks = getKitchenStatus("la-locanda"); } catch (_) { ks = null; }
+  const turnos = ks && ks.todayWindows.length ? ks.todayWindows.map(w => w.open + " a " + w.close).join(" y ") : "cerrado hoy";
+  const estadoCocina = ks ? (ks.openNow ? "ABIERTA" : "CERRADA") : "ABIERTA";
+  const proxApertura = ks && ks.nextOpen ? `Próxima apertura: ${ks.nextOpen.dayLabel} a las ${ks.nextOpen.hhmm}.` : "";
+  const horarioLinea = ks
+    ? `- Hoy es ${ks.weekday}. Turnos de cocina: ${turnos}. Ahora son las ${ks.nowHHMM}. La cocina está ${estadoCocina}. ${proxApertura}`
+    : "- Horario no disponible; asume cocina abierta.";
+
   return [
 "Eres Marta, la voz de " + restaurant + ", una pizzería italiana en Cancelada (Málaga). Coges el teléfono para tomar pedidos. Hablas español de España, tuteando, cercana y con chispa, como una camarera de toda la vida: simpática, resuelta y con salero, pero sin pasarte.",
 "",
@@ -101,6 +113,13 @@ function buildSystemPrompt() {
 "- NO repitas el pedido entero como un robot en cada turno. Reacciona breve y sigue.",
 "- NO machaques con \"¿algo más?\" en cada frase. Pregúntalo como mucho una vez, cuando toque.",
 "- Si no entiendes algo (es voz, puede oírse mal), pide que te lo repita con naturalidad.",
+"",
+"HORARIO DE COCINA (muy importante):",
+horarioLinea,
+"- Si la cocina está ABIERTA: flujo normal, no menciones el horario salvo que pregunten.",
+"- Si está CERRADA: el cliente puede pedir, pero AVÍSALE de que el pedido no entra en cocina hasta la próxima apertura (dile la hora). Pregúntale si quiere dejarlo preparado para esa hora.",
+"- Si pide una HORA concreta de recogida o entrega: si cae DENTRO de un turno, perfecto y no menciones el horario. Si cae ANTES de la apertura o pegada a ella (p.ej. quiere a las 19:10 y la cocina abre a las 19:00), avísale de que la cocina abre a esa hora y no puede estar lista antes.",
+"- NUNCA confirmes un pedido para una hora a la que la cocina esté cerrada.",
 "",
 "COMO LLEVAR EL PEDIDO (con soltura, sin guion rígido):",
 "- Si el cliente saluda o duda, pónselo fácil: \"Dime, ¿qué te pongo?\".",
