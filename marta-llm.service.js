@@ -15,7 +15,7 @@ const path  = require("path");
 const https = require("https");
 
 const { getOrCreateOrderSession, updateOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
-const { validateOrder } = require("./order-validator.service.js");
+const { validateOrder, estimateTotal } = require("./order-validator.service.js");
 const { dispatchOrder } = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
 
@@ -126,7 +126,7 @@ function buildSystemPrompt() {
 "DECIR LOS PRECIOS EN VOZ (es una llamada, habla natural):",
 "- Nunca leas el punto/coma decimal. 30,5 NO es 'treinta punto cinco': di 'treinta euros con cincuenta' o 'treinta euros y medio'. 30,20 es 'treinta euros con veinte'. 12 es 'doce euros'.",
 "- No digas la palabra 'céntimos'. Usa 'con cincuenta', 'con veinte', 'y medio'. Si es importe redondo, solo 'X euros'.",
-"- El total que digas tiene que ser la SUMA EXACTA de los precios de la carta de lo pedido. No te lo inventes ni lo redondees.",
+"- NUNCA sumes de cabeza ni te inventes el total. ANTES de decir cualquier importe (el del resumen o si el cliente pide el 'precio exacto'), llama a la herramienta calcular_total con los productos y di EXACTAMENTE el número que te devuelva. Si te piden el precio exacto, vuelve a usar calcular_total, no improvises.",
 "- Las pizzas tienen precio ÚNICO: 'grande', 'mediana' o 'normal' NO cambian el precio. No añadas recargos de tamaño que no estén en la carta.",
 "",
 "CARTA DE " + restaurant.toUpperCase() + " (usa el id exacto al llamar a submit_order):",
@@ -179,6 +179,25 @@ const SUBMIT_ORDER_TOOL = {
         notes:         { type: "string", description: "nota general del pedido." }
       },
       required: ["items", "order_type", "customer_name", "phone"]
+    }
+  }
+};
+
+// ─── HERRAMIENTA calcular_total ─────────────────────────────────────────────
+// Devuelve el total EXACTO usando el mismo cálculo que el ticket de cocina,
+// para que Marta nunca sume de cabeza ni invente importes.
+const QUOTE_TOOL = {
+  type: "function",
+  function: {
+    name: "calcular_total",
+    description: "Calcula el total EXACTO del pedido a partir de los productos. Llámala SIEMPRE antes de decir cualquier importe (el del resumen o si el cliente pide el precio exacto). Nunca sumes de cabeza.",
+    parameters: {
+      type: "object",
+      properties: {
+        items: SUBMIT_ORDER_TOOL.function.parameters.properties.items,
+        order_type: { type: "string", enum: ["pickup", "delivery"] }
+      },
+      required: ["items"]
     }
   }
 };
@@ -239,6 +258,13 @@ function mapToolItem(toolItem) {
   };
 }
 
+function computeQuote(args) {
+  const items = ((args && args.items) || []).map(mapToolItem);
+  const { estimatedTotal, breakdown, currency } = estimateTotal({ items });
+  const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
+  return { total_eur: estimatedTotal, moneda: currency || "EUR", productos_sin_precio: sinPrecio };
+}
+
 async function handleSubmitOrder(callId, args) {
   getOrCreateOrderSession(callId);
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
@@ -278,27 +304,49 @@ async function generateMartaReply(callId, incomingMessages) {
   const dialogue = (incomingMessages || [])
     .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
     .map(m => ({ role: m.role, content: String(m.content) }));
-  const messages = [{ role: "system", content: buildSystemPrompt() }].concat(dialogue);
-  const payload = {
-    model: "gpt-4o-mini",
-    temperature: 0.4,
-    max_tokens: 300,
-    messages,
-    tools: [SUBMIT_ORDER_TOOL],
-    tool_choice: "auto"
-  };
-  const completion = await callOpenAI(payload);
-  const choice = completion && completion.choices && completion.choices[0];
-  const msg = choice ? choice.message : null;
-  const toolCall = msg && msg.tool_calls && msg.tool_calls.find(tc => tc.function && tc.function.name === "submit_order");
-  if (toolCall) {
-    let args = {};
-    try { args = JSON.parse(toolCall.function.arguments || "{}"); } catch (_) { args = {}; }
-    const result = await handleSubmitOrder(callId, args);
-    return { reply: result.reply, dispatched: result.ok, action: "customer_confirmed" };
+  let messages = [{ role: "system", content: buildSystemPrompt() }].concat(dialogue);
+  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL];
+
+  // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
+  for (let step = 0; step < 3; step++) {
+    const completion = await callOpenAI({
+      model: "gpt-4o-mini",
+      temperature: 0.4,
+      max_tokens: 300,
+      messages,
+      tools,
+      tool_choice: "auto"
+    });
+    const choice = completion && completion.choices && completion.choices[0];
+    const msg = choice ? choice.message : null;
+    const calls = (msg && msg.tool_calls) || [];
+
+    // 1) Confirmación → dispatch a cocina
+    const submitCall = calls.find(tc => tc.function && tc.function.name === "submit_order");
+    if (submitCall) {
+      let args = {};
+      try { args = JSON.parse(submitCall.function.arguments || "{}"); } catch (_) { args = {}; }
+      const result = await handleSubmitOrder(callId, args);
+      return { reply: result.reply, dispatched: result.ok, action: "customer_confirmed" };
+    }
+
+    // 2) Cálculo de total → responder a cada tool_call y volver a llamar
+    if (calls.length) {
+      const toolMsgs = calls.map(tc => {
+        let a = {};
+        try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
+        const out = tc.function.name === "calcular_total" ? computeQuote(a) : { ok: true };
+        return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
+      });
+      messages = messages.concat([{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }], toolMsgs);
+      continue;
+    }
+
+    // 3) Texto normal
+    const reply = (msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.";
+    return { reply, dispatched: false, action: "in_progress" };
   }
-  const reply = (msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.";
-  return { reply, dispatched: false, action: "in_progress" };
+  return { reply: "Perdona, ¿me lo repites? No te he entendido bien.", dispatched: false, action: "in_progress" };
 }
 
 module.exports = {
