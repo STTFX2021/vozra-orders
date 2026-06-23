@@ -127,6 +127,7 @@ function buildSystemPrompt() {
 "- Nunca leas el punto/coma decimal. 30,5 NO es 'treinta punto cinco': di 'treinta euros con cincuenta' o 'treinta euros y medio'. 30,20 es 'treinta euros con veinte'. 12 es 'doce euros'.",
 "- No digas la palabra 'céntimos'. Usa 'con cincuenta', 'con veinte', 'y medio'. Si es importe redondo, solo 'X euros'.",
 "- El total que digas tiene que ser la SUMA EXACTA de los precios de la carta de lo pedido. No te lo inventes ni lo redondees.",
+"- Las pizzas tienen precio ÚNICO: 'grande', 'mediana' o 'normal' NO cambian el precio. No añadas recargos de tamaño que no estén en la carta.",
 "",
 "CARTA DE " + restaurant.toUpperCase() + " (usa el id exacto al llamar a submit_order):",
 buildMenuText()

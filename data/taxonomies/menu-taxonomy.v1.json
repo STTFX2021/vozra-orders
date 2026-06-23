@@ -1982,6 +1982,705 @@
         "mortadella burrata",
         "pizza rellena mortadella"
       ]
+    },
+    {
+      "id": "coca_cola",
+      "displayName": "Coca-Cola",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "coca cola",
+        "cocacola",
+        "cola",
+        "coca",
+        "coca cola zero",
+        "cocacola zero"
+      ]
+    },
+    {
+      "id": "fanta",
+      "displayName": "Fanta",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "fanta",
+        "fanta naranja",
+        "fanta limon",
+        "naranja",
+        "limon"
+      ]
+    },
+    {
+      "id": "sprite",
+      "displayName": "Sprite",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "sprite",
+        "lima limon"
+      ]
+    },
+    {
+      "id": "iced_tea",
+      "displayName": "Té frío",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "te frio",
+        "nestea",
+        "ice tea",
+        "te limon",
+        "te melocoton"
+      ]
+    },
+    {
+      "id": "still_water_500",
+      "displayName": "Agua sin gas 500ml",
+      "category": "beverages",
+      "price": 2,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "agua",
+        "agua sin gas",
+        "agua pequena",
+        "botellin agua"
+      ]
+    },
+    {
+      "id": "still_water_1l",
+      "displayName": "Agua sin gas 1L",
+      "category": "beverages",
+      "price": 3,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "nlpKeywords": [
+        "agua litro",
+        "agua grande",
+        "botella agua",
+        "agua de litro"
+      ]
+    },
+    {
+      "id": "sparkling_water",
+      "displayName": "Agua con gas",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "agua con gas",
+        "agua gas",
+        "con gas"
+      ]
+    },
+    {
+      "id": "orange_juice_fresh",
+      "displayName": "Zumo de naranja natural",
+      "category": "beverages",
+      "price": 3.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "nlpKeywords": [
+        "zumo naranja natural",
+        "naranja natural",
+        "zumo natural",
+        "exprimido"
+      ]
+    },
+    {
+      "id": "orange_juice",
+      "displayName": "Zumo de naranja",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "nlpKeywords": [
+        "zumo naranja",
+        "zumo de naranja",
+        "naranja envasado"
+      ]
+    },
+    {
+      "id": "apple_juice",
+      "displayName": "Zumo de manzana",
+      "category": "beverages",
+      "price": 2.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 10,
+      "nlpKeywords": [
+        "zumo manzana",
+        "zumo de manzana",
+        "manzana"
+      ]
+    },
+    {
+      "id": "lager_bottle",
+      "displayName": "Cerveza (botella 330ml)",
+      "category": "beverages",
+      "price": 2.8,
+      "description": "",
+      "knownAllergens": [
+        "gluten"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 11,
+      "nlpKeywords": [
+        "cerveza",
+        "cerveza botella",
+        "botellin",
+        "tercio",
+        "mahou",
+        "estrella"
+      ]
+    },
+    {
+      "id": "lager_tap",
+      "displayName": "Cerveza de grifo (500ml)",
+      "category": "beverages",
+      "price": 3.5,
+      "description": "",
+      "knownAllergens": [
+        "gluten"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 12,
+      "nlpKeywords": [
+        "cerveza grifo",
+        "cana",
+        "jarra",
+        "grifo",
+        "tirada",
+        "media pinta"
+      ]
+    },
+    {
+      "id": "alcohol_free_beer",
+      "displayName": "Cerveza sin alcohol",
+      "category": "beverages",
+      "price": 2.8,
+      "description": "",
+      "knownAllergens": [
+        "gluten"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 13,
+      "nlpKeywords": [
+        "cerveza sin alcohol",
+        "sin alcohol",
+        "0,0",
+        "cero cero"
+      ]
+    },
+    {
+      "id": "gluten_free_beer",
+      "displayName": "Cerveza sin gluten",
+      "category": "beverages",
+      "price": 3.2,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 14,
+      "nlpKeywords": [
+        "cerveza sin gluten",
+        "sin gluten",
+        "apta celiacos"
+      ]
+    },
+    {
+      "id": "red_wine_glass",
+      "displayName": "Vino tinto (copa)",
+      "category": "beverages",
+      "price": 3,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 15,
+      "nlpKeywords": [
+        "vino tinto copa",
+        "copa tinto",
+        "tinto",
+        "copa de tinto"
+      ]
+    },
+    {
+      "id": "red_wine_bottle",
+      "displayName": "Vino tinto (botella)",
+      "category": "beverages",
+      "price": 14,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 16,
+      "nlpKeywords": [
+        "botella tinto",
+        "vino tinto botella",
+        "botella de tinto"
+      ]
+    },
+    {
+      "id": "white_wine_glass",
+      "displayName": "Vino blanco (copa)",
+      "category": "beverages",
+      "price": 3,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 17,
+      "nlpKeywords": [
+        "vino blanco copa",
+        "copa blanco",
+        "blanco",
+        "copa de blanco"
+      ]
+    },
+    {
+      "id": "white_wine_bottle",
+      "displayName": "Vino blanco (botella)",
+      "category": "beverages",
+      "price": 14,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 18,
+      "nlpKeywords": [
+        "botella blanco",
+        "vino blanco botella",
+        "botella de blanco"
+      ]
+    },
+    {
+      "id": "rose_wine_glass",
+      "displayName": "Vino rosado (copa)",
+      "category": "beverages",
+      "price": 3,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 19,
+      "nlpKeywords": [
+        "vino rosado copa",
+        "copa rosado",
+        "rosado",
+        "copa de rosado"
+      ]
+    },
+    {
+      "id": "rose_wine_bottle",
+      "displayName": "Vino rosado (botella)",
+      "category": "beverages",
+      "price": 13,
+      "description": "",
+      "knownAllergens": [
+        "sulphites"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 20,
+      "nlpKeywords": [
+        "botella rosado",
+        "vino rosado botella",
+        "botella de rosado"
+      ]
+    },
+    {
+      "id": "espresso",
+      "displayName": "Café espresso",
+      "category": "beverages",
+      "price": 1.6,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 21,
+      "nlpKeywords": [
+        "cafe",
+        "espresso",
+        "cafe solo",
+        "solo",
+        "cortado",
+        "cafe doble",
+        "descafeinado"
+      ]
+    },
+    {
+      "id": "coffee_with_milk",
+      "displayName": "Café con leche",
+      "category": "beverages",
+      "price": 1.9,
+      "description": "",
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 22,
+      "nlpKeywords": [
+        "cafe con leche",
+        "con leche",
+        "cafe leche",
+        "manchado"
+      ]
+    },
+    {
+      "id": "tea_infusions",
+      "displayName": "Té e infusiones",
+      "category": "beverages",
+      "price": 1.8,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 23,
+      "nlpKeywords": [
+        "te",
+        "infusion",
+        "manzanilla",
+        "menta poleo",
+        "te verde",
+        "te negro"
+      ]
+    },
+    {
+      "id": "tiramisu",
+      "displayName": "Tiramisú",
+      "category": "desserts",
+      "price": 5.5,
+      "description": "Bizcocho, café, mascarpone y cacao.",
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 1,
+      "nlpKeywords": [
+        "tiramisu",
+        "tiramisu casero"
+      ]
+    },
+    {
+      "id": "panna_cotta",
+      "displayName": "Panna cotta",
+      "category": "desserts",
+      "price": 5,
+      "description": "Postre de nata con salsa de frutos rojos.",
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 2,
+      "nlpKeywords": [
+        "panna cotta",
+        "pana cota",
+        "panacota"
+      ]
+    },
+    {
+      "id": "cannoli",
+      "displayName": "Cannoli siciliano",
+      "category": "desserts",
+      "price": 5.5,
+      "description": "Masa crujiente rellena de crema de ricotta.",
+      "knownAllergens": [
+        "gluten",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 3,
+      "nlpKeywords": [
+        "cannoli",
+        "canoli",
+        "cannolo",
+        "siciliano"
+      ]
+    },
+    {
+      "id": "cheesecake",
+      "displayName": "Tarta de queso",
+      "category": "desserts",
+      "price": 5.5,
+      "description": "",
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 4,
+      "nlpKeywords": [
+        "tarta de queso",
+        "tarta queso",
+        "cheesecake",
+        "queso",
+        "frutos rojos"
+      ]
+    },
+    {
+      "id": "chocolate_cake",
+      "displayName": "Tarta de chocolate",
+      "category": "desserts",
+      "price": 5.5,
+      "description": "",
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 5,
+      "nlpKeywords": [
+        "tarta de chocolate",
+        "tarta chocolate",
+        "chocolate",
+        "bizcocho chocolate"
+      ]
+    },
+    {
+      "id": "ice_cream_1",
+      "displayName": "Helado artesanal (1 bola)",
+      "category": "desserts",
+      "price": 3,
+      "description": "",
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 6,
+      "nlpKeywords": [
+        "helado",
+        "una bola",
+        "helado artesanal",
+        "bola de helado",
+        "vainilla",
+        "fresa",
+        "pistacho",
+        "limon"
+      ]
+    },
+    {
+      "id": "ice_cream_2",
+      "displayName": "Helado artesanal (2 bolas)",
+      "category": "desserts",
+      "price": 4.5,
+      "description": "",
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 7,
+      "nlpKeywords": [
+        "dos bolas",
+        "helado dos bolas"
+      ]
+    },
+    {
+      "id": "ice_cream_3",
+      "displayName": "Helado artesanal (3 bolas)",
+      "category": "desserts",
+      "price": 6,
+      "description": "",
+      "knownAllergens": [
+        "dairy"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 8,
+      "nlpKeywords": [
+        "tres bolas",
+        "helado tres bolas"
+      ]
+    },
+    {
+      "id": "fruit_salad",
+      "displayName": "Macedonia de frutas",
+      "category": "desserts",
+      "price": 4.5,
+      "description": "",
+      "knownAllergens": [],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 9,
+      "nlpKeywords": [
+        "macedonia",
+        "frutas",
+        "macedonia de frutas",
+        "fruta"
+      ]
+    },
+    {
+      "id": "chocolate_brownie",
+      "displayName": "Brownie de chocolate",
+      "category": "desserts",
+      "price": 5,
+      "description": "Brownie templado.",
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 10,
+      "nlpKeywords": [
+        "brownie",
+        "brownie chocolate"
+      ]
+    },
+    {
+      "id": "chocolate_brownie_ice",
+      "displayName": "Brownie con helado",
+      "category": "desserts",
+      "price": 6.5,
+      "description": "Brownie templado con helado de vainilla.",
+      "knownAllergens": [
+        "gluten",
+        "egg",
+        "dairy",
+        "nuts"
+      ],
+      "traceAllergens": [],
+      "modifierGroups": [],
+      "isAvailable": true,
+      "isHouseFavourite": false,
+      "sortOrder": 11,
+      "nlpKeywords": [
+        "brownie con helado",
+        "brownie helado",
+        "brownie con vainilla"
+      ]
     }
   ],
   "priceRanges": {
