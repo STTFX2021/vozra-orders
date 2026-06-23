@@ -1,0 +1,11 @@
+{
+  "name": "vozra-print-agent",
+  "version": "1.0.0",
+  "description": "Agente local que imprime las comandas de Vozra Orders en una impresora termica ESC/POS de cocina.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node index.js --once"
+  },
+  "license": "UNLICENSED"
+}

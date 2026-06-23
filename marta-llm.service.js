@@ -18,6 +18,8 @@ const { getOrCreateOrderSession, updateOrderSession, ORDER_STATUS } = require(".
 const { validateOrder, estimateTotal } = require("./order-validator.service.js");
 const { dispatchOrder } = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
+const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
+const { enqueuePrint } = require("./print-queue.store.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -289,6 +291,13 @@ async function handleSubmitOrder(callId, args) {
   try { dispatch = await dispatchOrder(order, validation); }
   catch (e) { dispatch = { ok: false, error: e.message, order }; }
   if (dispatch && dispatch.ok) { try { startKitchenWatch(dispatch.order); } catch (_) {} }
+
+  // Encolar la comanda para el agente de impresión local (ESC/POS en cocina).
+  try {
+    const printOrder = (dispatch && dispatch.order) || order;
+    const ticketText = buildTextTicket(printOrder, validation);
+    enqueuePrint(printOrder.orderId, ticketText, { orderType, customerName: args.customer_name || null });
+  } catch (e) { console.error("[EL] enqueuePrint error:", e.message); }
   const name = args.customer_name ? ", " + String(args.customer_name).split(" ")[0] : "";
   const totalTxt = validation && validation.estimatedTotal != null ? " El total son unos " + validation.estimatedTotal + " euros." : "";
   const wayTxt = orderType === "delivery" ? "Te lo llevamos a domicilio en cuanto esté listo." : "Puedes pasar a recogerlo en cuanto esté listo.";

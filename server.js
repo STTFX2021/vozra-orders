@@ -32,9 +32,11 @@ app.use((req, res, next) => {
 
 const elevenLabsRoutes  = require("./elevenlabs-llm.routes.js");
 const whatsappRoutes    = require("./whatsapp-twilio.routes.js");
+const printRoutes       = require("./print.routes.js");
 
 app.use("/", elevenLabsRoutes);
 app.use("/", whatsappRoutes);
+app.use("/", printRoutes);
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 
