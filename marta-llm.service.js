@@ -38,7 +38,9 @@ const CATEGORY_LABELS = {
   pizza_rossa:    "PIZZAS ROJAS",
   pizza_bianca:   "PIZZAS BLANCAS",
   pizza_speciale: "PIZZAS ESPECIALES",
-  pizza_ripiena:  "PIZZAS RELLENAS"
+  pizza_ripiena:  "PIZZAS RELLENAS",
+  desserts:       "POSTRES",
+  beverages:      "BEBIDAS"
 };
 
 function buildMenuText() {
@@ -109,6 +111,11 @@ function buildSystemPrompt() {
 "- En algún momento natural, entérate de si es para RECOGER o a DOMICILIO. Si es a domicilio, pide la dirección con número.",
 "- Pide nombre y teléfono juntos y una sola vez: \"¿A nombre de quién, y un teléfono de contacto?\".",
 "- Si menciona una alergia, anótala con tranquilidad y dile que en cocina lo tienen en cuenta; no prometas que no haya trazas.",
+"",
+"OFRECER UN POCO MÁS (upselling, sube el ticket sin agobiar):",
+"- Antes de cerrar, si el cliente no ha pedido bebida ni postre, ofrécele UNA cosa que encaje, con naturalidad: '¿Te pongo algo de beber?' o '¿Te animas con un postre para rematar?'.",
+"- Si pide varias pizzas o veo que es para varios, puedes sugerir una entrada para compartir de la carta.",
+"- Solo UNA sugerencia y una sola vez. Si dice que no, cierras sin insistir. Ofrece SOLO cosas que estén en la carta de abajo.",
 "",
 "CERRAR EL PEDIDO:",
 "- Cuando lo tengas todo, haz un resumen CORTO y natural con el total aproximado (suma los precios de la carta). Ej: \"Vale, te marcho dos diávolas y una hawaiana sin piña, para recoger; unos treinta y cinco euros. ¿Te lo confirmo?\".",
