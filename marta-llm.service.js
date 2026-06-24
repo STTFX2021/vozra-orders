@@ -104,7 +104,16 @@ function buildSystemPrompt() {
     : "- Horario no disponible; asume cocina abierta.";
 
   return [
-"Eres Marta, la voz de " + restaurant + ", una pizzería italiana en Cancelada (Málaga). Coges el teléfono para tomar pedidos. Hablas español de España, tuteando, cercana y con chispa, como una camarera de toda la vida: simpática, resuelta y con salero, pero sin pasarte.",
+"Eres Marta, la voz de " + restaurant + ", una pizzería italiana en Cancelada (Málaga). Coges el teléfono para tomar pedidos. Eres cercana, con chispa y salero, como una camarera de toda la vida: simpática, resuelta y natural, pero sin pasarte.",
+"",
+"### REGLA DE IDIOMA (la MÁS importante, por encima de todas las demás):",
+"- Estas instrucciones están escritas en español, pero eso NO decide tu idioma de respuesta. Tu idioma lo marca SIEMPRE el cliente.",
+"- Responde SIEMPRE en el MISMO idioma en que te habla el cliente. Si te habla en inglés, respóndele en inglés; en francés, en francés; en alemán, en alemán; en italiano, en italiano. Detéctalo desde su primera frase.",
+"- Si el cliente cambia de idioma a mitad de la llamada, cámbiate tú también.",
+"- EJEMPLO (síguelo): cliente dice 'Hi, can I order a Margherita for pickup please?' → tú respondes EN INGLÉS, p.ej. 'Of course! One Margherita for pickup. What name and a contact number, please?'. NUNCA respondas en español a quien te habla en inglés.",
+"- SOLO cuando el cliente te hable en español usas el español de España, tuteando y con tono andaluz cercano. En los demás idiomas mantén el mismo carácter cálido y resuelto, pero en ese idioma.",
+"- Los NOMBRES de los platos NO se traducen NUNCA (Margherita, Calzone, Diavola, Carbonara...): dilos tal cual están en la carta, en cualquier idioma.",
+"- COMANDA DE COCINA SIEMPRE EN ESPAÑOL: cuando llames a submit_order, los textos que lee la cocina (notes, kitchenNote y el value de los modificadores como 'sin cebolla' o 'extra de queso') van SIEMPRE en ESPAÑOL, aunque hables con el cliente en otro idioma. El nombre del cliente (customer_name) déjalo tal cual lo diga.",
 "",
 "ESTO ES UNA LLAMADA DE VOZ. Habla como se habla, no como se escribe:",
 "- Frases CORTAS y naturales. Una o dos por turno, no sueltes parrafadas.",
@@ -151,7 +160,9 @@ horarioLinea,
 "- Las pizzas tienen precio ÚNICO: 'grande', 'mediana' o 'normal' NO cambian el precio. No añadas recargos de tamaño que no estén en la carta.",
 "",
 "CARTA DE " + restaurant.toUpperCase() + " (usa el id exacto al llamar a submit_order):",
-buildMenuText()
+buildMenuText(),
+"",
+"### RECORDATORIO FINAL DE IDIOMA (no lo olvides): responde a este cliente en el MISMO idioma en que él te escribe. Si su mensaje está en inglés, TU respuesta va en inglés; si en francés, en francés; etc. NO respondas en español a un cliente que no te habla en español. La comanda de cocina (submit_order) siempre en español."
   ].join("\n");
 }
 
@@ -343,11 +354,60 @@ async function handleSubmitOrder(callId, args) {
 
 // ─── ENTRADA PRINCIPAL ──────────────────────────────────────────────────────
 
+// ─── DETECCIÓN DE IDIOMA (determinista, sin dependencias) ────────────────────
+// Cuenta palabras-función distintivas por idioma. Objetivo: clavar el idioma de
+// respuesta sin depender de que el LLM lo "adivine" (con un prompt tan español
+// el modelo arrastra el inglés al español). Si no hay un ganador claro frente al
+// español, devuelve null y dejamos que el modelo decida.
+const LANG_MARKERS = {
+  en: { name: "inglés",     words: ["the","please","thanks","thank","hello","hi","hey","good evening","good morning","i","i'd","i'm","would","like","want","can","could","for","with","without","and","you","your","do","have","gluten","pickup","pick up","delivery","order","yes","no"] },
+  fr: { name: "francés",    words: ["je","voudrais","bonjour","bonsoir","salut","s'il","plaît","merci","une","un","avec","sans","pour","aimerais","j'aimerais","vous","est-ce","oui","non","commander","emporter","livraison"] },
+  de: { name: "alemán",     words: ["ich","möchte","moechte","hallo","bitte","danke","eine","einen","mit","ohne","guten","gerne","hätte","haette","abholen","lieferung","bestellen","ja","nein","und","für","fuer"] },
+  it: { name: "italiano",   words: ["vorrei","ciao","grazie","buongiorno","buonasera","per favore","una","con","senza","vorremmo","mi","puoi","posso","asporto","consegna","ordinare","sì","si","no"] },
+  pt: { name: "portugués",  words: ["quero","olá","ola","obrigado","obrigada","uma","com","sem","por favor","gostaria","boa noite","bom dia","você","voce","levar","entrega","pedir"] }
+};
+const ES_MARKERS = ["quiero","quería","queria","quisiera","por favor","gracias","hola","buenas","una","unas","para","con","sin","ponme","dame","me pones","quería","recoger","domicilio","pedir","sí","vale","oye","tú"];
+
+function _scoreLang(text, words) {
+  const t = " " + String(text).toLowerCase().replace(/[^\p{L}'\s]/gu, " ").replace(/\s+/g, " ") + " ";
+  let score = 0;
+  for (const w of words) { if (t.includes(" " + w + " ")) score++; }
+  return score;
+}
+
+/** Devuelve {code,name} del idioma NO-español dominante, o null si ES o incierto. */
+function detectLang(text) {
+  if (!text || text.trim().length < 2) return null;
+  const es = _scoreLang(text, ES_MARKERS);
+  let best = null, bestScore = 0;
+  for (const code of Object.keys(LANG_MARKERS)) {
+    const s = _scoreLang(text, LANG_MARKERS[code].words);
+    if (s > bestScore) { bestScore = s; best = code; }
+  }
+  // Necesitamos señal mínima y que gane CLARAMENTE al español para no falsear.
+  if (best && bestScore >= 1 && bestScore > es) {
+    return { code: best, name: LANG_MARKERS[best].name };
+  }
+  return null;
+}
+
 async function generateMartaReply(callId, incomingMessages) {
   const dialogue = (incomingMessages || [])
     .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
     .map(m => ({ role: m.role, content: String(m.content) }));
   let messages = [{ role: "system", content: buildSystemPrompt() }].concat(dialogue);
+
+  // Fija el idioma de respuesta de forma determinista a partir del último
+  // mensaje del cliente. Se inyecta como ÚLTIMO system (máxima recencia).
+  const lastUser = [...dialogue].reverse().find(m => m.role === "user");
+  const lang = lastUser ? detectLang(lastUser.content) : null;
+  if (lang) {
+    messages.push({
+      role: "system",
+      content: "IDIOMA OBLIGATORIO DE ESTA RESPUESTA: el cliente está hablando en " + lang.name +
+        ". Responde EXCLUSIVAMENTE en " + lang.name + " (no en español). Los nombres de los platos no se traducen. La comanda de cocina (submit_order) sigue en español."
+    });
+  }
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL];
 
   // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
