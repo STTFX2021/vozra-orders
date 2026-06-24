@@ -21,6 +21,7 @@ const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
 const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
 const { getKitchenStatus } = require("./provider-profile.config.js");
+const { sendCustomerConfirmation } = require("./customer-notify.service.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -323,7 +324,21 @@ async function handleSubmitOrder(callId, args) {
   // delivered = el pedido entró en un canal REAL de cocina (telegram/discord).
   // Si solo se guardó en file_fallback, cocina NO lo ha visto → NO confirmar como enviado.
   const delivered = !!(dispatch && dispatch.delivered);
-  if (delivered) { try { startKitchenWatch(dispatch.order); } catch (_) {} }
+  if (delivered) {
+    try { startKitchenWatch(dispatch.order); } catch (_) {}
+    // Confirmación al CLIENTE (SMS/WhatsApp), solo si cocina recibió de verdad.
+    // Fire-and-forget: no bloquea la respuesta de voz. No-op si no hay emisor configurado.
+    try {
+      const notifyOrder = (dispatch && dispatch.order) || order;
+      Promise.resolve(sendCustomerConfirmation(notifyOrder, validation))
+        .then(r => {
+          if (r && r.ok) console.log("[NOTIFY] cliente avisado | canal=" + r.channel + " | to=" + r.to + " | sid=" + r.sid);
+          else if (r && r.skipped) console.log("[NOTIFY] omitido | " + r.reason);
+          else console.error("[NOTIFY] fallo | " + (r && r.error));
+        })
+        .catch(e => console.error("[NOTIFY] error inesperado | " + e.message));
+    } catch (e) { console.error("[NOTIFY] error | " + e.message); }
+  }
   if (dispatch && dispatch.ok && !delivered) {
     console.error("[EL] DISPATCH SOLO-FALLBACK | pedido NO entregado a cocina (canal=" +
       (dispatch.channel || "?") + ") | orderId=" + ((dispatch.order && dispatch.order.orderId) || order.orderId));
