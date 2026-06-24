@@ -137,9 +137,11 @@ async function handlePostConfirmation(order, callId) {
     }
 
     const r = await dispatchOrder(order, v);
-    if (r.ok) {
+    if (r.delivered) {
       startKitchenWatch(r.order);
       console.log(`[EL] Dispatch OK | ${callId} | canal: ${r.channel}`);
+    } else if (r.ok) {
+      console.error(`[EL] Dispatch SOLO-FALLBACK | ${callId} | canal: ${r.channel} | cocina NO lo ha recibido`);
     } else {
       console.error(`[EL] Dispatch FAILED | ${callId} | ${r.error}`);
     }

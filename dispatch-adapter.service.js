@@ -219,10 +219,14 @@ async function dispatchOrder(order, validationResult = {}, providerSlug = "la-lo
       });
 
       return {
-        ok:       true,
-        channel:  channel.type,
+        ok:        true,
+        // delivered = entró en un canal REAL de cocina (no el respaldo en fichero).
+        // file_fallback escribe un JSON local (efímero en la nube) que cocina NO ve,
+        // así que NO debe contar como pedido entregado de cara al cliente.
+        delivered: channel.type !== "file_fallback",
+        channel:   channel.type,
         attempts,
-        order:    updatedOrder,
+        order:     updatedOrder,
         result
       };
 
@@ -248,11 +252,12 @@ async function dispatchOrder(order, validationResult = {}, providerSlug = "la-lo
   });
 
   return {
-    ok:       false,
-    channel:  null,
+    ok:        false,
+    delivered: false,
+    channel:   null,
     attempts,
-    order:    failedOrder,
-    error:    "Todos los canales de dispatch fallaron."
+    order:     failedOrder,
+    error:     "Todos los canales de dispatch fallaron."
   };
 }
 
@@ -314,23 +319,25 @@ async function dispatchOrderMock(order, validationResult = {}, mockConfig = {}) 
     });
 
     return {
-      ok:      true,
-      channel: channel.type,
-      mock:    true,
+      ok:        true,
+      delivered: channel.type !== "file_fallback",
+      channel:   channel.type,
+      mock:      true,
       attempts,
-      order:   updatedOrder
+      order:     updatedOrder
     };
   }
 
   // Todos fallaron (mock)
   const failedOrder = updateOrderSession(callId, { status: ORDER_STATUS.FAILED_DISPATCH });
   return {
-    ok:      false,
-    channel: null,
-    mock:    true,
+    ok:        false,
+    delivered: false,
+    channel:   null,
+    mock:      true,
     attempts,
-    order:   failedOrder,
-    error:   "[MOCK] Todos los canales fallaron."
+    order:     failedOrder,
+    error:     "[MOCK] Todos los canales fallaron."
   };
 }
 

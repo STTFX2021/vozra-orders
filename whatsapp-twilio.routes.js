@@ -346,9 +346,11 @@ router.post("/whatsapp/incoming", express.urlencoded({ extended: false }), async
             return;
           }
           const r = await dispatchOrder(order, v);
-          if (r.ok) {
+          if (r.delivered) {
             startKitchenWatch(r.order);
             console.log(`[WA] Dispatch OK | ${callId} | canal: ${r.channel}`);
+          } else if (r.ok) {
+            console.error(`[WA] Dispatch SOLO-FALLBACK | ${callId} | canal: ${r.channel} | cocina NO lo ha recibido`);
           } else {
             console.error(`[WA] Dispatch FAILED | ${callId} | ${r.error}`);
           }

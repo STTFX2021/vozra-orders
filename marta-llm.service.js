@@ -309,7 +309,14 @@ async function handleSubmitOrder(callId, args) {
   let dispatch;
   try { dispatch = await dispatchOrder(order, validation); }
   catch (e) { dispatch = { ok: false, error: e.message, order }; }
-  if (dispatch && dispatch.ok) { try { startKitchenWatch(dispatch.order); } catch (_) {} }
+  // delivered = el pedido entró en un canal REAL de cocina (telegram/discord).
+  // Si solo se guardó en file_fallback, cocina NO lo ha visto → NO confirmar como enviado.
+  const delivered = !!(dispatch && dispatch.delivered);
+  if (delivered) { try { startKitchenWatch(dispatch.order); } catch (_) {} }
+  if (dispatch && dispatch.ok && !delivered) {
+    console.error("[EL] DISPATCH SOLO-FALLBACK | pedido NO entregado a cocina (canal=" +
+      (dispatch.channel || "?") + ") | orderId=" + ((dispatch.order && dispatch.order.orderId) || order.orderId));
+  }
 
   // Encolar la comanda para el agente de impresión local (ESC/POS en cocina).
   try {
@@ -320,10 +327,18 @@ async function handleSubmitOrder(callId, args) {
   const name = args.customer_name ? ", " + String(args.customer_name).split(" ")[0] : "";
   const totalTxt = validation && validation.estimatedTotal != null ? " El total son unos " + validation.estimatedTotal + " euros." : "";
   const wayTxt = orderType === "delivery" ? "Te lo llevamos a domicilio en cuanto esté listo." : "Puedes pasar a recogerlo en cuanto esté listo.";
-  const reply = dispatch && dispatch.ok
-    ? "¡Perfecto" + name + "! Tu pedido queda confirmado y lo paso a cocina ahora mismo." + totalTxt + " " + wayTxt + " Si surge cualquier cosa te llamamos. ¡Gracias y hasta luego!"
-    : "He tomado tu pedido" + name + " y lo dejo registrado, pero ha habido un problemilla al enviarlo a cocina; lo revisamos enseguida. Si quieres, también puedes llamarnos directamente al local. ¡Gracias!";
-  return { ok: !!(dispatch && dispatch.ok), order: dispatch ? dispatch.order : order, reply, validation };
+  let reply;
+  if (delivered) {
+    // Entregado a cocina de verdad → confirmación plena.
+    reply = "¡Perfecto" + name + "! Tu pedido queda confirmado y lo paso a cocina ahora mismo." + totalTxt + " " + wayTxt + " Si surge cualquier cosa te llamamos. ¡Gracias y hasta luego!";
+  } else if (dispatch && dispatch.ok) {
+    // Solo respaldo (file_fallback): tomado y guardado, pero SIN confirmar a cocina.
+    reply = "Te he anotado el pedido" + name + " y lo dejo registrado." + totalTxt + " En un par de minutos te confirmamos por teléfono que entra en cocina. Si lo prefieres, también puedes llamarnos directamente al local para asegurarlo. ¡Gracias!";
+  } else {
+    // Fallo total de dispatch.
+    reply = "He tomado tu pedido" + name + " y lo dejo registrado, pero ha habido un problemilla al enviarlo a cocina; lo revisamos enseguida. Si quieres, también puedes llamarnos directamente al local. ¡Gracias!";
+  }
+  return { ok: !!(dispatch && dispatch.ok), delivered, order: dispatch ? dispatch.order : order, reply, validation };
 }
 
 // ─── ENTRADA PRINCIPAL ──────────────────────────────────────────────────────
@@ -355,7 +370,7 @@ async function generateMartaReply(callId, incomingMessages) {
       let args = {};
       try { args = JSON.parse(submitCall.function.arguments || "{}"); } catch (_) { args = {}; }
       const result = await handleSubmitOrder(callId, args);
-      return { reply: result.reply, dispatched: result.ok, action: "customer_confirmed" };
+      return { reply: result.reply, dispatched: !!result.delivered, action: "customer_confirmed" };
     }
 
     // 2) Cálculo de total → responder a cada tool_call y volver a llamar
