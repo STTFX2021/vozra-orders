@@ -22,6 +22,7 @@ const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
 const { getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
+const { upsertOrder } = require("./supabase-store.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -318,6 +319,16 @@ async function handleSubmitOrder(callId, args) {
   let order = updateOrderSession(callId, patch);
   let validation = {};
   try { validation = validateOrder(order); } catch (e) { validation = { ok: false, errors: [{ message: e.message }] }; }
+
+  // PERSISTENCIA DURABLE *antes* del dispatch: si el contenedor cae tras confirmar,
+  // el pedido ya existe en Supabase y es recuperable. Mejor esfuerzo (no rompe el pedido).
+  try {
+    const r = await upsertOrder(order, validation, { delivered: false });
+    if (r && r.ok) console.log("[DB] pedido guardado (pre-dispatch) | " + order.orderId);
+    else if (r && r.skipped) console.log("[DB] persistencia omitida | " + r.reason);
+    else console.error("[DB] guardado pre-dispatch falló | " + (r && r.error));
+  } catch (e) { console.error("[DB] error pre-dispatch | " + e.message); }
+
   let dispatch;
   try { dispatch = await dispatchOrder(order, validation); }
   catch (e) { dispatch = { ok: false, error: e.message, order }; }
@@ -343,6 +354,15 @@ async function handleSubmitOrder(callId, args) {
     console.error("[EL] DISPATCH SOLO-FALLBACK | pedido NO entregado a cocina (canal=" +
       (dispatch.channel || "?") + ") | orderId=" + ((dispatch.order && dispatch.order.orderId) || order.orderId));
   }
+
+  // Actualizar el registro durable con el resultado del dispatch (estado/canal/delivered/eventos).
+  // Fire-and-forget: no añade latencia a la respuesta de voz.
+  try {
+    const dbOrder = (dispatch && dispatch.order) || order;
+    Promise.resolve(upsertOrder(dbOrder, validation, { delivered, channel: dispatch && dispatch.channel }))
+      .then(r => { if (r && !r.ok && !r.skipped) console.error("[DB] update post-dispatch falló | " + r.error); })
+      .catch(e => console.error("[DB] error post-dispatch | " + e.message));
+  } catch (e) { console.error("[DB] error post-dispatch | " + e.message); }
 
   // Encolar la comanda para el agente de impresión local (ESC/POS en cocina).
   try {
