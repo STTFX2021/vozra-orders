@@ -97,13 +97,36 @@ function httpPost(url, body, headers = {}) {
   });
 }
 
+// ─── REINTENTOS (canales reales) ──────────────────────────────────────────────
+
+/**
+ * Reintenta un envío ante fallos TRANSITORIOS (red/timeout/5xx) antes de rendirse
+ * y caer al siguiente canal. NO reintenta errores de configuración (no transitorios).
+ * Backoff lineal: 400ms, 800ms, ...
+ */
+async function sendWithRetry(fn, { attempts = 3, baseDelayMs = 400 } = {}) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (/no configurad/i.test(e.message)) throw e; // config rota → no insistir
+      if (i < attempts) {
+        await new Promise(r => setTimeout(r, baseDelayMs * i));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── SENDERS POR CANAL ────────────────────────────────────────────────────────
 
 /**
  * Envía por Telegram.
  * Requiere: config.botToken, config.chatId
  */
-async function sendTelegram(config, ticketText) {
+async function sendTelegram(config, ticketText, order) {
   if (!config.botToken || !config.chatId) {
     throw new Error("Telegram: botToken o chatId no configurados (variables de entorno).");
   }
@@ -114,6 +137,15 @@ async function sendTelegram(config, ticketText) {
     text:       formatTelegram(ticketText),
     parse_mode: config.parseMode || "HTML"
   };
+
+  // ACK real: botón para que cocina confirme la recepción con un toque.
+  // El webhook /telegram/webhook captura el callback "ack:<orderId>".
+  const orderId = order && order.orderId;
+  if (orderId) {
+    body.reply_markup = {
+      inline_keyboard: [[{ text: "✅ Recibido en cocina", callback_data: "ack:" + orderId }]]
+    };
+  }
 
   const result = await httpPost(url, body);
   return { channel: "telegram", raw: result };
@@ -187,10 +219,10 @@ async function dispatchOrder(order, validationResult = {}, providerSlug = "la-lo
 
       switch (channel.type) {
         case "telegram":
-          result = await sendTelegram(channel.config, ticketText);
+          result = await sendWithRetry(() => sendTelegram(channel.config, ticketText, order));
           break;
         case "discord":
-          result = await sendDiscord(channel.config, ticketText);
+          result = await sendWithRetry(() => sendDiscord(channel.config, ticketText));
           break;
         case "file_fallback":
           result = await sendFileFallback(channel.config, order, ticketText, validationResult);
@@ -348,5 +380,6 @@ module.exports = {
   dispatchOrderMock,
   sendTelegram,
   sendDiscord,
-  sendFileFallback
+  sendFileFallback,
+  sendWithRetry
 };

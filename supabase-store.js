@@ -131,6 +131,23 @@ async function upsertOrder(order, validation = {}, extra = {}) {
   }
 }
 
+/** Actualiza campos sueltos de un pedido por order_id (p.ej. estado ACK). No lanza. */
+async function patchByOrderId(orderId, patch) {
+  try {
+    if (!isEnabled()) return { ok: false, skipped: true, reason: "Supabase no configurado" };
+    if (!orderId) return { ok: false, skipped: true, reason: "sin orderId" };
+    await request(
+      "PATCH",
+      "/rest/v1/orders?order_id=eq." + encodeURIComponent(orderId),
+      patch,
+      { "Prefer": "return=minimal" }
+    );
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 /** Lee un pedido por order_id (para recuperación). No lanza. */
 async function getOrder(orderId) {
   try {
@@ -143,4 +160,4 @@ async function getOrder(orderId) {
   }
 }
 
-module.exports = { upsertOrder, getOrder, isEnabled, toRow };
+module.exports = { upsertOrder, patchByOrderId, getOrder, isEnabled, toRow };
