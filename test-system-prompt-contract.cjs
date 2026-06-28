@@ -7,8 +7,10 @@ const { buildSystemPrompt, buildModelMessages, renderMenu } = require("./marta-l
 const provider = getProvider("la-locanda");
 const prompt = buildSystemPrompt(provider);
 
-assert(prompt.includes("Habla SIEMPRE en español de España por defecto."));
-assert(prompt.includes("frase COMPLETA y CLARA"));
+assert(prompt.includes("español, inglés, francés, italiano, alemán y ruso"));
+assert(prompt.includes("Idioma de apertura por defecto: español de España"));
+assert(prompt.includes("frase ENTERA y CLARA"));
+assert(prompt.includes("QUÉDATE en ese idioma"));
 assert(prompt.includes("Una palabra suelta"));
 assert(prompt.includes("confirma UNA sola vez al final"));
 assert(prompt.includes("No preguntes \"¿está bien?\""));
@@ -32,8 +34,8 @@ assert(!messages[0].content.includes("Speak English only"));
 assert(!messages[0].content.includes("Réponds en français"));
 
 // Regresión del bug de mezcla de idiomas: estas entradas no constituyen una
-// frase completa y clara en otro idioma. Deben permanecer bajo la regla dura
-// de español por defecto y nunca generar un segundo system de idioma.
+// frase entera y clara en otro idioma. Deben permanecer bajo el español de
+// apertura y nunca generar un segundo system de idioma.
 const spanishDefaultCases = [
   "ciao",
   "ok",
@@ -53,8 +55,8 @@ for (const input of spanishDefaultCases) {
     `${input}: el modelo debe recibir exactamente un system prompt`
   );
   assert(
-    systems[0].content.includes("Habla SIEMPRE en español de España por defecto."),
-    `${input}: debe mantenerse el español como idioma por defecto`
+    systems[0].content.includes("Idioma de apertura por defecto: español de España"),
+    `${input}: debe mantenerse el español como idioma de apertura`
   );
   assert(
     systems[0].content.includes("Una palabra suelta"),
@@ -70,5 +72,5 @@ for (const input of spanishDefaultCases) {
   );
 }
 
-console.log("✅ System prompt contract: brain-only prompt, Spanish default and single final confirmation");
-console.log("✅ Language regression: ciao / ok / un Margherita, por favor remain Spanish-default");
+console.log("✅ System prompt contract: single brain prompt, multilingual anti-bounce and single final confirmation");
+console.log("✅ Language regression: ciao / ok / un Margherita, por favor keep Spanish opening");
