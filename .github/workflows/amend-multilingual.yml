@@ -1,13 +1,25 @@
-name: Disabled multilingual amendment
+name: Remove temporary amendment workflow
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  noop:
+  cleanup:
+    if: github.event.head_commit.message != 'chore: remove temporary amendment workflow file'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Disabled until PR event"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Remove temporary file
+        run: |
+          rm -f .github/workflows/amend-multilingual.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: remove temporary amendment workflow file"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
