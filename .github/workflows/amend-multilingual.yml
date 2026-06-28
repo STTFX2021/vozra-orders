@@ -1,87 +1,13 @@
-name: Amend multilingual anti-bounce prompt
+name: Disabled temporary amendment
 
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  amend:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Replace language block and update contract
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          brain_path = Path('marta-llm.service.js')
-          brain = brain_path.read_text(encoding='utf-8')
-          old_block = '''# IDIOMA (regla dura — cúmplela siempre)
-          - Habla SIEMPRE en español de España por defecto.
-          - Cambia de idioma SOLO si el cliente habla una frase COMPLETA y CLARA en otro idioma. Una palabra suelta, un nombre, "pizza", "ok" o "ciao" NO cuenta.
-          - Nunca mezcles dos idiomas en la misma frase.
-          - Ante cualquier duda, español.
-          - La comanda a cocina SIEMPRE en español, pase lo que pase.
-          - Los nombres propios de los platos se mantienen tal como aparecen en la carta.'''.replace('          ', '')
-          new_block = '''# IDIOMA (multilingüe con regla anti-rebote)
-          - Atiendes a clientes internacionales. Debes poder atender como mínimo en español, inglés, francés, italiano, alemán y ruso; si el cliente habla otro idioma, atiéndele también en el suyo.
-          - Responde SIEMPRE en el idioma que está usando el cliente.
-          - Idioma de apertura por defecto: español de España. Mantén el español hasta que el cliente establezca claramente otro idioma.
-          - "Establecer otro idioma" = el cliente dice una frase ENTERA y CLARA en ese idioma. Una palabra suelta o un préstamo (un nombre propio, "pizza", "ok", "ciao", "grazie", el nombre de un plato) NO cambia el idioma: sigue en el que estabas.
-          - Una vez el cliente habla un idioma, QUÉDATE en ese idioma el resto de la llamada; cambia solo si vuelve a hablar una frase entera en otro distinto.
-          - Nunca mezcles dos idiomas en la misma frase.
-          - Los nombres de los platos NO se traducen NUNCA: dilos tal cual están en la carta, en cualquier idioma.
-          - La comanda a cocina (submit_order: notes, kitchenNote y modificadores) va SIEMPRE en español, hables el idioma que hables. El nombre del cliente, tal cual lo diga.'''.replace('          ', '')
-          if old_block not in brain:
-              raise SystemExit('Current language block not found')
-          brain_path.write_text(brain.replace(old_block, new_block, 1), encoding='utf-8')
-
-          test_path = Path('test-system-prompt-contract.cjs')
-          test = test_path.read_text(encoding='utf-8')
-          old_asserts = '''assert(prompt.includes("Habla SIEMPRE en español de España por defecto."));
-          assert(prompt.includes("frase COMPLETA y CLARA"));'''.replace('          ', '')
-          new_asserts = '''assert(prompt.includes("español, inglés, francés, italiano, alemán y ruso"));
-          assert(prompt.includes("Idioma de apertura por defecto: español de España"));
-          assert(prompt.includes("frase ENTERA y CLARA"));
-          assert(prompt.includes("QUÉDATE en ese idioma"));'''.replace('          ', '')
-          if old_asserts not in test:
-              raise SystemExit('Current prompt content asserts not found')
-          test = test.replace(old_asserts, new_asserts, 1)
-
-          old_case_assert = '''systems[0].content.includes("Habla SIEMPRE en español de España por defecto.")'''
-          new_case_assert = '''systems[0].content.includes("Idioma de apertura por defecto: español de España")'''
-          if old_case_assert not in test:
-              raise SystemExit('Current spanishDefaultCases assert not found')
-          test = test.replace(old_case_assert, new_case_assert, 1)
-          test_path.write_text(test, encoding='utf-8')
-          PY
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run full regression suite
-        run: npm test
-
-      - name: Commit tested amendment to PR branch
-        shell: bash
-        run: |
-          rm -f .github/workflows/amend-multilingual.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: support multilingual calls with anti-bounce language rules"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+      - run: echo "Temporary workflow disabled"
