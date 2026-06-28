@@ -10,10 +10,11 @@
     "test:fase4": "node test-orders-fase4.cjs",
     "test:fase5": "node test-orders-fase5.cjs",
     "test:fase6": "node test-orders-fase6.cjs",
-    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs",
+    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs",
     "test:all": "npm test",
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test:prompt": "node test-system-prompt-contract.cjs"
   },
   "keywords": [
     "vozra",

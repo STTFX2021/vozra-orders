@@ -192,7 +192,12 @@ router.post("/v1/chat/completions", async (req, res) => {
   // Marta entiende lenguaje natural vía gpt-4o-mini y, al confirmar el cliente,
   // dispara el pedido a cocina dentro de generateMartaReply.
   try {
-    const { reply, dispatched, action } = await generateMartaReply(callId, body.messages || []);
+    // ElevenLabs puede adjuntar su propio system prompt. El cerebro es la única
+  // fuente de instrucciones: conservamos el historial conversacional y
+  // descartamos cualquier system entrante antes de llamar al modelo.
+  const incoming = Array.isArray(body.messages) ? body.messages : [];
+  const userTurns = incoming.filter(m => m && m.role !== "system");
+  const { reply, dispatched, action } = await generateMartaReply(callId, userTurns);
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(reply).slice(0,60)}"`);
     return sendStreamResponse(res, reply, id, model);
   } catch (errLLM) {
