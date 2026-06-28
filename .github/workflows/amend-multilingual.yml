@@ -1,74 +1,13 @@
-name: Apply multilingual amendment
+name: Disabled multilingual amendment
 
 on:
-  push:
-    branches:
-      - fix/system-prompt-language-guard
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  amend:
-    if: github.event.head_commit.message != 'fix: support multilingual calls with anti-bounce language rules'
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Apply requested prompt and contract changes
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          brain_path = Path('marta-llm.service.js')
-          brain = brain_path.read_text(encoding='utf-8')
-          old = '''# IDIOMA (regla dura — cúmplela siempre)
-- Habla SIEMPRE en español de España por defecto.
-- Cambia de idioma SOLO si el cliente habla una frase COMPLETA y CLARA en otro idioma. Una palabra suelta, un nombre, "pizza", "ok" o "ciao" NO cuenta.
-- Nunca mezcles dos idiomas en la misma frase.
-- Ante cualquier duda, español.
-- La comanda a cocina SIEMPRE en español, pase lo que pase.
-- Los nombres propios de los platos se mantienen tal como aparecen en la carta.'''
-          new = '''# IDIOMA (multilingüe con regla anti-rebote)
-- Atiendes a clientes internacionales. Debes poder atender como mínimo en español, inglés, francés, italiano, alemán y ruso; si el cliente habla otro idioma, atiéndele también en el suyo.
-- Responde SIEMPRE en el idioma que está usando el cliente.
-- Idioma de apertura por defecto: español de España. Mantén el español hasta que el cliente establezca claramente otro idioma.
-- "Establecer otro idioma" = el cliente dice una frase ENTERA y CLARA en ese idioma. Una palabra suelta o un préstamo (un nombre propio, "pizza", "ok", "ciao", "grazie", el nombre de un plato) NO cambia el idioma: sigue en el que estabas.
-- Una vez el cliente habla un idioma, QUÉDATE en ese idioma el resto de la llamada; cambia solo si vuelve a hablar una frase entera en otro distinto.
-- Nunca mezcles dos idiomas en la misma frase.
-- Los nombres de los platos NO se traducen NUNCA: dilos tal cual están en la carta, en cualquier idioma.
-- La comanda a cocina (submit_order: notes, kitchenNote y modificadores) va SIEMPRE en español, hables el idioma que hables. El nombre del cliente, tal cual lo diga.'''
-          if old not in brain:
-              raise SystemExit('language block not found')
-          brain_path.write_text(brain.replace(old, new, 1), encoding='utf-8')
-
-          test_path = Path('test-system-prompt-contract.cjs')
-          test = test_path.read_text(encoding='utf-8')
-          test = test.replace(
-              'assert(prompt.includes("Habla SIEMPRE en español de España por defecto."));\nassert(prompt.includes("frase COMPLETA y CLARA"));',
-              'assert(prompt.includes("español, inglés, francés, italiano, alemán y ruso"));\nassert(prompt.includes("Idioma de apertura por defecto: español de España"));\nassert(prompt.includes("frase ENTERA y CLARA"));\nassert(prompt.includes("QUÉDATE en ese idioma"));',
-              1
-          )
-          test = test.replace(
-              'systems[0].content.includes("Habla SIEMPRE en español de España por defecto.")',
-              'systems[0].content.includes("Idioma de apertura por defecto: español de España")',
-              1
-          )
-          test_path.write_text(test, encoding='utf-8')
-          PY
-
-      - run: npm ci
-      - run: npm test
-
-      - name: Commit amendment
-        run: |
-          rm -f .github/workflows/amend-multilingual.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: support multilingual calls with anti-bounce language rules"
-          git push origin HEAD:fix/system-prompt-language-guard
+      - run: echo "Disabled until PR event"
