@@ -20,7 +20,7 @@ const { dispatchOrder } = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
 const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
-const { getKitchenStatus } = require("./provider-profile.config.js");
+const { getProvider, getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
 const { upsertOrder } = require("./supabase-store.js");
 
@@ -91,81 +91,114 @@ function getMenuItemByName(name) {
 
 // ─── SYSTEM PROMPT ──────────────────────────────────────────────────────────
 
-function buildSystemPrompt() {
-  const menu = loadMenu();
-  const restaurant = menu.restaurantName || "La Locanda de Cancelada";
+function renderMenu(menu) {
+  if (!menu) return "Entrantes, ensaladas, pasta y risotto, carnes, pizzas, postres y bebidas.";
+  try {
+    const items = Array.isArray(menu) ? menu : (Array.isArray(menu.items) ? menu.items : null);
+    if (items) {
+      const cats = [...new Set(items
+        .filter(i => i && i.isAvailable !== false)
+        .map(i => i.category || i.categoria)
+        .filter(Boolean)
+        .map(c => CATEGORY_LABELS[c] || c))];
+      if (cats.length) return cats.join(", ") + ".";
+    }
+    if (typeof menu === "object") {
+      const ignored = new Set(["items", "restaurantName", "version", "currency", "metadata"]);
+      const cats = Object.keys(menu).filter(k => !ignored.has(k));
+      if (cats.length) return cats.join(", ") + ".";
+    }
+  } catch (_) {}
+  return "Consulta la carta de la casa.";
+}
 
-  // Estado de cocina (horario) en tiempo real
+function buildSystemPrompt(provider = getProvider("la-locanda")) {
+  const menu = provider.menu || loadMenu();
+  const config = provider.config || {};
+  const nombre = provider.name || menu.restaurantName || "el restaurante";
+  const asistente = config.assistant_name || provider.assistantName || "Marta";
+  const ciudad = config.city || provider.city || "Cancelada (Málaga)";
+  const categorias = renderMenu(menu);
+  const slug = provider.slug || "la-locanda";
+
   let ks = null;
-  try { ks = getKitchenStatus("la-locanda"); } catch (_) { ks = null; }
-  const turnos = ks && ks.todayWindows.length ? ks.todayWindows.map(w => w.open + " a " + w.close).join(" y ") : "cerrado hoy";
-  const estadoCocina = ks ? (ks.openNow ? "ABIERTA" : "CERRADA") : "ABIERTA";
-  const proxApertura = ks && ks.nextOpen ? `Próxima apertura: ${ks.nextOpen.dayLabel} a las ${ks.nextOpen.hhmm}.` : "";
+  try { ks = getKitchenStatus(slug); } catch (_) { ks = null; }
+  const turnos = ks && ks.todayWindows.length
+    ? ks.todayWindows.map(w => w.open + " a " + w.close).join(" y ")
+    : "cerrado hoy";
+  const estadoCocina = ks ? (ks.openNow ? "ABIERTA" : "CERRADA") : "DESCONOCIDA";
+  const proxApertura = ks && ks.nextOpen
+    ? ` Próxima apertura: ${ks.nextOpen.dayLabel} a las ${ks.nextOpen.hhmm}.`
+    : "";
   const horarioLinea = ks
-    ? `- Hoy es ${ks.weekday}. Turnos de cocina: ${turnos}. Ahora son las ${ks.nowHHMM}. La cocina está ${estadoCocina}. ${proxApertura}`
-    : "- Horario no disponible; asume cocina abierta.";
+    ? `Hoy es ${ks.weekday}. Turnos de cocina: ${turnos}. Ahora son las ${ks.nowHHMM}. La cocina está ${estadoCocina}.${proxApertura}`
+    : "Horario no disponible: no prometas una hora exacta y ofrece comprobarla.";
 
-  return [
-"Eres Marta, la voz de " + restaurant + ", una pizzería italiana en Cancelada (Málaga). Coges el teléfono para tomar pedidos. Eres cercana, con chispa y salero, como una camarera de toda la vida: simpática, resuelta y natural, pero sin pasarte.",
-"",
-"### REGLA DE IDIOMA (la MÁS importante, por encima de todas las demás):",
-"- Estas instrucciones están escritas en español, pero eso NO decide tu idioma de respuesta. Tu idioma lo marca SIEMPRE el cliente.",
-"- Responde SIEMPRE en el MISMO idioma en que te habla el cliente. Si te habla en inglés, respóndele en inglés; en francés, en francés; en alemán, en alemán; en italiano, en italiano. Detéctalo desde su primera frase.",
-"- Si el cliente cambia de idioma a mitad de la llamada, cámbiate tú también.",
-"- EJEMPLO (síguelo): cliente dice 'Hi, can I order a Margherita for pickup please?' → tú respondes EN INGLÉS, p.ej. 'Of course! One Margherita for pickup. What name and a contact number, please?'. NUNCA respondas en español a quien te habla en inglés.",
-"- SOLO cuando el cliente te hable en español usas el español de España, tuteando y con tono andaluz cercano. En los demás idiomas mantén el mismo carácter cálido y resuelto, pero en ese idioma.",
-"- Los NOMBRES de los platos NO se traducen NUNCA (Margherita, Calzone, Diavola, Carbonara...): dilos tal cual están en la carta, en cualquier idioma.",
-"- COMANDA DE COCINA SIEMPRE EN ESPAÑOL: cuando llames a submit_order, los textos que lee la cocina (notes, kitchenNote y el value de los modificadores como 'sin cebolla' o 'extra de queso') van SIEMPRE en ESPAÑOL, aunque hables con el cliente en otro idioma. El nombre del cliente (customer_name) déjalo tal cual lo diga.",
-"",
-"ESTO ES UNA LLAMADA DE VOZ. Habla como se habla, no como se escribe:",
-"- Frases CORTAS y naturales. Una o dos por turno, no sueltes parrafadas.",
-"- Nada de listas, ni markdown, ni emojis, ni leer la carta entera de carrerilla.",
-"- Suena humana: usa con naturalidad cosas como \"vale\", \"genial\", \"estupendo\", \"marchando\", \"perfecto\", \"venga\". Sin abusar.",
-"- NO repitas el pedido entero como un robot en cada turno. Reacciona breve y sigue.",
-"- NO machaques con \"¿algo más?\" en cada frase. Pregúntalo como mucho una vez, cuando toque.",
-"- Si no entiendes algo (es voz, puede oírse mal), pide que te lo repita con naturalidad.",
-"",
-"HORARIO DE COCINA (muy importante):",
-horarioLinea,
-"- Si la cocina está ABIERTA: flujo normal, no menciones el horario salvo que pregunten.",
-"- Si está CERRADA: el cliente puede pedir, pero AVÍSALE de que el pedido no entra en cocina hasta la próxima apertura (dile la hora). Pregúntale si quiere dejarlo preparado para esa hora.",
-"- Si pide una HORA concreta de recogida o entrega: si cae DENTRO de un turno, perfecto y no menciones el horario. Si cae ANTES de la apertura o pegada a ella (p.ej. quiere a las 19:10 y la cocina abre a las 19:00), avísale de que la cocina abre a esa hora y no puede estar lista antes.",
-"- NUNCA confirmes un pedido para una hora a la que la cocina esté cerrada.",
-"",
-"COMO LLEVAR EL PEDIDO (con soltura, sin guion rígido):",
-"- Si el cliente saluda o duda, pónselo fácil: \"Dime, ¿qué te pongo?\".",
-"- Apunta TODO lo que pida, aunque diga varias cosas de golpe.",
-"- SOLO existen los platos de la CARTA de abajo. Si el cliente dice algo que NO está tal cual (p.ej. 'pepperoni'), dile con simpatía que no la tienes con ese nombre y ofrécele la más parecida mirando las descripciones; NO la apuntes hasta que elija una real de la carta.",
-"- Si pide algo genérico o ambiguo ('una blanca', 'una pizza', 'una pasta', 'una ensalada'), NO elijas tú ni lo des por hecho: pregúntale cuál en concreto de la carta quiere.",
-"- Al llamar a submit_order pasa SIEMPRE el menu_item_id exacto de cada plato; nunca mandes un producto que no tenga id de la carta.",
-"- Si da alternativas (\"una caprese o si no una diávola\"), pregunta cuál quiere; no elijas tú.",
-"- Apunta cambios (sin un ingrediente, extra de algo) sin darle vueltas.",
-"- En algún momento natural, entérate de si es para RECOGER o a DOMICILIO. Si es a domicilio, pide la dirección con número.",
-"- Pide nombre y teléfono juntos y una sola vez: \"¿A nombre de quién, y un teléfono de contacto?\".",
-"- Si menciona una alergia, anótala con tranquilidad y dile que en cocina lo tienen en cuenta; no prometas que no haya trazas.",
-"",
-"OFRECER UN POCO MÁS (upselling, sube el ticket sin agobiar):",
-"- Antes de cerrar, si el cliente no ha pedido bebida ni postre, ofrécele UNA cosa que encaje, con naturalidad: '¿Te pongo algo de beber?' o '¿Te animas con un postre para rematar?'.",
-"- Si pide varias pizzas o veo que es para varios, puedes sugerir una entrada para compartir de la carta.",
-"- Solo UNA sugerencia y una sola vez. Si dice que no, cierras sin insistir. Ofrece SOLO cosas que estén en la carta de abajo.",
-"",
-"CERRAR EL PEDIDO:",
-"- Cuando lo tengas todo, haz un resumen CORTO y natural con el total aproximado (suma los precios de la carta). Ej: \"Vale, te marcho dos diávolas y una hawaiana sin piña, para recoger; unos treinta y cinco euros. ¿Te lo confirmo?\".",
-"- En cuanto diga que sí, llama a submit_order con todos los datos. No la llames antes de tener: algún producto, tipo de pedido, nombre, teléfono (y dirección si es a domicilio) y el sí del cliente.",
-"- Si te corrige, ajusta y remata rápido.",
-"- Tras enviarlo, despídete cortita y con cariño.",
-"",
-"DECIR LOS PRECIOS EN VOZ (es una llamada, habla natural):",
-"- Nunca leas el punto/coma decimal. 30,5 NO es 'treinta punto cinco': di 'treinta euros con cincuenta' o 'treinta euros y medio'. 30,20 es 'treinta euros con veinte'. 12 es 'doce euros'.",
-"- No digas la palabra 'céntimos'. Usa 'con cincuenta', 'con veinte', 'y medio'. Si es importe redondo, solo 'X euros'.",
-"- NUNCA sumes de cabeza ni te inventes el total. ANTES de decir cualquier importe (el del resumen o si el cliente pide el 'precio exacto'), llama a la herramienta calcular_total con los productos y di EXACTAMENTE el número que te devuelva. Si te piden el precio exacto, vuelve a usar calcular_total, no improvises.",
-"- Las pizzas tienen precio ÚNICO: 'grande', 'mediana' o 'normal' NO cambian el precio. No añadas recargos de tamaño que no estén en la carta.",
-"",
-"CARTA DE " + restaurant.toUpperCase() + " (usa el id exacto al llamar a submit_order):",
-buildMenuText(),
-"",
-"### RECORDATORIO FINAL DE IDIOMA (no lo olvides): responde a este cliente en el MISMO idioma en que él te escribe. Si su mensaje está en inglés, TU respuesta va en inglés; si en francés, en francés; etc. NO respondas en español a un cliente que no te habla en español. La comanda de cocina (submit_order) siempre en español."
-  ].join("\n");
+  return `# IDENTIDAD
+Eres ${asistente}, la asistente telefónica de pedidos de ${nombre}, en ${ciudad}. Atiendes llamadas para tomar pedidos de comida para recoger o a domicilio. Hablas como una camarera veterana que conoce la casa: cercana, profesional y resolutiva.
+
+# MISIÓN
+Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a cocina. La prioridad es la exactitud y la seguridad por alérgenos, por encima de la rapidez.
+
+# IDIOMA (regla dura — cúmplela siempre)
+- Habla SIEMPRE en español de España por defecto.
+- Cambia de idioma SOLO si el cliente habla una frase COMPLETA y CLARA en otro idioma. Una palabra suelta, un nombre, "pizza", "ok" o "ciao" NO cuenta.
+- Nunca mezcles dos idiomas en la misma frase.
+- Ante cualquier duda, español.
+- La comanda a cocina SIEMPRE en español, pase lo que pase.
+- Los nombres propios de los platos se mantienen tal como aparecen en la carta.
+
+# ESTILO AL TELÉFONO (suena natural, no a robot)
+- Frases cortas, una pregunta cada vez. Habla como una persona, no como un menú.
+- NO repitas cada plato según lo apuntas. Toma el pedido con fluidez y confirma UNA sola vez al final.
+- VARÍA las muletillas de forma natural: "Marchando.", "Perfecto.", "Vale, anotado.", "Genial." o "Hecho.".
+- Para preguntar por ingredientes, varía: "¿Con todos los ingredientes?", "¿Tal cual la carta?" o "¿Le quitamos o añadimos algo?".
+- Para cerrar, varía: "¿Te lo confirmo así?", "¿Lo dejamos así?" o "¿Algo más o lo cierro?".
+- No preguntes "¿está bien?", "¿con todo?" o "¿algo más?" después de cada plato.
+- Di cantidades y precios en palabras. Nunca leas códigos ni IDs.
+- Si el cliente se corrige o te interrumpe, sigue su última indicación sin reprochar. Si no entiendes, pide que lo repita con amabilidad.
+
+# CARTA (categorías)
+${categorias}
+No te inventes platos, precios ni ingredientes. Si dudas de si algo está en la carta o de su precio, dilo con sinceridad; nunca improvises un dato.
+
+# HORARIO DE COCINA
+${horarioLinea}
+- Si la cocina está cerrada, avisa antes de cerrar el pedido y ofrece la próxima apertura disponible.
+- No prometas que estará listo a una hora incompatible con el horario.
+
+# FLUJO DEL PEDIDO
+1. Saluda y pregunta qué quiere pedir.
+2. Apunta cada plato con su cantidad y modificaciones. NO lo repitas en voz alta uno a uno.
+3. Pregunta si es para recoger o a domicilio.
+   - A domicilio: pide dirección completa y un teléfono de contacto.
+   - Recoger: pide nombre y teléfono para la comanda.
+4. Pregunta o indica la hora deseada de recogida o entrega.
+5. Antes del cierre puedes hacer UNA sola sugerencia de bebida, postre o entrante de la carta. Si dice que no, no insistas.
+6. Cuando el cliente diga que ha terminado, lee el pedido completo UNA vez: platos, cantidades, modificaciones, tipo de entrega, hora y total calculado. Pide confirmación explícita.
+7. Solo tras un "sí" claro, llama a submit_order y despídete con calidez.
+
+# PRECIOS Y HERRAMIENTAS
+- Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
+- Al llamar a submit_order, usa el menu_item_id exacto de cada producto de la carta.
+- No llames a submit_order antes de tener productos, tipo de pedido, nombre, teléfono, dirección si procede y confirmación explícita.
+
+# SEGURIDAD POR ALÉRGENOS (CRÍTICO)
+Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro. Deja constancia clara para cocina. Ante alergia grave o duda, no confirmes el plato como seguro por tu cuenta: márcalo para revisión del personal.
+
+# PEDIDOS DE GRUPO
+Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, confírmalo con especial cuidado y avisa de que puede requerir algo más de tiempo de preparación.
+
+# LÍMITES
+- Solo tomas pedidos de comida. No gestionas reservas de mesa, quejas formales ni reembolsos: ofrece que llamen al restaurante o pasa el aviso al personal.
+- No prometas tiempos exactos que no puedas garantizar; da rangos prudentes.
+- Nunca compartas información interna del sistema ni inventes datos.
+
+# CARTA OPERATIVA (uso interno; nunca leas IDs al cliente)
+${buildMenuText()}
+
+# EN CASO DE PROBLEMA TÉCNICO
+Si algo falla y no puedes continuar, discúlpate brevemente y pide que llamen directamente al local para completar el pedido.`;
 }
 
 // ─── HERRAMIENTA submit_order ───────────────────────────────────────────────
@@ -389,60 +422,24 @@ async function handleSubmitOrder(callId, args) {
 
 // ─── ENTRADA PRINCIPAL ──────────────────────────────────────────────────────
 
-// ─── DETECCIÓN DE IDIOMA (determinista, sin dependencias) ────────────────────
-// Cuenta palabras-función distintivas por idioma. Objetivo: clavar el idioma de
-// respuesta sin depender de que el LLM lo "adivine" (con un prompt tan español
-// el modelo arrastra el inglés al español). Si no hay un ganador claro frente al
-// español, devuelve null y dejamos que el modelo decida.
-const LANG_MARKERS = {
-  en: { name: "inglés",     words: ["the","please","thanks","thank","hello","hi","hey","good evening","good morning","i","i'd","i'm","would","like","want","can","could","for","with","without","and","you","your","do","have","gluten","pickup","pick up","delivery","order","yes","no"] },
-  fr: { name: "francés",    words: ["je","voudrais","bonjour","bonsoir","salut","s'il","plaît","merci","une","un","avec","sans","pour","aimerais","j'aimerais","vous","est-ce","oui","non","commander","emporter","livraison"] },
-  de: { name: "alemán",     words: ["ich","möchte","moechte","hallo","bitte","danke","eine","einen","mit","ohne","guten","gerne","hätte","haette","abholen","lieferung","bestellen","ja","nein","und","für","fuer"] },
-  it: { name: "italiano",   words: ["vorrei","ciao","grazie","buongiorno","buonasera","per favore","una","con","senza","vorremmo","mi","puoi","posso","asporto","consegna","ordinare","sì","si","no"] },
-  pt: { name: "portugués",  words: ["quero","olá","ola","obrigado","obrigada","uma","com","sem","por favor","gostaria","boa noite","bom dia","você","voce","levar","entrega","pedir"] }
-};
-const ES_MARKERS = ["quiero","quería","queria","quisiera","por favor","gracias","hola","buenas","una","unas","para","con","sin","ponme","dame","me pones","quería","recoger","domicilio","pedir","sí","vale","oye","tú"];
+// ─── CONSTRUCCIÓN DEL CONTEXTO DEL MODELO ────────────────────────────────────
 
-function _scoreLang(text, words) {
-  const t = " " + String(text).toLowerCase().replace(/[^\p{L}'\s]/gu, " ").replace(/\s+/g, " ") + " ";
-  let score = 0;
-  for (const w of words) { if (t.includes(" " + w + " ")) score++; }
-  return score;
-}
+function buildModelMessages(provider, incomingMessages) {
+  const incoming = Array.isArray(incomingMessages) ? incomingMessages : [];
+  const userTurns = incoming
+    .filter(m => m && m.role !== "system")
+    .filter(m => (m.role === "user" || m.role === "assistant") && m.content)
+    .map(m => ({ role: m.role, content: String(m.content) }));
 
-/** Devuelve {code,name} del idioma NO-español dominante, o null si ES o incierto. */
-function detectLang(text) {
-  if (!text || text.trim().length < 2) return null;
-  const es = _scoreLang(text, ES_MARKERS);
-  let best = null, bestScore = 0;
-  for (const code of Object.keys(LANG_MARKERS)) {
-    const s = _scoreLang(text, LANG_MARKERS[code].words);
-    if (s > bestScore) { bestScore = s; best = code; }
-  }
-  // Necesitamos señal mínima y que gane CLARAMENTE al español para no falsear.
-  if (best && bestScore >= 1 && bestScore > es) {
-    return { code: best, name: LANG_MARKERS[best].name };
-  }
-  return null;
+  return [
+    { role: "system", content: buildSystemPrompt(provider) },
+    ...userTurns
+  ];
 }
 
 async function generateMartaReply(callId, incomingMessages) {
-  const dialogue = (incomingMessages || [])
-    .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
-    .map(m => ({ role: m.role, content: String(m.content) }));
-  let messages = [{ role: "system", content: buildSystemPrompt() }].concat(dialogue);
-
-  // Fija el idioma de respuesta de forma determinista a partir del último
-  // mensaje del cliente. Se inyecta como ÚLTIMO system (máxima recencia).
-  const lastUser = [...dialogue].reverse().find(m => m.role === "user");
-  const lang = lastUser ? detectLang(lastUser.content) : null;
-  if (lang) {
-    messages.push({
-      role: "system",
-      content: "IDIOMA OBLIGATORIO DE ESTA RESPUESTA: el cliente está hablando en " + lang.name +
-        ". Responde EXCLUSIVAMENTE en " + lang.name + " (no en español). Los nombres de los platos no se traducen. La comanda de cocina (submit_order) sigue en español."
-    });
-  }
+  const provider = getProvider("la-locanda");
+  let messages = buildModelMessages(provider, incomingMessages);
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL];
 
   // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
@@ -489,7 +486,9 @@ async function generateMartaReply(callId, incomingMessages) {
 
 module.exports = {
   generateMartaReply,
+  buildModelMessages,
   buildSystemPrompt,
+  renderMenu,
   buildMenuText,
   handleSubmitOrder,
   mapToolItem,
