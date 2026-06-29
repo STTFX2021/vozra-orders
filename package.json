@@ -10,7 +10,8 @@
     "test:fase4": "node test-orders-fase4.cjs",
     "test:fase5": "node test-orders-fase5.cjs",
     "test:fase6": "node test-orders-fase6.cjs",
-    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs",
+    "test:demo": "node test-demo-callback.cjs",
+    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs && node test-demo-callback.cjs",
     "test:all": "npm test",
     "start": "node server.js",
     "dev": "node --watch server.js",
@@ -27,6 +28,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
-    "form-data": "^4.0.5"
+    "form-data": "^4.0.5",
+    "libphonenumber-js": "^1.13.7"
   }
 }

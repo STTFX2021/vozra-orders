@@ -1,0 +1,29 @@
+name: Demo callback CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - feature/demo-callback-integration
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: |
+          node --check server.js
+          node --check demo-callback.routes.js
+          node --check demo-callback.store.js
+          node --check test-demo-callback.cjs
+      - run: npm test
