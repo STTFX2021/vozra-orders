@@ -2,6 +2,7 @@
 
 const express = require("express");
 const crypto = require("crypto");
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
 const {
   isEnabled: isCallbackStoreEnabled,
   reserveCallback,
@@ -13,16 +14,16 @@ const ALLOWED_ORIGIN = "https://vozra-direct-demo.lovable.app";
 const ELEVENLABS_OUTBOUND_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call";
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-const COUNTRY_RULES = {
-  ES: { dial: "+34", stripTrunkZero: false },
-  PT: { dial: "+351", stripTrunkZero: false },
-  FR: { dial: "+33", stripTrunkZero: true },
-  IT: { dial: "+39", stripTrunkZero: false },
-  DE: { dial: "+49", stripTrunkZero: true },
-  GB: { dial: "+44", stripTrunkZero: true },
-  MX: { dial: "+52", stripTrunkZero: false },
-  AR: { dial: "+54", stripTrunkZero: true },
-  US: { dial: "+1", stripTrunkZero: false }
+const COUNTRY_DIALS = {
+  ES: "+34",
+  PT: "+351",
+  FR: "+33",
+  IT: "+39",
+  DE: "+49",
+  GB: "+44",
+  MX: "+52",
+  AR: "+54",
+  US: "+1"
 };
 
 function sendError(res, status, code, message, extra = {}) {
@@ -44,36 +45,23 @@ function getClientIp(req) {
 
 function normalizeCountry(country) {
   const value = String(country || "").trim().toUpperCase();
-  if (COUNTRY_RULES[value]) return value;
-  const byDial = Object.entries(COUNTRY_RULES).find(([, rule]) => rule.dial === value);
+  if (COUNTRY_DIALS[value]) return value;
+  const byDial = Object.entries(COUNTRY_DIALS).find(([, dial]) => dial === value);
   return byDial ? byDial[0] : null;
 }
 
 function composeE164(phone, country) {
   const raw = String(phone || "").trim();
-  if (!raw) return null;
-
-  const explicitInternational = raw.startsWith("+")
-    ? `+${raw.slice(1).replace(/\D/g, "")}`
-    : raw.startsWith("00")
-      ? `+${raw.slice(2).replace(/\D/g, "")}`
-      : null;
-
-  if (explicitInternational) {
-    return /^\+[1-9]\d{7,14}$/.test(explicitInternational) ? explicitInternational : null;
-  }
-
   const countryCode = normalizeCountry(country);
-  if (!countryCode) return null;
+  if (!raw || !countryCode) return null;
 
-  const rule = COUNTRY_RULES[countryCode];
-  let local = raw.replace(/\D/g, "");
-  if (!local) return null;
-
-  if (rule.stripTrunkZero && local.startsWith("0")) local = local.slice(1);
-
-  const composed = `${rule.dial}${local}`;
-  return /^\+[1-9]\d{7,14}$/.test(composed) ? composed : null;
+  try {
+    const parsed = parsePhoneNumberFromString(raw, countryCode);
+    if (!parsed || !parsed.isValid() || parsed.country !== countryCode) return null;
+    return parsed.number;
+  } catch {
+    return null;
+  }
 }
 
 function parseDailyCap(value) {
