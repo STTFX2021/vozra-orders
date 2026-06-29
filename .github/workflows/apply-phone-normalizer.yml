@@ -1,0 +1,107 @@
+name: Apply robust callback phone normalization
+
+on:
+  push:
+    branches:
+      - feature/demo-callback-integration
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/demo-callback-integration
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Replace handwritten phone rules
+        shell: python
+        run: |
+          from pathlib import Path
+
+          route = Path("demo-callback.routes.js")
+          text = route.read_text(encoding="utf-8")
+          import_line = 'const { parsePhoneNumberFromString } = require("libphonenumber-js");'
+          if import_line not in text:
+              text = text.replace(
+                  'const crypto = require("crypto");',
+                  'const crypto = require("crypto");\n' + import_line,
+              )
+
+          country_start = text.index("const COUNTRY_RULES = {")
+          country_end = text.index("\n\nfunction sendError", country_start)
+          country_block = '''const COUNTRY_DIALS = {
+            ES: "+34",
+            PT: "+351",
+            FR: "+33",
+            IT: "+39",
+            DE: "+49",
+            GB: "+44",
+            MX: "+52",
+            AR: "+54",
+            US: "+1"
+          };'''
+          text = text[:country_start] + country_block + text[country_end:]
+
+          normalize_start = text.index("function normalizeCountry")
+          compose_start = text.index("function composeE164", normalize_start)
+          normalize_block = '''function normalizeCountry(country) {
+            const value = String(country || "").trim().toUpperCase();
+            if (COUNTRY_DIALS[value]) return value;
+            const byDial = Object.entries(COUNTRY_DIALS).find(([, dial]) => dial === value);
+            return byDial ? byDial[0] : null;
+          }
+
+          '''
+          text = text[:normalize_start] + normalize_block + text[compose_start:]
+
+          compose_start = text.index("function composeE164")
+          compose_end = text.index("\n\nfunction parseDailyCap", compose_start)
+          compose_block = '''function composeE164(phone, country) {
+            const raw = String(phone || "").trim();
+            const countryCode = normalizeCountry(country);
+            if (!raw || !countryCode) return null;
+
+            try {
+              const parsed = parsePhoneNumberFromString(raw, countryCode);
+              if (!parsed || !parsed.isValid() || parsed.country !== countryCode) return null;
+              return parsed.number;
+            } catch {
+              return null;
+            }
+          }'''
+          text = text[:compose_start] + compose_block + text[compose_end:]
+          route.write_text(text, encoding="utf-8")
+
+          test = Path("test-demo-callback.cjs")
+          test_text = test.read_text(encoding="utf-8")
+          marker = '  ok(composeE164("392 123 4567", "IT") === "+393921234567", "no confunde un móvil italiano con el prefijo internacional");'
+          argentina = '  ok(composeE164("011 15 1234-5678", "AR") === "+5491112345678", "normaliza móviles argentinos con 0 y 15");'
+          if argentina not in test_text:
+              test_text = test_text.replace(marker, marker + "\n" + argentina)
+          test.write_text(test_text, encoding="utf-8")
+      - name: Refresh lockfile and install
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --no-audit --no-fund
+      - name: Validate
+        run: |
+          node --check demo-callback.routes.js
+          node --check test-demo-callback.cjs
+          npm test
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add demo-callback.routes.js test-demo-callback.cjs package-lock.json
+          git rm .github/workflows/apply-phone-normalizer.yml
+          git commit -m "Normalize callback numbers with libphonenumber"
+          git push origin HEAD:feature/demo-callback-integration
