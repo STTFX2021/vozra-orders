@@ -10,6 +10,7 @@
  *   GET  /health                ← Health check
  *   POST /whatsapp/incoming     ← WhatsApp Twilio (texto + audio + imagen)
  *   GET  /whatsapp/health       ← Health check canal WhatsApp
+ *   POST /api/demo/callback     ← Llamada saliente protegida para la demo web
  */
 
 require("dotenv").config();
@@ -34,11 +35,13 @@ const elevenLabsRoutes  = require("./elevenlabs-llm.routes.js");
 const whatsappRoutes    = require("./whatsapp-twilio.routes.js");
 const printRoutes       = require("./print.routes.js");
 const telegramAckRoutes = require("./telegram-ack.routes.js");
+const demoCallbackRoutes = require("./demo-callback.routes.js");
 
 app.use("/", elevenLabsRoutes);
 app.use("/", whatsappRoutes);
 app.use("/", printRoutes);
 app.use("/", telegramAckRoutes);
+app.use("/", demoCallbackRoutes);
 
 // ACK de cocina: las alertas de "sin confirmar" se envían al canal de cocina (visibles).
 try { telegramAckRoutes.wireKitchenAlerts(); } catch (e) { console.error("[server] wireKitchenAlerts:", e.message); }
@@ -65,7 +68,8 @@ app.listen(PORT, () => {
   console.log(`   POST /kitchen/ack          ← Kitchen ACK webhook`);
   console.log(`   GET  /health               ← Health check`);
   console.log(`   POST /whatsapp/incoming    ← WhatsApp Twilio multimodal`);
-  console.log(`   GET  /whatsapp/health      ← Health check WhatsApp\n`);
+  console.log(`   GET  /whatsapp/health      ← Health check WhatsApp`);
+  console.log(`   POST /api/demo/callback    ← Demo web callback\n`);
 });
 
 module.exports = app;
