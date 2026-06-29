@@ -70,12 +70,6 @@ function composeE164(phone, country) {
   let local = raw.replace(/\D/g, "");
   if (!local) return null;
 
-  const dialDigits = rule.dial.slice(1);
-  if (local.startsWith(dialDigits)) {
-    const alreadyComposed = `+${local}`;
-    return /^\+[1-9]\d{7,14}$/.test(alreadyComposed) ? alreadyComposed : null;
-  }
-
   if (rule.stripTrunkZero && local.startsWith("0")) local = local.slice(1);
 
   const composed = `${rule.dial}${local}`;
