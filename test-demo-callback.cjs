@@ -45,6 +45,7 @@ async function runHandler(body, deps) {
   ok(composeE164("600 123 456", "ES") === "+34600123456", "compone número español en E.164");
   ok(composeE164("+34 600 123 456", "ES") === "+34600123456", "acepta E.164 explícito");
   ok(composeE164("07123 456789", "GB") === "+447123456789", "elimina trunk prefix británico");
+  ok(composeE164("392 123 4567", "IT") === "+393921234567", "no confunde un móvil italiano con el prefijo internacional");
   ok(composeE164("123", "ES") === null, "rechaza números demasiado cortos");
 
   let outboundCalls = 0;
