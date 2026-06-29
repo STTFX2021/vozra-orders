@@ -1,0 +1,48 @@
+name: Validate demo callback integration
+
+on:
+  push:
+    branches:
+      - feature/demo-callback-integration
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/demo-callback-integration
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check syntax
+        run: |
+          node --check server.js
+          node --check demo-callback.routes.js
+          node --check demo-callback.store.js
+          node --check test-demo-callback.cjs
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Record successful validation and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/validate-demo-callback.yml
+          git commit -m "Validate demo callback integration"
+          git push origin HEAD:feature/demo-callback-integration
