@@ -183,7 +183,7 @@ router.post("/v1/chat/completions", async (req, res) => {
   if (!userText.trim()) {
     return sendStreamResponse(
       res,
-      "¡Hola! La Locanda de Cancelada, soy Marta. ¿Qué te apetece hoy?",
+      "¡Hola! La Locanda de Cancelada, soy Sarah. ¿Qué te apetece hoy?",
       id, model
     );
   }
