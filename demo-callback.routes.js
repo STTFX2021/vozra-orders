@@ -10,7 +10,7 @@ const {
 } = require("./demo-callback.store.js");
 
 const router = express.Router();
-const ALLOWED_ORIGIN = "https://vozra-direct-demo.lovable.app";
+const ALLOWED_ORIGINS = (process.env.DEMO_ALLOWED_ORIGINS || "https://vozra-direct-demo.lovable.app,https://sarah-speaks-direct.lovable.app").split(",").map((s) => s.trim()).filter(Boolean);
 const ELEVENLABS_OUTBOUND_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call";
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -267,12 +267,12 @@ function createDemoCallbackHandler(deps = {}) {
 
 function demoCors(req, res, next) {
   const origin = req.headers.origin;
-  if (origin && origin !== ALLOWED_ORIGIN) {
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
     return sendError(res, 403, "origin_not_allowed", "Origen no permitido.");
   }
 
-  if (origin === ALLOWED_ORIGIN) {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
     res.set("Vary", "Origin");
   }
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
