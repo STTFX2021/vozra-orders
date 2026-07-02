@@ -238,11 +238,16 @@ function estimateTotal(order) {
     // Modificadores con precio
     for (const mod of (item.modifiers || [])) {
       if (mod.type === "restriction" || mod.type === "change_cooking") continue;
-      const modDef = (modsTax.modifiers || []).find(m =>
+      let modDef = (modsTax.modifiers || []).find(m =>
         m.id === mod.modifierId ||
         norm(m.displayName) === norm(mod.value) ||
         (m.nlpKeywords || []).some(kw => norm(kw) === norm(mod.value))
       );
+      // Fallback: un "extra"/"add" que no coincide con ningún topping premium concreto
+      // (queso, cebolla, champiñón...) se factura como "Ingrediente extra" genérico.
+      if (!modDef && (mod.type === "extra" || mod.type === "add")) {
+        modDef = (modsTax.modifiers || []).find(m => m.id === "mod_ingrediente_extra");
+      }
       if (modDef && modDef.price > 0) {
         itemTotal += modDef.price * qty;
         modLines.push({ label: modDef.displayName, price: modDef.price });
