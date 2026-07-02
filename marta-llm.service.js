@@ -116,7 +116,7 @@ function buildSystemPrompt(provider = getProvider("la-locanda")) {
   const menu = provider.menu || loadMenu();
   const config = provider.config || {};
   const nombre = provider.name || menu.restaurantName || "el restaurante";
-  const asistente = config.assistant_name || provider.assistantName || "Marta";
+  const asistente = config.assistant_name || provider.assistantName || "Sarah";
   const ciudad = config.city || provider.city || "Cancelada (Málaga)";
   const categorias = renderMenu(menu);
   const slug = provider.slug || "la-locanda";
@@ -157,12 +157,13 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 - Para preguntar por ingredientes, varía: "¿Con todos los ingredientes?", "¿Tal cual la carta?" o "¿Le quitamos o añadimos algo?".
 - Para cerrar, varía: "¿Te lo confirmo así?", "¿Lo dejamos así?" o "¿Algo más o lo cierro?".
 - No preguntes "¿está bien?", "¿con todo?" o "¿algo más?" después de cada plato.
-- Di cantidades y precios en palabras. Nunca leas códigos ni IDs.
+- PRECIOS SIEMPRE EN PALABRAS, nunca cifras ni símbolos. Formato: "trece euros con cincuenta" (céntimos con "con", el € se dice "euros"). Ej.: 13,50 → "trece euros con cincuenta"; 9 → "nueve euros"; 9,90 → "nueve euros con noventa". PROHIBIDO decir "punto", "coma" o leer dígitos. Cantidades también en palabras ("dos pizzas"). Nunca leas códigos ni IDs.
 - Si el cliente se corrige o te interrumpe, sigue su última indicación sin reprochar. Si no entiendes, pide que lo repita con amabilidad.
 
 # CARTA (categorías)
 ${categorias}
 No te inventes platos, precios ni ingredientes. Si dudas de si algo está en la carta o de su precio, dilo con sinceridad; nunca improvises un dato.
+- Si un producto NO aparece en la CARTA OPERATIVA, recházalo SIEMPRE con amabilidad; NUNCA lo aceptes ni lo añadas al pedido aunque suene plausible (p. ej. "aros de cebolla", "sushi", "nuggets"). No improvises productos.
 
 # HORARIO DE COCINA
 ${horarioLinea}
@@ -176,7 +177,7 @@ ${horarioLinea}
    - A domicilio: pide dirección completa y un teléfono de contacto.
    - Recoger: pide nombre y teléfono para la comanda.
 4. Pregunta o indica la hora deseada de recogida o entrega.
-5. Antes del cierre puedes hacer UNA sola sugerencia de bebida, postre o entrante de la carta. Si dice que no, no insistas.
+5. UPSELLING (obligatorio, UNA vez, antes del resumen): haz SIEMPRE una sugerencia concreta y relevante, de UN solo producto: si no hay bebida, ofrece una bebida concreta; si hay principal sin postre, sugiere un postre por su nombre; si ya hay bebida y postre, ofrece un entrante para compartir. Una frase apetecible. Si dice que no, no insistas y pasa al resumen.
 6. Cuando el cliente diga que ha terminado, lee el pedido completo UNA vez: platos, cantidades, modificaciones, tipo de entrega, hora y total calculado. Pide confirmación explícita.
 7. Solo tras un "sí" claro, llama a submit_order y despídete con calidez.
 
@@ -334,8 +335,18 @@ function computeQuote(args) {
   return { total_eur: estimatedTotal, moneda: currency || "EUR", productos_sin_precio: sinPrecio };
 }
 
+function formatEurosSpoken(n) {
+  if (n == null || isNaN(n)) return "";
+  const euros = Math.floor(n);
+  const cents = Math.round((n - euros) * 100);
+  return cents === 0 ? `${euros} euros` : `${euros} euros con ${cents}`;
+}
+
 async function handleSubmitOrder(callId, args) {
-  getOrCreateOrderSession(callId);
+  const _sess = getOrCreateOrderSession(callId);
+  if (_sess && _sess.status === ORDER_STATUS.SENT_TO_KITCHEN) {
+    return { ok: true, delivered: _sess.dispatchChannel && _sess.dispatchChannel !== "file_fallback", order: _sess, reply: "", validation: {}, alreadyDone: true };
+  }
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
   const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
   const patch = {
@@ -405,8 +416,9 @@ async function handleSubmitOrder(callId, args) {
     const ticketText = buildTextTicket(printOrder, validation);
     enqueuePrint(printOrder.orderId, ticketText, { orderType, customerName: args.customer_name || null });
   } catch (e) { console.error("[EL] enqueuePrint error:", e.message); }
-  const name = args.customer_name ? ", " + String(args.customer_name).split(" ")[0] : "";
-  const totalTxt = validation && validation.estimatedTotal != null ? " El total son unos " + validation.estimatedTotal + " euros." : "";
+  const _rawName = args.customer_name ? String(args.customer_name).trim() : "";
+  const name = (_rawName && !/^(customer|cliente|client)$/i.test(_rawName)) ? ", " + _rawName.split(" ")[0] : "";
+  const totalTxt = ""; // el total ya se dice en el resumen; no repetirlo (evita contradicciones)
   const wayTxt = orderType === "delivery" ? "Te lo llevamos a domicilio en cuanto esté listo." : "Puedes pasar a recogerlo en cuanto esté listo.";
   let reply;
   if (delivered) {
@@ -461,10 +473,36 @@ async function generateMartaReply(callId, incomingMessages) {
     // 1) Confirmación → dispatch a cocina
     const submitCall = calls.find(tc => tc.function && tc.function.name === "submit_order");
     if (submitCall) {
-      let args = {};
-      try { args = JSON.parse(submitCall.function.arguments || "{}"); } catch (_) { args = {}; }
-      const result = await handleSubmitOrder(callId, args);
-      return { reply: result.reply, dispatched: !!result.delivered, action: "customer_confirmed" };
+      const toolMsgs = [];
+      let result = null;
+      for (const tc of calls) {
+        if (tc.function && tc.function.name === "submit_order") {
+          let a = {};
+          try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
+          result = await handleSubmitOrder(callId, a);
+          const estado = result.alreadyDone ? "ya_confirmado"
+            : result.delivered ? "enviado_a_cocina"
+            : result.ok ? "guardado_pendiente_cocina" : "fallo_envio";
+          toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: "submit_order", content: JSON.stringify({ estado }) });
+        } else {
+          let a = {};
+          try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
+          const out = tc.function.name === "calcular_total" ? computeQuote(a) : { ok: true };
+          toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) });
+        }
+      }
+      messages = messages.concat(
+        [{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }],
+        toolMsgs,
+        [{ role: "system", content: "El pedido ya se ha procesado. Despídete del cliente con calidez en EL MISMO idioma que ha usado en la llamada. No repitas el total ni pidas más datos: solo una despedida breve (1-2 frases) coherente con el estado." }]
+      );
+      let reply = (result && result.reply) || "";
+      try {
+        const closing = await callOpenAI({ model: "gpt-4o-mini", temperature: 0.4, max_tokens: 120, messages });
+        const t = closing && closing.choices && closing.choices[0] && closing.choices[0].message && closing.choices[0].message.content;
+        if (t && t.trim()) reply = t.trim();
+      } catch (_) { /* fallback al reply de handleSubmitOrder */ }
+      return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
     }
 
     // 2) Cálculo de total → responder a cada tool_call y volver a llamar
