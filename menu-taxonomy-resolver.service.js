@@ -28,10 +28,19 @@ function normalizeText(value = "") {
     .replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
+// Palabras función del español que NUNCA pueden actuar como keyword por sí solas
+// (evita que "te" -> Té, "solo" -> Café espresso, etc. envenenen el matching).
+const KEYWORD_STOPWORDS = new Set(["te", "solo", "con", "sin", "de", "del", "la", "el", "los", "las", "un", "una", "uno", "dos", "mas", "más", "que", "por", "para", "eso", "esa", "ese"]);
+
 function termMatches(normalizedText, normalizedTerm) {
   if (!normalizedText || !normalizedTerm) return false;
+  // Términos cortos o palabras función: solo pueden matchear por igualdad exacta
+  // (ruta nlpKeyword_exact aguas arriba), nunca dentro de una frase.
+  if (normalizedTerm.length < 4 || KEYWORD_STOPWORDS.has(normalizedTerm)) return false;
   const escaped = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "i").test(normalizedText) || normalizedText.includes(normalizedTerm);
+  if (new RegExp(`(^|\\s)${escaped}(\\s|$)`, "i").test(normalizedText)) return true;
+  // Substring libre solo para términos largos (>=5): "te" dentro de "tomate" NO.
+  return normalizedTerm.length >= 5 && normalizedText.includes(normalizedTerm);
 }
 
 function resolveMenuItems(text) {
@@ -48,7 +57,8 @@ function resolveMenuItems(text) {
     else if (item.nlpKeywords) {
       for (const kw of item.nlpKeywords) {
         if (termMatches(norm, normalizeText(kw))) { confidence = 0.85; matchedBy = `nlpKeyword_contains:${kw}`; break; }
-        if (norm.includes(normalizeText(kw))) { confidence = Math.max(confidence, 0.75); matchedBy = matchedBy || `nlpKeyword_inText:${kw}`; }
+        const nkw = normalizeText(kw);
+        if (nkw.length >= 5 && !KEYWORD_STOPWORDS.has(nkw) && norm.includes(nkw)) { confidence = Math.max(confidence, 0.75); matchedBy = matchedBy || `nlpKeyword_inText:${kw}`; }
       }
     }
     if (confidence > 0) {

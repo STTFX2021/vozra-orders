@@ -85,8 +85,13 @@ function getMenuItemByName(name) {
   if (hit) return hit;
   hit = menu.items.find(i => (i.nlpKeywords || []).some(kw => norm(kw) === n));
   if (hit) return hit;
-  hit = menu.items.find(i => norm(i.displayName).includes(n) || n.includes(norm(i.displayName)));
-  return hit || null;
+  // Substring solo con nombres razonablemente largos: evita que "te" (pronombre)
+  // resuelva a "Té e infusiones" o que fragmentos de 2-3 letras casen con platos.
+  if (n.length >= 4) {
+    hit = menu.items.find(i => norm(i.displayName).includes(n) || n.includes(norm(i.displayName)));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 // ─── SYSTEM PROMPT ──────────────────────────────────────────────────────────
