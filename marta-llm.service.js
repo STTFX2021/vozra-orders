@@ -212,6 +212,7 @@ ${horarioLinea}
 
 # SEGURIDAD POR ALÉRGENOS (CRÍTICO)
 Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro.
+- SINÓNIMOS que debes reconocer: "sin TACC", "TACC" o "apto celíacos" = SIN GLUTEN (celiaquía); "sin lácteos" = sin lactosa. Trátalos como la alergia/intolerancia correspondiente y aplícales la misma política de seguridad.
 - CRUZA la alergia contra TODOS los platos ya pedidos y los que pida después. Si un plato probablemente contiene ese alérgeno (ej.: lactosa → Carbonara, quesos, nata; gluten → masa, pasta; frutos secos → pesto, postres), AVÍSALE en ese momento: "Oye, la Carbonara lleva nata y queso, ¿la mantienes o te ofrezco otra?". Nunca lo dejes pasar en silencio.
 - Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno]. Revisar [platos afectados]". La alergia se menciona también en el resumen final.
 - Ante alergia grave o duda, no confirmes el plato como seguro por tu cuenta: márcalo para revisión del personal.

@@ -201,30 +201,18 @@ router.post("/v1/chat/completions", async (req, res) => {
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(reply).slice(0,60)}"`);
     return sendStreamResponse(res, reply, id, model);
   } catch (errLLM) {
-    console.error(`[EL] LLM brain falló, fallback a reglas | callId=${callId}:`, errLLM.message);
-  }
-
-  // ── FALLBACK: parser por reglas (si OpenAI no responde) ───────────────────
-  try {
-    const { order, response, action } = processTurn(callId, userText);
-
-    console.log(`[EL] action=${action} | status=${order.status} | response="${response.slice(0,60)}"`);
-
-    if (action === "customer_confirmed") {
-      setImmediate(() => handlePostConfirmation(order, callId));
-    }
-
-    return sendStreamResponse(res, response, id, model);
-
-  } catch (err) {
-    console.error(`[EL] Error en turno | callId=${callId}:`, err.message);
-
-    // Devolver respuesta de error amigable al cliente (no exponer internos)
-    const errorResponse = "Lo siento, ha habido un problema técnico. Por favor llámanos directamente al local.";
-
+    // ── FALLBACK HONESTO (decisión QA #1) ───────────────────────────────────
+    // Si el cerebro LLM (OpenAI) falla —p. ej. 429 por saturación o timeout—,
+    // NO degradamos al parser de reglas (`processTurn`): ese parser produce
+    // respuestas incoherentes y repetitivas ("Perfecto, te pongo una Anto"…)
+    // que destrozan la conversación delante del cliente. Es preferible una
+    // disculpa clara pidiendo que llamen al local que un pedido mal tomado.
+    console.error(`[EL] LLM brain falló → fallback honesto | callId=${callId}:`, errLLM.message);
+    const honesto = "Perdona, estoy teniendo un problemilla técnico y no quiero equivocarme con tu pedido. ¿Puedes llamar directamente al restaurante en un momento? Disculpa las molestias.";
     if (!res.headersSent) {
-      return sendStreamResponse(res, errorResponse, id, model);
+      return sendStreamResponse(res, honesto, id, model);
     }
+    return;
   }
 });
 
