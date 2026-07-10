@@ -42,6 +42,22 @@ function formatPrice(amount, currency = "EUR") {
   return `${Number(amount).toFixed(2)} ${currency}`;
 }
 
+// Etiqueta de categoría legible para cocina. Desambigua nombres que colisionan
+// entre categorías (p. ej. "Carbonara" pizza vs "Spaghetti Carbonara" pasta;
+// "Parmigiana" entrante vs pizza) para que cocina no haga el plato equivocado.
+const CATEGORY_LABELS_TICKET = {
+  starters:      "Entrante",
+  salads:        "Ensalada",
+  pasta_risotto: "Pasta/Risotto",
+  mains_meat:    "Carne",
+  pizza_rossa:   "Pizza Rossa",
+  pizza_bianca:  "Pizza Bianca",
+  pizza_speciale:"Pizza Speciale",
+  pizza_ripiena: "Pizza Ripiena",
+  desserts:      "Postre",
+  beverages:     "Bebida"
+};
+
 // ─── TEXT TICKET ──────────────────────────────────────────────────────────────
 
 /**
@@ -75,8 +91,15 @@ function buildTextTicket(order, validationResult = {}) {
   lines.push("PRODUCTOS:");
   lines.push("");
   for (const item of order.items) {
+    const qty      = item.quantity || 1;
     const sizePart = item.size ? ` [${item.size.toUpperCase()}]` : "";
-    lines.push(`  ${item.quantity || 1}× ${item.displayName.toUpperCase()}${sizePart}`);
+    const catLabel = item.category && CATEGORY_LABELS_TICKET[item.category]
+      ? ` · ${CATEGORY_LABELS_TICKET[item.category]}`
+      : "";
+    const pricePart = item.price != null
+      ? `  —  ${formatPrice(item.price * qty, currency)}${qty > 1 ? ` (${formatPrice(item.price, currency)}/u)` : ""}`
+      : "";
+    lines.push(`  ${qty}× ${item.displayName.toUpperCase()}${sizePart}${catLabel}${pricePart}`);
     for (const mod of (item.modifiers || [])) {
       if (mod.type !== "restriction") {
         lines.push(`     ${formatModifier(mod)}`);
