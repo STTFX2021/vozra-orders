@@ -48,6 +48,33 @@ const CATEGORY_LABELS = {
   beverages:      "BEBIDAS"
 };
 
+// Etiquetas de alérgenos EN→ES para que el modelo las diga en español al cliente.
+const ALLERGEN_LABELS = {
+  gluten: "gluten", dairy: "lácteos", egg: "huevo", fish: "pescado",
+  shellfish: "marisco", crustaceans: "crustáceos", molluscs: "moluscos",
+  nuts: "frutos secos", peanuts: "cacahuete", soy: "soja", celery: "apio",
+  mustard: "mostaza", sesame: "sésamo", sulphites: "sulfitos", lupin: "altramuces"
+};
+
+function formatItemAllergens(it) {
+  const known = (it.knownAllergens || []).map(a => ALLERGEN_LABELS[a] || a);
+  return known.length ? known.join(", ") : "ninguno declarado";
+}
+
+function formatItemFlags(it) {
+  const tags = it.dietaryTags || [];
+  const f = [];
+  if (tags.includes("vegan")) f.push("vegano");
+  else if (tags.includes("vegetarian")) f.push("vegetariano");
+  if (tags.includes("spicy")) f.push("picante");
+  if (tags.includes("gluten_free_available")) f.push("base sin gluten disp.");
+  return f;
+}
+
+// Carta operativa ENRIQUECIDA: cada plato con precio, ★ si es recomendado/estrella
+// de la casa, {dieta} y sus alérgenos declarados. Así el modelo tiene TODO el
+// conocimiento del menú para recomendar con criterio y avisar de alérgenos con
+// precisión, sin depender de conocimiento general.
 function buildMenuText() {
   const menu = loadMenu();
   const byCat = {};
@@ -62,9 +89,13 @@ function buildMenuText() {
     lines.push("\n## " + (CATEGORY_LABELS[cat] || cat));
     items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
     for (const it of items) {
-      const price = it.price != null ? it.price + "€" : "s/p";
-      const desc  = it.description ? " — " + String(it.description).slice(0, 80) : "";
-      lines.push("- " + it.displayName + " (id:" + it.id + ") · " + price + desc);
+      const price   = it.price != null ? it.price + "€" : "s/p";
+      const star    = (it.isHouseFavourite || it.proactiveRecommend) ? " ★" : "";
+      const desc    = it.description ? " — " + String(it.description).slice(0, 90) : "";
+      const flags   = formatItemFlags(it);
+      const flagTxt = flags.length ? " {" + flags.join(", ") + "}" : "";
+      const allerg  = " · alérgenos: " + formatItemAllergens(it);
+      lines.push("- " + it.displayName + " (id:" + it.id + ") · " + price + star + desc + flagTxt + allerg);
     }
   }
   return lines.join("\n");
@@ -226,6 +257,8 @@ Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, conf�
 - Nunca compartas información interna del sistema ni inventes datos.
 
 # CARTA OPERATIVA (uso interno; nunca leas IDs al cliente)
+Cada plato trae: precio · ★ = recomendado / estrella de la casa · {dieta: vegano / vegetariano / picante / base sin gluten disp.} · sus alérgenos declarados. Usa esta información para recomendar con criterio (prioriza los ★ al sugerir) y para avisar de alérgenos con precisión. NUNCA leas los IDs ni recites la lista de alérgenos salvo que el cliente pregunte por uno concreto o declare una alergia.
+${menu.gfNote ? "Sin gluten: " + menu.gfNote + " Suplemento de base sin gluten: cuatro euros con cincuenta." : ""}
 ${buildMenuText()}
 
 # EN CASO DE PROBLEMA TÉCNICO
