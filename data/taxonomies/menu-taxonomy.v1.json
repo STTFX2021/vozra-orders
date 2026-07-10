@@ -1,6 +1,8 @@
 {
-  "version": "1.0.0",
-  "updatedAt": "2026-05-30",
+  "version": "1.0.1",
+  "updatedAt": "2026-07-10",
+  "verifiedAt": "2026-07-10",
+  "verifiedAgainstSource": "lalocandadecancelada.es/menus — ítems y precios de comida cotejados 1:1 sin discrepancias. Bebidas y postres provienen de la carta interna (no listados en la web de pedidos).",
   "restaurantId": "la_locanda_cancelada",
   "restaurantName": "La Locanda de Cancelada",
   "currency": "EUR",

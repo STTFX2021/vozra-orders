@@ -1,6 +1,8 @@
 {
-  "version": "1.0.0",
-  "updatedAt": "2026-05-30",
+  "version": "1.0.1",
+  "updatedAt": "2026-07-10",
+  "verifiedAt": "2026-07-10",
+  "verifiedAgainstSource": "lalocandadecancelada.es/menus (Ingredientes adicionales) — precios de extras cotejados 1:1 sin discrepancias.",
   "restaurantId": "la_locanda_cancelada",
   "modifierGroups": [
     "pizza_base_swap",
