@@ -371,7 +371,7 @@ function callOpenAI(payload) {
       });
     });
     req.on("error", reject);
-    req.setTimeout(20000, () => req.destroy(new Error("OpenAI timeout (20s)")));
+    req.setTimeout(30000, () => req.destroy(new Error("OpenAI timeout (30s)")));
     req.write(body);
     req.end();
   });
@@ -529,7 +529,7 @@ async function generateMartaReply(callId, incomingMessages) {
   // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
   for (let step = 0; step < 3; step++) {
     const completion = await callOpenAI({
-      model: "gpt-4o",
+      model: "gpt-4.1-mini",
       temperature: 0.4,
       max_tokens: 300,
       messages,
@@ -568,7 +568,7 @@ async function generateMartaReply(callId, incomingMessages) {
       );
       let reply = (result && result.reply) || "";
       try {
-        const closing = await callOpenAI({ model: "gpt-4o", temperature: 0.4, max_tokens: 120, messages });
+        const closing = await callOpenAI({ model: "gpt-4.1-mini", temperature: 0.4, max_tokens: 120, messages });
         const t = closing && closing.choices && closing.choices[0] && closing.choices[0].message && closing.choices[0].message.content;
         if (t && t.trim()) reply = t.trim();
       } catch (_) { /* fallback al reply de handleSubmitOrder */ }
