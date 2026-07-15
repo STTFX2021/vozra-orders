@@ -122,6 +122,34 @@ function extractLastUserMessage(messages = []) {
   return userMessages.length > 0 ? userMessages[userMessages.length - 1].content || "" : "";
 }
 
+/**
+ * Extrae el teléfono de quien llama (caller ID) — SOLO en llamadas telefónicas.
+ * En el widget web NO hay número → devuelve null y el flujo sigue normal (cliente nuevo).
+ * ElevenLabs lo envía de formas distintas según la config; probamos varias.
+ * Para activarlo en el teléfono real: en ElevenLabs, pasa la variable dinámica
+ * `system__caller_id` al Custom LLM (por header o en el body).
+ */
+function extractCallerPhone(req) {
+  const b = req.body || {};
+  const h = req.headers || {};
+  let cand =
+    h["x-elevenlabs-caller-id"] || h["x-caller-id"] || h["x-twilio-from"] ||
+    b.caller_id || b.from || b.caller ||
+    (b.elevenlabs_extra_body && (b.elevenlabs_extra_body.caller_id || b.elevenlabs_extra_body.system__caller_id)) ||
+    (b.metadata && (b.metadata.caller_id || b.metadata.from)) ||
+    null;
+  if (!cand) {
+    const msgs = b.messages || [];
+    for (const m of msgs) {
+      if (m && m.role === "system" && m.content) {
+        const mm = String(m.content).match(/caller[_-]?id[:\s]+(\+?\d[\d\s]{5,})/i);
+        if (mm) { cand = mm[1]; break; }
+      }
+    }
+  }
+  return cand ? String(cand).replace(/\s+/g, "") : null;
+}
+
 // ─── POST-DISPATCH HOOK ───────────────────────────────────────────────────────
 
 /**
@@ -197,7 +225,8 @@ router.post("/v1/chat/completions", async (req, res) => {
   // descartamos cualquier system entrante antes de llamar al modelo.
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   const userTurns = incoming.filter(m => m && m.role !== "system");
-  const { reply, dispatched, action } = await generateMartaReply(callId, userTurns);
+  const callerPhone = extractCallerPhone(req);
+  const { reply, dispatched, action } = await generateMartaReply(callId, userTurns, callerPhone);
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(reply).slice(0,60)}"`);
     return sendStreamResponse(res, reply, id, model);
   } catch (errLLM) {

@@ -23,6 +23,7 @@ const { enqueuePrint } = require("./print-queue.store.js");
 const { getProvider, getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
 const { upsertOrder } = require("./supabase-store.js");
+const { getCustomerByPhone, upsertCustomer } = require("./customer-store.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,7 @@ function renderMenu(menu) {
   return "Consulta la carta de la casa.";
 }
 
-function buildSystemPrompt(provider = getProvider("la-locanda")) {
+function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null) {
   const menu = provider.menu || loadMenu();
   const config = provider.config || {};
   const nombre = provider.name || menu.restaurantName || "el restaurante";
@@ -170,8 +171,22 @@ function buildSystemPrompt(provider = getProvider("la-locanda")) {
     ? `Hoy es ${ks.weekday}. Turnos de cocina: ${turnos}. Ahora son las ${ks.nowHHMM}. La cocina está ${estadoCocina}.${proxApertura}`
     : "Horario no disponible: no prometas una hora exacta y ofrece comprobarla.";
 
+  // Bloque de cliente recurrente: solo aparece si hay perfil guardado CON consentimiento.
+  const nombreCli = profile && profile.name ? profile.name : null;
+  const dirCli = profile && profile.address ? (profile.address.raw || profile.address) : null;
+  const perfilBloque = profile
+    ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
+Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
+- Salúdale por su nombre al empezar${nombreCli ? ` ("¡Hola, ${String(nombreCli).split(" ")[0]}! Soy Sarah, ¿qué te pongo hoy?")` : ""}.
+- NO le pidas el nombre ni el teléfono: ya los tienes.
+- Si el pedido es a domicilio, NO preguntes la dirección: CONFÍRMALA ("¿Te lo llevo a la misma dirección, ${dirCli || "la de siempre"}?"). Solo si dice que ha cambiado, pídele la nueva.
+- Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
+`
+    : "";
+
   return `# IDENTIDAD
 Eres ${asistente}, la asistente telefónica de pedidos de ${nombre}, en ${ciudad}. Atiendes llamadas para tomar pedidos de comida para recoger o a domicilio. Hablas como una camarera veterana que conoce la casa: cercana, profesional y resolutiva.
+${perfilBloque}
 
 # MISIÓN
 Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a cocina. La prioridad es la exactitud y la seguridad por alérgenos, por encima de la rapidez.
@@ -245,7 +260,10 @@ ${horarioLinea}
    (a) ¿Has ofrecido upselling UNA vez? (paso 5). Si no, hazlo ahora.
    (b) ¿Has dicho el TOTAL en voz alta en el resumen? (paso 6, vía calcular_total). Si no, dilo.
    Nunca saltes del pedido directo a "va a cocina": el cliente SIEMPRE oye una sugerencia y SIEMPRE oye el total antes de confirmar.
-8. Solo cuando el checklist esté completo y el cliente diga un "sí" claro, llama a submit_order y despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos ("Claro...", "Entendido...") al cerrar: una sola despedida limpia.
+8. Cuando el checklist esté completo y el cliente diga un "sí" claro al pedido, gestiona el CONSENTIMIENTO DE DATOS antes de enviar:
+   - Si es CLIENTE RECURRENTE (ya hay perfil guardado), NO preguntes nada de guardar datos: llama a submit_order directamente con save_profile_consent=false.
+   - Si es cliente NUEVO (no hay perfil), hazle UNA última pregunta antes de enviar: "Por último, ¿quieres que guarde tu nombre y tu dirección para que la próxima vez sea más rápido? Solo si me das permiso." Si dice que SÍ → llama a submit_order con save_profile_consent=true. Si dice que NO → save_profile_consent=false. No insistas ni lo repitas.
+9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos ("Claro...", "Entendido...") al cerrar: una sola despedida limpia.
 
 # PRECIOS Y HERRAMIENTAS
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
@@ -321,7 +339,8 @@ const SUBMIT_ORDER_TOOL = {
         phone:         { type: "string" },
         address:       { type: "string", description: "dirección completa, solo si order_type=delivery." },
         allergies:     { type: "array", items: { type: "string" }, description: "alergias o intolerancias declaradas." },
-        notes:         { type: "string", description: "nota general del pedido." }
+        notes:         { type: "string", description: "nota general del pedido." },
+        save_profile_consent: { type: "boolean", description: "true SOLO si el cliente ha dado permiso EXPLÍCITO para guardar su nombre, teléfono y dirección para futuros pedidos (se le pregunta tras confirmar el pedido). false o ausente si no consintió." }
       },
       required: ["items", "order_type", "customer_name", "phone"]
     }
@@ -491,6 +510,26 @@ async function handleSubmitOrder(callId, args) {
     const ticketText = buildTextTicket(printOrder, validation);
     enqueuePrint(printOrder.orderId, ticketText, { orderType, customerName: args.customer_name || null });
   } catch (e) { console.error("[EL] enqueuePrint error:", e.message); }
+
+  // Guardar perfil del cliente SOLO si dio consentimiento explícito (para futuros pedidos).
+  // Fire-and-forget: no bloquea la respuesta de voz. GDPR: sin consent, no se guarda.
+  if (args.save_profile_consent === true) {
+    try {
+      const addr = (patch.address && patch.address.raw) ? patch.address : (args.address ? { raw: args.address } : null);
+      Promise.resolve(upsertCustomer({
+        phone: args.phone || null,
+        name: args.customer_name || null,
+        address: addr,
+        providerSlug: "la-locanda",
+        consent: true
+      }))
+        .then(r => {
+          if (r && r.ok) console.log("[CUST] perfil guardado con consentimiento | " + (args.phone || ""));
+          else if (r && r.skipped) console.log("[CUST] guardado omitido | " + r.reason);
+        })
+        .catch(e => console.error("[CUST] error guardando perfil | " + e.message));
+    } catch (e) { console.error("[CUST] error perfil | " + e.message); }
+  }
   const _rawName = args.customer_name ? String(args.customer_name).trim() : "";
   const name = (_rawName && !/^(customer|cliente|client)$/i.test(_rawName)) ? ", " + _rawName.split(" ")[0] : "";
   const totalTxt = ""; // el total ya se dice en el resumen; no repetirlo (evita contradicciones)
@@ -513,7 +552,7 @@ async function handleSubmitOrder(callId, args) {
 
 // ─── CONSTRUCCIÓN DEL CONTEXTO DEL MODELO ────────────────────────────────────
 
-function buildModelMessages(provider, incomingMessages) {
+function buildModelMessages(provider, incomingMessages, profile = null) {
   const incoming = Array.isArray(incomingMessages) ? incomingMessages : [];
   const userTurns = incoming
     .filter(m => m && m.role !== "system")
@@ -521,14 +560,19 @@ function buildModelMessages(provider, incomingMessages) {
     .map(m => ({ role: m.role, content: String(m.content) }));
 
   return [
-    { role: "system", content: buildSystemPrompt(provider) },
+    { role: "system", content: buildSystemPrompt(provider, profile) },
     ...userTurns
   ];
 }
 
-async function generateMartaReply(callId, incomingMessages) {
+async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
   const provider = getProvider("la-locanda");
-  let messages = buildModelMessages(provider, incomingMessages);
+  let profile = null;
+  if (callerPhone) {
+    try { profile = await getCustomerByPhone(callerPhone); }
+    catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
+  }
+  let messages = buildModelMessages(provider, incomingMessages, profile);
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL];
 
   // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
