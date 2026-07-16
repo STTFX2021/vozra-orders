@@ -641,6 +641,25 @@ function buildModelMessages(provider, incomingMessages, profile = null) {
   ];
 }
 
+// Red de seguridad: limpia cualquier fragmento de relleno del INICIO de la respuesta
+// (interjecciones "Ah/Mmm", muletillas en inglés "Okay/Right/I got it", y palabras
+// entrecomilladas o con puntos suspensivos tipo "Entiendo...", "¡Claro!.") antes de
+// enviarla a ElevenLabs. No toca respuestas normales (probado). Belt-and-suspenders
+// por si el modelo se salta la regla del prompt.
+function sanitizeReply(text) {
+  if (!text) return text;
+  const original = String(text).trim();
+  let t = original;
+  let prev;
+  do {
+    prev = t;
+    t = t.replace(/^[¡¿\s]*["'][^"']{1,25}["'][\s.,!…]*/, "").trim();
+    t = t.replace(/^[¡¿"'\s]*(?:ah+|hmm+|mmm+|mm-?hmm|ehm|eh|este|okay|ok|so|sure|well|alright|sorry|right|got\s*it|i\s*got\s*it)\b[\s.,!…]*/i, "").trim();
+    t = t.replace(/^[¡¿\s]*(?:entiendo|entendido|entonces|claro|vale|bueno)\s*(?:\.{2,}|…)[\s.,!…]*/i, "").trim();
+  } while (t !== prev && t.length);
+  return t.length ? t.charAt(0).toUpperCase() + t.slice(1) : original;
+}
+
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
   const provider = getProvider("la-locanda");
   let profile = null;
@@ -687,9 +706,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       // Despedida INSTANTÁNEA: usamos la respuesta ya redactada por handleSubmitOrder
       // en vez de otra llamada a OpenAI. Quita el round-trip más sensible (justo al
       // confirmar) → sin pausa ni "ruidito de pensando" de ElevenLabs, sin quedarse pillada.
-      const reply = (result && result.reply && result.reply.trim())
+      const reply = sanitizeReply((result && result.reply && result.reply.trim())
         ? result.reply.trim()
-        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!";
+        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!");
       return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
     }
 
@@ -704,7 +723,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     }
 
     // 3) Texto normal
-    const reply = (msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.";
+    const reply = sanitizeReply((msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.");
     return { reply, dispatched: false, action: "in_progress" };
   }
   return { reply: "Perdona, ¿me lo repites? No te he entendido bien.", dispatched: false, action: "in_progress" };
