@@ -266,6 +266,7 @@ ${horarioLinea}
 9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos ("Claro...", "Entendido...") al cerrar: una sola despedida limpia.
 
 # PRECIOS Y HERRAMIENTAS
+- RECONOCER AL CLIENTE: en cuanto el cliente te diga su número de teléfono, llama a buscar_cliente con ese número. Si devuelve encontrado=true, salúdale por su nombre y CONFIRMA su dirección guardada en vez de pedírsela ("¡Ah, Samuel! ¿Te lo llevo a la misma dirección de siempre?"); si dice que ha cambiado, pídele la nueva. Si encontrado=false, sigue el flujo normal (y al final, si es nuevo, ofrécele guardar sus datos). No menciones que "buscas" nada; hazlo con naturalidad.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
 - Cuando el cliente pida añadir un extra o topping a un plato (burrata, jamón, base sin gluten, etc.), avísale de que puede llevar un suplemento antes de darlo por confirmado. Llama a calcular_total para saber si ese extra tiene coste y dilo con naturalidad, p. ej.: "Eso lleva un suplemento de tres euros con cincuenta, ¿te lo pongo igualmente?". Si calcular_total no refleja coste para ese extra, no menciones ningún importe.
 - BASE SIN GLUTEN (obligatorio): si el cliente pide base sin gluten, SIEMPRE tienes que decirle que lleva un suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por confirmada ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
@@ -366,6 +367,24 @@ const QUOTE_TOOL = {
   }
 };
 
+// ─── HERRAMIENTA buscar_cliente ─────────────────────────────────────────────
+// Busca un perfil guardado (con consentimiento) por teléfono. Funciona en web
+// y en teléfono: en cuanto el cliente DICE su número, Marta puede reconocerlo.
+const LOOKUP_TOOL = {
+  type: "function",
+  function: {
+    name: "buscar_cliente",
+    description: "Busca si un teléfono tiene un perfil guardado (nombre + dirección) de un pedido anterior. Llámala en cuanto el cliente te diga su número de teléfono. Si devuelve encontrado=true, salúdale por su nombre y CONFIRMA su dirección en vez de volver a pedírsela.",
+    parameters: {
+      type: "object",
+      properties: {
+        phone: { type: "string", description: "el teléfono que ha dado el cliente, solo dígitos." }
+      },
+      required: ["phone"]
+    }
+  }
+};
+
 // ─── LLAMADA A OPENAI ───────────────────────────────────────────────────────
 
 function callOpenAI(payload) {
@@ -427,6 +446,30 @@ function computeQuote(args) {
   const { estimatedTotal, breakdown, currency } = estimateTotal({ items });
   const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
   return { total_eur: estimatedTotal, moneda: currency || "EUR", productos_sin_precio: sinPrecio };
+}
+
+// Busca un perfil guardado por teléfono (para la tool buscar_cliente).
+async function computeLookup(args) {
+  const phone = args && args.phone;
+  let prof = null;
+  try { prof = phone ? await getCustomerByPhone(phone) : null; } catch (_) { prof = null; }
+  if (!prof) return { encontrado: false };
+  return {
+    encontrado: true,
+    nombre: prof.name || null,
+    direccion: prof.address ? (prof.address.raw || prof.address) : null,
+    pedidos_previos: prof.orderCount || 0
+  };
+}
+
+// Devuelve la salida de una tool_call (calcular_total, buscar_cliente, u otras).
+async function toolOutput(tc) {
+  const name = tc && tc.function && tc.function.name;
+  let a = {};
+  try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
+  if (name === "calcular_total") return computeQuote(a);
+  if (name === "buscar_cliente") return await computeLookup(a);
+  return { ok: true };
 }
 
 function formatEurosSpoken(n) {
@@ -573,7 +616,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
   }
   let messages = buildModelMessages(provider, incomingMessages, profile);
-  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL];
+  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL];
 
   // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
   for (let step = 0; step < 3; step++) {
@@ -604,9 +647,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
             : result.ok ? "guardado_pendiente_cocina" : "fallo_envio";
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: "submit_order", content: JSON.stringify({ estado }) });
         } else {
-          let a = {};
-          try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
-          const out = tc.function.name === "calcular_total" ? computeQuote(a) : { ok: true };
+          const out = await toolOutput(tc);
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) });
         }
       }
@@ -624,14 +665,12 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
     }
 
-    // 2) Cálculo de total → responder a cada tool_call y volver a llamar
+    // 2) Otras tools (calcular_total, buscar_cliente) → responder y volver a llamar
     if (calls.length) {
-      const toolMsgs = calls.map(tc => {
-        let a = {};
-        try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
-        const out = tc.function.name === "calcular_total" ? computeQuote(a) : { ok: true };
+      const toolMsgs = await Promise.all(calls.map(async tc => {
+        const out = await toolOutput(tc);
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
-      });
+      }));
       messages = messages.concat([{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }], toolMsgs);
       continue;
     }
