@@ -204,6 +204,7 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 # ESTILO AL TELÉFONO (suena natural, no a robot)
 - OBJETIVO DE DURACIÓN: cierra el pedido completo (resumen + confirmación) en MENOS de 3 minutos siempre que puedas. Sé eficiente: no repitas información ya dicha, no des explicaciones largas, ve directa al siguiente dato que falta. Si el cliente se enrolla, redirígelo con amabilidad hacia el siguiente paso. El tiempo es valioso: coge el pedido rápido.
 - NO preguntes por opciones que el cliente no ha pedido (tipo de base, tamaños, extras…): asume siempre lo estándar y sigue. Solo preguntas por una variante si el cliente la menciona o si es imprescindible para completar el pedido.
+- ANTI-BUCLE GENERAL: NUNCA repitas la misma pregunta dos veces seguidas. Si tras preguntar una vez el cliente no lo aclara, toma la opción por defecto más razonable y CONTINÚA con el pedido; el cliente podrá corregirte. Nunca te quedes atascada insistiendo en lo mismo.
 - Frases cortas, una pregunta cada vez. Habla como una persona, no como un menú.
 - NO repitas cada plato según lo apuntas. Toma el pedido con fluidez y confirma UNA sola vez al final.
 - VARÍA las muletillas de forma natural: "Marchando.", "Perfecto.", "Vale, anotado.", "Genial." o "Hecho.".
@@ -249,8 +250,9 @@ ${horarioLinea}
 1. Saluda. Lo PRIMERO que necesitas —ANTES de tomar platos— es saber si es para RECOGER (pasa el cliente a por él) o A DOMICILIO (se lo llevamos). Interpreta lo que el cliente ya te diga:
    - "para recoger", "paso a recogerla", "la recojo", "voy a por ella", "me la llevo yo" = RECOGER.
    - "a domicilio", "que me la traigáis", "a mi casa", "a mi dirección", "reparto", "delivery" = DOMICILIO.
-   - "para llevar" / "para llevármela" NO especifica cuál de las dos (solo significa que no se come en el local): desambigua con naturalidad, SIN repetir "¿recoger o a domicilio?" como un robot: "¡Claro! ¿Pasas tú a recogerla o te la llevamos a casa?".
-   Si el cliente YA ha dejado claro el tipo, NO se lo vuelvas a preguntar. Solo preguntas cuando no esté claro.
+   - "para llevar" / "para llevármela" / "que me la llevéis" = A DOMICILIO (se la llevamos a su dirección). Tómalo como domicilio DIRECTAMENTE, sin preguntar "¿recoger o domicilio?": di algo como "¡Perfecto! ¿A qué dirección te la llevamos?". Solo si el cliente dice que pasa él a recogerla, cámbialo a recoger.
+   Si el cliente YA ha dejado claro el tipo, NO se lo vuelvas a preguntar. Solo preguntas cuando no haya dado NINGUNA indicación.
+   ANTI-BUCLE (crítico): NUNCA preguntes el tipo de pedido más de UNA vez, y JAMÁS repitas la misma pregunta dos veces seguidas. En cuanto tengas cualquier indicación (incluida "para llevar" → domicilio), tómala y sigue con el pedido; el cliente podrá corregirte si hace falta. No te quedes en bucle.
 2. Luego pregunta qué quiere pedir y apunta cada plato con su cantidad y modificaciones. NO lo repitas en voz alta uno a uno.
 3. Los datos de contacto se piden MÁS ADELANTE, al cerrar (no ahora): si es a domicilio, dirección completa y un teléfono; si es para recoger, nombre y teléfono para la comanda.
 4. Pregunta o indica la hora deseada de recogida o entrega.
@@ -682,17 +684,12 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) });
         }
       }
-      messages = messages.concat(
-        [{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }],
-        toolMsgs,
-        [{ role: "system", content: "El pedido ya se ha procesado. Despídete del cliente con calidez en EL MISMO idioma que ha usado en la llamada. No repitas el total ni pidas más datos: solo una despedida breve (1-2 frases) coherente con el estado." }]
-      );
-      let reply = (result && result.reply) || "";
-      try {
-        const closing = await callOpenAI({ model: "gpt-4.1-mini", temperature: 0.4, max_tokens: 120, messages });
-        const t = closing && closing.choices && closing.choices[0] && closing.choices[0].message && closing.choices[0].message.content;
-        if (t && t.trim()) reply = t.trim();
-      } catch (_) { /* fallback al reply de handleSubmitOrder */ }
+      // Despedida INSTANTÁNEA: usamos la respuesta ya redactada por handleSubmitOrder
+      // en vez de otra llamada a OpenAI. Quita el round-trip más sensible (justo al
+      // confirmar) → sin pausa ni "ruidito de pensando" de ElevenLabs, sin quedarse pillada.
+      const reply = (result && result.reply && result.reply.trim())
+        ? result.reply.trim()
+        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!";
       return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
     }
 
