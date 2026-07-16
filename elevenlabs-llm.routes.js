@@ -101,6 +101,13 @@ function extractCallId(req) {
     || req.headers["x-conversation-id"];
   if (headerCallId) return headerCallId;
 
+  // 1b. Campos del body (ElevenLabs/OpenAI): conversation_id, user, metadata...
+  const b = req.body || {};
+  const bodyCallId = b.conversation_id || b.user
+    || (b.metadata && (b.metadata.conversation_id || b.metadata.call_id))
+    || (b.elevenlabs_extra_body && b.elevenlabs_extra_body.conversation_id);
+  if (bodyCallId) return String(bodyCallId);
+
   // 2. Buscar en mensajes de sistema con metadata
   const messages = (req.body || {}).messages || [];
   for (const msg of messages) {

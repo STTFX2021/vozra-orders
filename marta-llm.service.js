@@ -213,7 +213,7 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 - PRECIOS SIEMPRE EN PALABRAS, nunca cifras ni símbolos. Formato: "trece euros con cincuenta" (céntimos con "con", el € se dice "euros"). Ej.: 13,50 → "trece euros con cincuenta"; 9 → "nueve euros"; 9,90 → "nueve euros con noventa". PROHIBIDO decir "punto", "coma" o leer dígitos. Cantidades también en palabras ("dos pizzas"). Nunca leas códigos ni IDs.
 - TELÉFONOS: al repetir un teléfono, dilo SIEMPRE en tres bloques de tres cifras, cada bloque leído como un número entero de tres cifras, con pausa entre bloques: 634425921 → "seiscientos treinta y cuatro... cuatrocientos veinticinco... novecientos veintiuno". PROHIBIDO leerlo dígito a dígito ("seis, tres, cuatro"), agrupar de dos en dos ("noventa y uno") o leerlo de corrido.
 - PROHIBIDO empezar o rellenar con sonidos de duda: nada de "Ah", "Ahh", "Ahhh", "Hmm", "Mmm", "Mm-hmm", "Ehm", "Eh", "Este...", "A ver", ni puntos suspensivos como pausa. NUNCA arranques un turno con uno de esos sonidos: empieza directamente con la información (el total, la confirmación, la siguiente pregunta). Si acabas de calcular el total, di el número de inmediato, sin preámbulo ("Son treinta y seis euros con cincuenta.").
-- PROHIBIDO usar palabras en inglés u otro idioma como muletilla de arranque: nada de "Okay", "Ok", "So", "Sure", "Well", "Alright", "Sorry", "Right". Hablas español de España y arrancas SIEMPRE en español ("Claro", "Perfecto", "Vale", "Muy bien"). No mezcles idiomas dentro de una frase. (Esto NO impide atender a un cliente que hable en inglés: si el cliente habla inglés, respóndele en inglés natural, sin mezclar.)
+- PROHIBIDO usar palabras o expresiones en inglés cuando hablas en español: nada de "Okay", "Ok", "So", "Sure", "Well", "Alright", "Sorry", "Right", "I got it", "Got it", "Sure thing" NI NINGUNA otra palabra/frase en inglés. Hablas español de España y arrancas SIEMPRE en español ("Claro", "Perfecto", "Vale", "Muy bien", "Entendido", "Hecho"). No mezcles idiomas dentro de una frase. (Esto NO impide atender a un cliente que hable en inglés: si el cliente habla en inglés, respóndele TODO en inglés natural; pero nunca mezcles los dos.)
 - Cuando el cliente diga que quiere hacer un pedido, responde natural y directo, sin ningún sonido ni preámbulo: "¡Claro! ¿Qué te gustaría pedir?" (o, si procede, "¿Es para recoger o a domicilio?"). Nada de ruidos antes de contestar.
 - Frases de relleno tipo "Un segundito" o "Déjame apuntarlo": como MUCHO una vez en TODA la llamada. Por defecto responde directo: una camarera con prisa no anuncia que va a apuntar, apunta.
 - El RESUMEN del pedido dilo en prosa hablada, como una frase natural, NUNCA como lista con guiones o saltos de línea: "Te confirmo: una Carbonara, una Prosciutto, una Diavola y una Coca-Cola, para recoger a nombre de Samuel...".
@@ -479,11 +479,36 @@ function formatEurosSpoken(n) {
   return cents === 0 ? `${euros} euros` : `${euros} euros con ${cents}`;
 }
 
+// Anti-duplicado por CONTENIDO (no depende del callId, que en web es inestable).
+// Si el MISMO pedido (teléfono + productos + tipo) se intenta enviar de nuevo en
+// menos de DEDUP_WINDOW_MS, se bloquea → evita 6 comandas iguales a cocina.
+const _recentDispatch = new Map(); // firma -> timestamp
+const DEDUP_WINDOW_MS = 120000;    // 2 minutos
+
+function orderSignature(args) {
+  const phone = String(args.phone || "").replace(/\D/g, "");
+  const items = (args.items || [])
+    .map(i => `${i.quantity || 1}x${String(i.menu_item_id || i.name || "").toLowerCase().trim()}`)
+    .sort()
+    .join("|");
+  return `${phone}::${items}::${args.order_type || ""}`;
+}
+
 async function handleSubmitOrder(callId, args) {
   const _sess = getOrCreateOrderSession(callId);
   if (_sess && _sess.status === ORDER_STATUS.SENT_TO_KITCHEN) {
     return { ok: true, delivered: _sess.dispatchChannel && _sess.dispatchChannel !== "file_fallback", order: _sess, reply: "", validation: {}, alreadyDone: true };
   }
+
+  // Guard de contenido: bloquea duplicados aunque el callId cambie cada turno.
+  const _sig = orderSignature(args);
+  const _now = Date.now();
+  for (const [k, t] of _recentDispatch) { if (_now - t > DEDUP_WINDOW_MS) _recentDispatch.delete(k); }
+  if (_recentDispatch.has(_sig) && (_now - _recentDispatch.get(_sig)) < DEDUP_WINDOW_MS) {
+    console.warn("[EL] DUPLICADO bloqueado (misma firma <2min) | " + _sig);
+    return { ok: true, delivered: true, order: _sess || null, reply: "", validation: {}, alreadyDone: true };
+  }
+  _recentDispatch.set(_sig, _now);  // reservar de inmediato para bloquear concurrentes
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
   const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
   const patch = {
