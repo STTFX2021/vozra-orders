@@ -676,9 +676,14 @@ function sanitizeReply(text) {
   let prev;
   do {
     prev = t;
-    t = t.replace(/^[¡¿\s]*["'][^"']{1,25}["'][\s.,!…]*/, "").trim();
-    t = t.replace(/^[¡¿"'\s]*(?:ah+|hmm+|mmm+|mm-?hmm|ehm|eh|este|okay|ok|so|sure|well|alright|sorry|right|got\s*it|i\s*got\s*it)\b[\s.,!…]*/i, "").trim();
-    t = t.replace(/^[¡¿\s]*(?:entiendo|entendido|entonces|claro|vale|bueno)\s*(?:\.{2,}|…)[\s.,!…]*/i, "").trim();
+    // 1) fragmento entrecomillado corto al inicio: "Ahhh, claro..." / "Got it..."
+    t = t.replace(/^[¡¿\s]*["'][^"']{1,30}["'][\s.,!…"']*/, "").trim();
+    // 2) interjección/muletilla (es/en) al inicio, con comilla de cierre opcional
+    t = t.replace(/^[¡¿"'\s]*(?:ah+|hmm+|mmm+|mm-?hmm|ehm|eh|este|a\s*ver|okay|ok|so|sure|well|alright|sorry|right|got\s*it|i\s*got\s*it|you\s*know)["']?\b[\s.,!…"']*/i, "").trim();
+    // 3) arranque es (entiendo/claro/vale…) SOLO si va seguido de puntos suspensivos
+    t = t.replace(/^[¡¿"'\s]*(?:entiendo|entendido|entonces|claro|vale|bueno|ya)\s*(?:\.{2,}|…)["']?[\s.,!…"']*/i, "").trim();
+    // 4) restos: comillas/puntos/comas sueltos al inicio (NO toca ¡¿ ni letras)
+    t = t.replace(/^[\s.,!…"']+/, "").trim();
   } while (t !== prev && t.length);
   return t.length ? t.charAt(0).toUpperCase() + t.slice(1) : original;
 }
