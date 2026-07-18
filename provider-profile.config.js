@@ -67,6 +67,56 @@ const LA_LOCANDA = {
   acceptsHalfAndHalf:  false,    // mitad y mitad no soportado por defecto
   maxModifiersPerPizza: 3,
 
+  // ── ZONA DE REPARTO (validación por radio en km) ──────────────────────────
+  // Se geocodifica la dirección del cliente y se mide la distancia al local.
+  // FAIL-OPEN: si el geocoder no está configurado o falla, NO se bloquea el
+  // pedido — se marca deliveryRisk para que el personal lo revise. Bloquear
+  // ventas por un fallo técnico es peor que el problema que resuelve.
+  delivery: {
+    enabled:   true,
+    radiusKm:  8,                       // radio máximo de reparto desde el local
+    origin: {                           // coordenadas del local (EDITAR con las reales)
+      lat: 36.4681,                     // Cancelada, Estepona (Málaga) — aproximado
+      lng: -5.0206,
+      label: "La Locanda de Cancelada"
+    },
+    // Proveedor de geocodificación: "nominatim" (gratuito, sin key, uso justo)
+    // | "google" (requiere GOOGLE_MAPS_API_KEY) | null (desactiva la validación).
+    geocoder:  process.env.GEOCODER_PROVIDER || "nominatim",
+    countryHint: "es",
+    failOpen:  true,                    // ante fallo técnico, dejar pasar y marcar
+    timeoutMs: 4000
+  },
+
+  // ── FORMAS DE PAGO ────────────────────────────────────────────────────────
+  // Solo efectivo. Al ser una única opción, Sarah NO pregunta: informa.
+  payment: {
+    methods: ["cash"],                  // "cash" | "card" | "online"
+    askCustomer: false,                 // true solo si hay más de una opción real
+    spokenNote: "El pago es en efectivo"
+  },
+
+  // ── PROMOCIONES (motor preparado, sin reglas activas) ─────────────────────
+  // Añadir reglas aquí NO requiere tocar código. Formato de cada regla:
+  // {
+  //   id: "2x1_margherita",
+  //   label: "2x1 en Margherita",              // lo que Sarah puede decir
+  //   active: true,
+  //   type: "percent" | "amount" | "free_item",
+  //   value: 50,                                // % o € según type
+  //   appliesTo: { itemIds: ["pizza_margherita"], minQuantity: 2 },
+  //   conditions: { orderType: "delivery"|"pickup"|null, minTotal: 0,
+  //                 weekdays: [1,2,3,4,5], fromHHMM: "19:00", toHHMM: "23:00" }
+  // }
+  promotions: [],
+
+  // ── ESCALADO A PERSONAL (incidencias que Sarah no resuelve) ───────────────
+  staffEscalation: {
+    enabled: true,
+    channel: "telegram",                // reutiliza el canal de cocina
+    note: "Incidencia derivada por Sarah — requiere atención del personal."
+  },
+
   // ── Horario de COCINA (para pedidos) ─────────────────────────────────────
   // Cada día: lista de turnos [{ open:"HH:MM", close:"HH:MM" }]. Usa "24:00"
   // para medianoche. [] = cerrado ese día. EDITAR AQUÍ las horas reales del local.

@@ -24,6 +24,9 @@ const { getProvider, getKitchenStatus } = require("./provider-profile.config.js"
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
 const { upsertOrder } = require("./supabase-store.js");
 const { getCustomerByPhone, upsertCustomer } = require("./customer-store.js");
+const { checkDeliveryAddress } = require("./delivery-zone.service.js");
+const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
+const { lookupOrdersForCustomer, registerIncident } = require("./incident.service.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -242,6 +245,15 @@ ${categorias}
 No te inventes platos, precios ni ingredientes. Si dudas de si algo está en la carta o de su precio, dilo con sinceridad; nunca improvises un dato.
 - Si un producto NO aparece en la CARTA OPERATIVA, recházalo SIEMPRE con amabilidad; NUNCA lo aceptes ni lo añadas al pedido aunque suene plausible (p. ej. "aros de cebolla", "sushi", "nuggets"). No improvises productos.
 
+${(() => {
+  try {
+    const promos = listActivePromotions(slug);
+    if (!promos.length) return "";
+    return "\n# PROMOCIONES ACTIVAS\n" +
+      "- Ofertas vigentes hoy: " + promos.map(p => p.label).filter(Boolean).join("; ") + ".\n" +
+      "- Puedes mencionarlas si encajan con lo que pide, UNA vez y sin insistir. NUNCA calcules tú el descuento: el total correcto lo devuelve calcular_total.\n";
+  } catch (_) { return ""; }
+})()}
 # DESAMBIGUACIÓN DE PLATOS (obligatorio, CRÍTICO)
 - REGLA DE ORO (léela primero): solo preguntas para aclarar cuando el cliente da el nombre ambiguo A SECAS. Si el cliente ya ha dicho la categoría junto al nombre, la ambigüedad NO EXISTE: añade el plato directamente y NO preguntes NUNCA. Preguntar algo que el cliente acaba de especificar es un ERROR grave y molesto.
 - CÓMO DECIDIR (haz este chequeo mental antes de añadir):
@@ -269,6 +281,10 @@ ${horarioLinea}
    - "a domicilio", "que me la traigáis", "a mi casa", "a mi dirección", "reparto", "delivery" = DOMICILIO.
    - "para llevar" / "para llevármela" / "que me la llevéis" = A DOMICILIO (se la llevamos a su dirección). Tómalo como domicilio DIRECTAMENTE, sin preguntar "¿recoger o domicilio?": di algo como "¡Perfecto! ¿A qué dirección te la llevamos?". Solo si el cliente dice que pasa él a recogerla, cámbialo a recoger.
    - DOMICILIO = SIEMPRE dos datos: DIRECCIÓN COMPLETA + un TELÉFONO de contacto. Ambos son OBLIGATORIOS. En cuanto tengas la dirección, pide el teléfono a continuación ("Genial, anotado. ¿Y un teléfono de contacto para el repartidor?"). Nunca sigas a los platos ni cierres un domicilio sin teléfono. Si el cliente ya te dio el teléfono antes, no lo vuelvas a pedir.
+   - ZONA DE REPARTO (obligatorio en domicilio): en cuanto tengas la dirección, llama a validar_direccion ANTES de tomar los platos. Según el resultado:
+     · dentro_de_zona = true → sigue con normalidad, no menciones la zona.
+     · dentro_de_zona = false → dile con amabilidad que ahí no llegamos con el reparto y OFRÉCELE ALTERNATIVAS: que pase a recogerlo por el local, o un punto de entrega más cercano si te lo indica. Si acepta recoger, cambia el pedido a RECOGER y continúa. Si no acepta, agradece el interés y despídete con cordialidad, sin tomar el pedido.
+     · dentro_de_zona = "desconocido" → NO bloquees ni menciones nada raro: sigue con el pedido con normalidad (el personal lo revisará).
    Si el cliente YA ha dejado claro el tipo, NO se lo vuelvas a preguntar. Solo preguntas cuando no haya dado NINGUNA indicación.
    ANTI-BUCLE (crítico): NUNCA preguntes el tipo de pedido más de UNA vez, y JAMÁS repitas la misma pregunta dos veces seguidas. En cuanto tengas cualquier indicación (incluida "para llevar" → domicilio), tómala y sigue con el pedido; el cliente podrá corregirte si hace falta. No te quedes en bucle.
 2. Luego pregunta qué quiere pedir y apunta cada plato con su cantidad y modificaciones. NO lo repitas en voz alta uno a uno.
@@ -314,6 +330,24 @@ ${horarioLinea}
 
 # PEDIDOS DE GRUPO
 Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, confírmalo con especial cuidado y avisa de que puede requerir algo más de tiempo de preparación.
+
+# FORMA DE PAGO
+- En este local SOLO se acepta EFECTIVO. NO preguntes la forma de pago: simplemente INFÓRMALO una vez, con naturalidad, al cerrar el pedido ("El pago es en efectivo, ${provider.payment && provider.payment.methods && provider.payment.methods.includes("card") ? "o con tarjeta" : "al recogerlo"}."). Si es a domicilio, dilo así: "El pago es en efectivo al repartidor.". Al llamar a submit_order usa payment_method="cash".
+- Si el cliente pregunta si puede pagar con tarjeta, dile con amabilidad que de momento solo se admite efectivo.
+
+# CONSULTA SOBRE UN PEDIDO YA HECHO (no es un pedido nuevo)
+Si el cliente NO quiere pedir sino preguntar por un pedido que ya hizo (estado, retraso, algo incorrecto o que falta, cambiar algo), cambia a este flujo:
+1. Pídele su TELÉFONO y llama a consultar_pedido con ese número.
+2. Si encontrado=true: dile el estado en lenguaje natural (nunca leas ids ni códigos). Si hay varios, usa el más reciente salvo que él aclare otro.
+3. Si encontrado=false: pídele algún dato más (nombre, qué pidió, hace cuánto). Si aun así no lo localizas, discúlpate y deriva al personal con registrar_incidencia (escalar=true).
+4. IDENTIFICA el motivo y llama a registrar_incidencia con el reason que corresponda: estado_pedido, retraso, producto_incorrecto, producto_faltante, modificacion_pedido u otra_incidencia.
+   · Si solo quería saber el estado y ya se lo has dicho → escalar=false.
+   · Si hay un problema real (falta algo, llegó mal, quiere cambiarlo, va muy tarde) → escalar=true: dile que avisas al personal y que le atenderán enseguida.
+5. NUNCA prometas reembolsos, compensaciones ni tiempos exactos. Tú registras y trasladas.
+6. Si la herramienta devuelve avisado_el_personal=false y registrada=false, sé HONESTA: dile que no has podido dejar constancia y que llame en unos minutos; no afirmes que ya está gestionado.
+
+# OTRAS CONSULTAS (ni pedido ni incidencia)
+- Este teléfono es exclusivo para PEDIDOS y consultas sobre pedidos. Para cualquier otra cosa (proveedores, colaboraciones, facturación, empleo, prensa), dilo con amabilidad y pide que lo gestionen por los canales del restaurante o que llamen en horario de oficina preguntando por el encargado. No inventes extensiones, correos ni departamentos que no conoces.
 
 # LÍMITES
 - Solo tomas pedidos de comida. No gestionas reservas de mesa. Para reembolsos NO prometas nada (no puedes autorizar dinero).
@@ -373,6 +407,7 @@ const SUBMIT_ORDER_TOOL = {
         address:       { type: "string", description: "dirección completa, solo si order_type=delivery." },
         allergies:     { type: "array", items: { type: "string" }, description: "alergias o intolerancias declaradas." },
         notes:         { type: "string", description: "nota general del pedido." },
+        payment_method: { type: "string", enum: ["cash", "card"], description: "forma de pago. En este local SOLO se acepta efectivo ('cash'): no lo preguntes, solo infórmalo." },
         save_profile_consent: { type: "boolean", description: "true SOLO si el cliente ha dado permiso EXPLÍCITO para guardar su nombre, teléfono y dirección para futuros pedidos (se le pregunta tras confirmar el pedido). false o ausente si no consintió." }
       },
       required: ["items", "order_type", "customer_name", "phone"]
@@ -413,6 +448,66 @@ const LOOKUP_TOOL = {
         phone: { type: "string", description: "el teléfono que ha dado el cliente, solo dígitos." }
       },
       required: ["phone"]
+    }
+  }
+};
+
+// ─── HERRAMIENTA validar_direccion ──────────────────────────────────────────
+// Comprueba si la dirección entra en el radio de reparto ANTES de tomar platos.
+const ZONE_TOOL = {
+  type: "function",
+  function: {
+    name: "validar_direccion",
+    description: "Comprueba si una dirección de entrega está dentro de la zona de reparto. Llámala SIEMPRE justo después de que el cliente te dé la dirección, ANTES de empezar a tomar los platos. Devuelve dentro_de_zona true/false/desconocido.",
+    parameters: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "dirección completa tal como la ha dicho el cliente." }
+      },
+      required: ["address"]
+    }
+  }
+};
+
+// ─── HERRAMIENTA consultar_pedido ───────────────────────────────────────────
+// Rama de CONSULTA: localiza los pedidos recientes de un teléfono.
+const ORDER_LOOKUP_TOOL = {
+  type: "function",
+  function: {
+    name: "consultar_pedido",
+    description: "Busca los pedidos recientes de un teléfono para responder a una CONSULTA o incidencia (estado, retraso, producto incorrecto...). Llámala cuando el cliente NO quiere pedir sino preguntar por un pedido ya hecho, en cuanto te dé su teléfono.",
+    parameters: {
+      type: "object",
+      properties: {
+        phone: { type: "string", description: "teléfono del cliente, solo dígitos." }
+      },
+      required: ["phone"]
+    }
+  }
+};
+
+// ─── HERRAMIENTA registrar_incidencia ───────────────────────────────────────
+// Deja constancia y, si hace falta, avisa al personal.
+const INCIDENT_TOOL = {
+  type: "function",
+  function: {
+    name: "registrar_incidencia",
+    description: "Registra una incidencia sobre un pedido y avisa al personal si tú no puedes resolverla. Úsala tras identificar el motivo de la consulta. Si el cliente solo quería saber el estado y ya se lo has dicho, usa escalar=false.",
+    parameters: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          enum: ["estado_pedido", "retraso", "producto_incorrecto", "producto_faltante", "modificacion_pedido", "otra_incidencia"],
+          description: "motivo de la consulta."
+        },
+        detail:        { type: "string", description: "resumen breve de lo que cuenta el cliente." },
+        order_id:      { type: "string", description: "id del pedido si lo has localizado." },
+        phone:         { type: "string", description: "teléfono del cliente." },
+        customer_name: { type: "string", description: "nombre del cliente si lo sabes." },
+        escalar:       { type: "boolean", description: "true si necesita atención del personal; false si tú ya lo has resuelto." }
+      },
+      required: ["reason"]
     }
   }
 };
@@ -477,7 +572,24 @@ function computeQuote(args) {
   const items = ((args && args.items) || []).map(mapToolItem);
   const { estimatedTotal, breakdown, currency } = estimateTotal({ items });
   const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
-  return { total_eur: estimatedTotal, moneda: currency || "EUR", productos_sin_precio: sinPrecio };
+
+  // Promociones: motor configurable. Hoy `promotions: []` → no-op, total intacto.
+  let promo = { discounts: [], totalDiscount: 0, newTotal: estimatedTotal, labels: [] };
+  try {
+    promo = applyPromotions(items, { orderType: args && args.order_type, baseTotal: estimatedTotal }, "la-locanda");
+  } catch (e) { console.error("[PROMO] error | " + e.message); }
+
+  const out = {
+    total_eur: promo.totalDiscount > 0 ? promo.newTotal : estimatedTotal,
+    moneda: currency || "EUR",
+    productos_sin_precio: sinPrecio
+  };
+  if (promo.totalDiscount > 0) {
+    out.total_sin_descuento_eur = estimatedTotal;
+    out.descuento_eur = promo.totalDiscount;
+    out.promociones_aplicadas = promo.labels;
+  }
+  return out;
 }
 
 // Busca un perfil guardado por teléfono (para la tool buscar_cliente).
@@ -494,13 +606,67 @@ async function computeLookup(args) {
   };
 }
 
+// Valida la zona de reparto (tool validar_direccion).
+// FAIL-OPEN: ante fallo técnico devuelve "desconocido" para no perder la venta.
+async function computeZone(args) {
+  const address = args && args.address;
+  let z;
+  try { z = await checkDeliveryAddress(address, "la-locanda"); }
+  catch (e) {
+    console.error("[ZONA] error | " + e.message);
+    return { dentro_de_zona: "desconocido", motivo: "error_tecnico" };
+  }
+  const map = { in_zone: true, out_of_zone: false, unknown: "desconocido" };
+  return {
+    dentro_de_zona: map[z.status],
+    distancia_km:   z.distanceKm,
+    radio_km:       z.radiusKm,
+    motivo:         z.reason
+  };
+}
+
+// Consulta de pedidos por teléfono (tool consultar_pedido).
+async function computeOrderLookup(args) {
+  try { return await lookupOrdersForCustomer(args && args.phone, 3); }
+  catch (e) {
+    console.error("[CONSULTA] error | " + e.message);
+    return { encontrado: false, motivo: "error_consulta" };
+  }
+}
+
+// Registro de incidencia + derivación al personal (tool registrar_incidencia).
+async function computeIncident(args) {
+  try {
+    const r = await registerIncident({
+      orderId:      args.order_id || null,
+      phone:        args.phone || null,
+      customerName: args.customer_name || null,
+      reason:       args.reason,
+      detail:       args.detail || null,
+      escalate:     args.escalar !== false,
+      providerSlug: "la-locanda"
+    });
+    return {
+      registrada: !!r.registrada,
+      avisado_el_personal: !!r.derivada,
+      ok: !!r.ok
+    };
+  } catch (e) {
+    console.error("[INCID] error | " + e.message);
+    return { registrada: false, avisado_el_personal: false, ok: false };
+  }
+}
+
 // Devuelve la salida de una tool_call (calcular_total, buscar_cliente, u otras).
 async function toolOutput(tc) {
   const name = tc && tc.function && tc.function.name;
   let a = {};
   try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
-  if (name === "calcular_total") return computeQuote(a);
-  if (name === "buscar_cliente") return await computeLookup(a);
+  if (name === "calcular_total")       return computeQuote(a);
+  if (name === "buscar_cliente")       return await computeLookup(a);
+  if (name === "validar_direccion")    return await computeZone(a);
+  if (name === "consultar_pedido")     return await computeOrderLookup(a);
+  if (name === "registrar_incidencia") return await computeIncident(a);
   return { ok: true };
 }
 
@@ -551,6 +717,7 @@ async function handleSubmitOrder(callId, args) {
     allergies: Array.isArray(args.allergies) ? args.allergies : [],
     allergyNotes: (args.allergies && args.allergies.length) ? args.allergies.join(", ") : null,
     notes: args.notes || null,
+    paymentMethod: args.payment_method || "cash",
     status: ORDER_STATUS.CUSTOMER_CONFIRMED
   };
   if (orderType === "delivery" && args.address) {
@@ -697,10 +864,12 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
   }
   let messages = buildModelMessages(provider, incomingMessages, profile);
-  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL];
+  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
 
-  // Bucle de herramientas: permite que Marta pida calcular_total y luego hable.
-  for (let step = 0; step < 3; step++) {
+  // Bucle de herramientas: permite encadenar validar_direccion / consultar_pedido /
+  // calcular_total y luego hablar. 5 pasos: hay 6 tools y un turno puede necesitar
+  // varias (p. ej. validar dirección → calcular total → enviar pedido).
+  for (let step = 0; step < 5; step++) {
     const completion = await callOpenAI({
       model: "gpt-4.1-mini",
       temperature: 0.4,

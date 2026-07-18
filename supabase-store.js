@@ -160,4 +160,56 @@ async function getOrder(orderId) {
   }
 }
 
-module.exports = { upsertOrder, patchByOrderId, getOrder, isEnabled, toRow };
+/**
+ * Busca los últimos pedidos de un teléfono (para la rama de CONSULTA).
+ * Devuelve los más recientes primero. No lanza.
+ * @param {string} phone
+ * @param {number} limit
+ * @returns {Promise<{ok:boolean, orders?:Array, skipped?:boolean, reason?:string, error?:string}>}
+ */
+async function findOrdersByPhone(phone, limit = 3) {
+  try {
+    if (!isEnabled()) return { ok: false, skipped: true, reason: "Supabase no configurado" };
+    const p = String(phone || "").replace(/[^\d+]/g, "");
+    if (!p) return { ok: false, skipped: true, reason: "sin telefono" };
+    const n = Math.max(1, Math.min(10, parseInt(limit, 10) || 3));
+    const r = await request(
+      "GET",
+      "/rest/v1/orders?phone=eq." + encodeURIComponent(p) +
+      "&order=created_at.desc&limit=" + n,
+      null
+    );
+    return { ok: true, orders: JSON.parse(r.body || "[]") };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/**
+ * Registra una incidencia asociada (o no) a un pedido. Tabla <schema>.incidents.
+ * No lanza — si Supabase no está configurado, se omite y el flujo sigue
+ * (la derivación al personal por Telegram es el canal que SÍ garantiza aviso).
+ */
+async function insertIncident(incident) {
+  try {
+    if (!isEnabled()) return { ok: false, skipped: true, reason: "Supabase no configurado" };
+    const row = {
+      order_id:      incident.orderId || null,
+      phone:         incident.phone || null,
+      customer_name: incident.customerName || null,
+      reason:        incident.reason || null,
+      detail:        incident.detail || null,
+      resolved_by:   incident.resolvedBy || null,   // "assistant" | "staff"
+      escalated:     !!incident.escalated,
+      provider_slug: incident.providerSlug || "la-locanda",
+      created_at:    new Date().toISOString()
+    };
+    Object.keys(row).forEach(k => { if (row[k] === undefined) delete row[k]; });
+    await request("POST", "/rest/v1/incidents", row, { "Prefer": "return=minimal" });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { upsertOrder, patchByOrderId, getOrder, findOrdersByPhone, insertIncident, isEnabled, toRow };
