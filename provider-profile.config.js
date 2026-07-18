@@ -75,10 +75,20 @@ const LA_LOCANDA = {
   delivery: {
     enabled:   true,
     radiusKm:  8,                       // radio máximo de reparto desde el local
-    origin: {                           // coordenadas del local (EDITAR con las reales)
-      lat: 36.4681,                     // Cancelada, Estepona (Málaga) — aproximado
-      lng: -5.0206,
-      label: "La Locanda de Cancelada"
+    // ORIGEN DEL RADIO: basta con la DIRECCIÓN. Se geocodifica una sola vez al
+    // arrancar y se cachea en memoria. Para dar de alta otro local, pega su
+    // dirección aquí — no hace falta buscar coordenadas.
+    // `lat`/`lng` son OPCIONALES: si los pones, mandan sobre la dirección
+    // (útil si el geocoder falla o quieres precisión exacta).
+    origin: {
+      address: "Avenida Marqués del Duero, 23, 29688 Cancelada, Estepona, Málaga",
+      label:   "La Locanda de Cancelada",
+      lat: null,                        // override manual opcional
+      lng: null,
+      // Respaldo si la geocodificación falla: centro de Cancelada (aproximado).
+      // Con un radio de 8 km, un error de 200-300 m es irrelevante.
+      fallbackLat: 36.4636,
+      fallbackLng: -5.0119
     },
     // Proveedor de geocodificación: "nominatim" (gratuito, sin key, uso justo)
     // | "google" (requiere GOOGLE_MAPS_API_KEY) | null (desactiva la validación).

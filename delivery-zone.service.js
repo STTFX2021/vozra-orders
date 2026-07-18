@@ -149,6 +149,56 @@ async function geocode(address, cfg) {
   return await geocodeNominatim(address, cfg);
 }
 
+// ─── ORIGEN DEL RADIO (el local) ──────────────────────────────────────────────
+
+// Resultado cacheado en memoria: el origen se resuelve UNA vez por proceso.
+const _originCache = new Map(); // providerSlug -> { lat, lng, source }
+
+/**
+ * Devuelve las coordenadas del local. Orden de preferencia:
+ *   1. origin.lat/lng explícitos en config (override manual)
+ *   2. Geocodificación de origin.address (una sola vez, cacheada)
+ *   3. origin.fallbackLat/fallbackLng (respaldo)
+ * Devuelve null si no hay forma de determinarlo.
+ */
+async function resolveOrigin(cfg, providerSlug) {
+  if (_originCache.has(providerSlug)) return _originCache.get(providerSlug);
+
+  const o = (cfg && cfg.origin) || {};
+
+  // 1) Override manual
+  if (o.lat != null && o.lng != null) {
+    const v = { lat: o.lat, lng: o.lng, source: "config" };
+    _originCache.set(providerSlug, v);
+    return v;
+  }
+
+  // 2) Geocodificar la dirección del local
+  if (o.address) {
+    try {
+      const geo = await geocode(o.address, cfg);
+      if (geo && geo.lat != null && geo.lng != null) {
+        const v = { lat: geo.lat, lng: geo.lng, source: "geocoded" };
+        _originCache.set(providerSlug, v);
+        console.log(`[ZONA] origen geocodificado | ${o.label || providerSlug} | ${v.lat.toFixed(5)}, ${v.lng.toFixed(5)}`);
+        return v;
+      }
+      console.warn("[ZONA] no se pudo geocodificar la dirección del local; uso respaldo");
+    } catch (e) {
+      console.warn("[ZONA] geocodificación del local falló (" + e.message + "); uso respaldo");
+    }
+  }
+
+  // 3) Respaldo
+  if (o.fallbackLat != null && o.fallbackLng != null) {
+    const v = { lat: o.fallbackLat, lng: o.fallbackLng, source: "fallback" };
+    _originCache.set(providerSlug, v);
+    return v;
+  }
+
+  return null;
+}
+
 // ─── API PÚBLICA ──────────────────────────────────────────────────────────────
 
 /**
@@ -185,7 +235,11 @@ async function checkDeliveryAddress(address, providerSlug = "la-locanda") {
   if (addr.length < 6) {
     return Object.assign({}, base, { status: "unknown", deliveryRisk: true, reason: "direccion_insuficiente" });
   }
-  if (!cfg.origin || cfg.origin.lat == null || cfg.origin.lng == null) {
+  // Origen del radio: config explícita → geocodificado desde la dirección → respaldo.
+  let origin = null;
+  try { origin = await resolveOrigin(cfg, providerSlug); }
+  catch (e) { console.error("[ZONA] resolveOrigin error | " + e.message); }
+  if (!origin) {
     return Object.assign({}, base, { status: "unknown", deliveryRisk: true, reason: "origen_no_configurado" });
   }
 
@@ -208,7 +262,7 @@ async function checkDeliveryAddress(address, providerSlug = "la-locanda") {
     return out;
   }
 
-  const distanceKm = haversineKm(cfg.origin, geo);
+  const distanceKm = haversineKm(origin, geo);
   const rounded = Math.round(distanceKm * 10) / 10;
 
   // Confianza baja → no rechazamos por algo que quizá geocodificó mal.
@@ -234,7 +288,7 @@ async function checkDeliveryAddress(address, providerSlug = "la-locanda") {
   return out;
 }
 
-/** Limpia la caché (tests). */
-function clearGeoCache() { _geoCache.clear(); }
+/** Limpia las cachés (tests). */
+function clearGeoCache() { _geoCache.clear(); _originCache.clear(); }
 
-module.exports = { checkDeliveryAddress, haversineKm, clearGeoCache, normAddress };
+module.exports = { checkDeliveryAddress, haversineKm, clearGeoCache, normAddress, resolveOrigin };
