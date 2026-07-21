@@ -863,7 +863,7 @@ function sanitizeReply(text) {
   // reglas de abajo solo ven " y ', así “Right…” no se escapa del filtro.
   let t = original.replace(/[\u201C\u201D\u201E]/g, '"').replace(/[\u2018\u2019]/g, "'");
   // Muletillas entrecomilladas en CUALQUIER posición: "Entiendo". / "Got it".
-  t = t.replace(/"(?:entiendo|entendido|got\s*it|okay|ok|right|vale|claro|perfecto)[\s.…]*"[\s.,!…]*/gi, " ").replace(/\s{2,}/g, " ").trim();
+  t = t.replace(/"(?:entiendo|entendido|got\s*it|okay|ok|right|vale|claro|perfecto|uh+-?h+uh|mm-?hmm|ah+|understood|duly\s*noted)[\s.…!]*"[\s.,!…]*/gi, " ").replace(/\s{2,}/g, " ").trim();
   let prev;
   // Muletillas en INGLÉS que el modelo cuela al arrancar un turno. Se eliminan
   // siempre que aparezcan al principio. Ampliada tras detectar "Duly noted...".
@@ -878,12 +878,14 @@ function sanitizeReply(text) {
     // 1) fragmento entrecomillado corto al inicio: "Ahhh, claro..." / "Got it..."
     t = t.replace(/^[¡¿\s]*["'][^"']{1,30}["'][\s.,!…"']*/, "").trim();
     // 2) interjección o muletilla (es/en) al inicio, con comilla de cierre opcional
-    t = t.replace(new RegExp("^[¡¿\"'\\s]*(?:ah+|hmm+|mmm+|mm-?hmm|ehm|eh|este|" + EN + ")[\"']?\\b[\\s.,!…\"']*", "i"), "").trim();
+    t = t.replace(new RegExp("^[¡¿\"'\\s]*(?:ah+|hmm+|mmm+|mm-?hmm|uh+-?h+uh|uh+m?|aha+|ajá|ehm|eh|este|" + EN + ")[\"']?\\b[\\s.,!…\"']*", "i"), "").trim();
     // 3) arranque en español SOLO si va seguido de puntos suspensivos.
     //    Admite signos entre medias ("¡Entiendo!..." debe caer igual que "Entiendo...").
     t = t.replace(new RegExp("^[¡¿\"'\\s]*(?:" + ES + ")\\s*[!¡?¿]*\\s*(?:\\.{2,}|…)[\"']?[\\s.,!…\"']*", "i"), "").trim();
     // 3b) "Entiendo."/"Entendido." como frase-muletilla inicial seguida de otra frase
     t = t.replace(/^[¡¿"'\s]*(?:entiendo|entendido)[."'!]*\s+(?=[A-ZÁÉÍÓÚÑ¡¿"])/i, "").trim();
+    // 3c) residuo con comilla desbalanceada: 'Uhh-huh.". ¡Perfecto' → '¡Perfecto'
+    t = t.replace(/^[a-záéíóúüñ\s-]{1,14}[.!]*["']+[\s.,!]*(?=[¡¿"A-ZÁÉÍÓÚÑ])/i, "").trim();
     // 4) restos: comillas/puntos/comas sueltos al inicio (NO toca ¡¿ ni letras)
     t = t.replace(/^[\s.,!…"']+/, "").trim();
   } while (t !== prev && t.length);
