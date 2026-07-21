@@ -152,6 +152,14 @@ function renderMenu(menu) {
   return "Consulta la carta de la casa.";
 }
 
+// Filtra nombres placeholder que el modelo a veces cuela ("Cliente", "Customer"):
+// nunca deben usarse como nombre real ni guardarse en el perfil.
+function realCustomerName(n) {
+  const s = n == null ? "" : String(n).trim();
+  if (!s || /^(cliente|customer|client|usuario|user)$/i.test(s)) return null;
+  return s;
+}
+
 function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null) {
   const menu = provider.menu || loadMenu();
   const config = provider.config || {};
@@ -175,14 +183,15 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
     : "Horario no disponible: no prometas una hora exacta y ofrece comprobarla.";
 
   // Bloque de cliente recurrente: solo aparece si hay perfil guardado CON consentimiento.
-  const nombreCli = profile && profile.name ? profile.name : null;
+  const nombreCli = realCustomerName(profile && profile.name);
   const dirCli = profile && profile.address ? (profile.address.raw || profile.address) : null;
   const perfilBloque = profile
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
 - Salúdale por su nombre al empezar${nombreCli ? ` ("¡Hola, ${String(nombreCli).split(" ")[0]}! Soy Sarah, ¿qué te pongo hoy?")` : ""}.
-- NO le pidas el nombre ni el teléfono: ya los tienes.
+- NO le pidas el teléfono: ya lo tienes.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
 - Si el pedido es a domicilio, NO preguntes la dirección: CONFÍRMALA ("¿Te lo llevo a la misma dirección, ${dirCli || "la de siempre"}?"). Solo si dice que ha cambiado, pídele la nueva.
+- La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NI LA MENCIONES: la recogida es SIEMPRE en el local (${nombre}). JAMÁS digas la dirección del cliente como lugar de recogida.
 - Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
 `
     : "";
@@ -220,6 +229,7 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 - PRECIOS SIEMPRE EN PALABRAS, nunca cifras ni símbolos. Formato: "trece euros con cincuenta" (céntimos con "con", el € se dice "euros"). Ej.: 13,50 → "trece euros con cincuenta"; 9 → "nueve euros"; 9,90 → "nueve euros con noventa". PROHIBIDO decir "punto", "coma" o leer dígitos. Cantidades también en palabras ("dos pizzas"). Nunca leas códigos ni IDs.
 - TELÉFONOS: al repetir un teléfono, dilo SIEMPRE en tres bloques de tres cifras, cada bloque leído como un número entero de tres cifras, separados por COMAS: 634425921 → "seiscientos treinta y cuatro, cuatrocientos veinticinco, novecientos veintiuno". PROHIBIDO leerlo dígito a dígito ("seis, tres, cuatro"), agrupar de dos en dos ("noventa y uno") o leerlo de corrido.
 - PROHIBIDOS LOS PUNTOS SUSPENSIVOS (regla absoluta): NUNCA escribas tres puntos seguidos ni el carácter de puntos suspensivos en NINGUNA parte de tu respuesta. El sintetizador de voz los convierte en ruidos y silencios raros. Si necesitas una pausa, usa una COMA o un PUNTO. Ni al principio, ni en medio, ni al final de la frase. Ninguna excepción.
+- PROHIBIDO usar "Entiendo" o "Entendido" como muletilla de arranque (ni solos, ni entre comillas): NUNCA empieces un turno así. Ve directo a la información. Para variar usa: "Perfecto", "Marchando", "Hecho", "Vale", "Genial".
 - PROHIBIDO empezar o rellenar con sonidos de duda: nada de "Ah", "Ahh", "Ahhh", "Hmm", "Mmm", "Mm-hmm", "Ehm", "Eh", "Este", "A ver". NUNCA arranques un turno con uno de esos sonidos: empieza directamente con la información (el total, la confirmación, la siguiente pregunta). Si acabas de calcular el total, di el número de inmediato, sin preámbulo ("Son treinta y seis euros con cincuenta.").
 - PROHIBIDO usar palabras o expresiones en inglés cuando hablas en español: nada de "Okay", "Ok", "So", "Sure", "Well", "Alright", "Sorry", "Right", "I got it", "Got it", "Sure thing" NI NINGUNA otra palabra/frase en inglés. Hablas español de España y arrancas SIEMPRE en español ("Claro", "Perfecto", "Vale", "Muy bien", "Entendido", "Hecho"). No mezcles idiomas dentro de una frase. (Esto NO impide atender a un cliente que hable en inglés: si el cliente habla en inglés, respóndele TODO en inglés natural; pero nunca mezcles los dos.)
 - Cuando el cliente diga que quiere hacer un pedido, responde natural y directo, sin ningún sonido ni preámbulo: "¡Claro! ¿Qué te gustaría pedir?" (o, si procede, "¿Es para recoger o a domicilio?"). Nada de ruidos antes de contestar.
@@ -289,7 +299,7 @@ ${horarioLinea}
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
    - PROHIBIDO pedir dos veces el mismo dato. Si ya tienes teléfono o dirección de este cliente, no los vuelvas a pedir: confírmalos si acaso, una sola vez.
-   - En RECOGER el orden es el mismo: primero el TELÉFONO, luego buscar_cliente, y si encontrado=true salúdale por su nombre y NO le pidas el nombre otra vez; si encontrado=false, pídele el nombre.
+   - En RECOGER el orden es el mismo: primero el TELÉFONO, luego buscar_cliente, y si encontrado=true salúdale por su nombre y NO le pidas el nombre otra vez; si encontrado=false, pídele el nombre. En RECOGER no existe dirección: JAMÁS pidas, confirmes ni menciones ninguna dirección (ni la del perfil); el cliente recoge SIEMPRE en el local.
    - ZONA DE REPARTO (obligatorio en domicilio): una vez fijada la dirección (paso C o D), llama a validar_direccion ANTES de tomar los platos. Según el resultado:
      · dentro_de_zona = true → sigue con normalidad, no menciones la zona.
      · dentro_de_zona = false → dile con amabilidad que ahí no llegamos con el reparto y OFRÉCELE ALTERNATIVAS: que pase a recogerlo por el local, o un punto de entrega más cercano si te lo indica. Si acepta recoger, cambia el pedido a RECOGER y continúa. Si no acepta, agradece el interés y despídete con cordialidad, sin tomar el pedido.
@@ -794,7 +804,7 @@ async function handleSubmitOrder(callId, args) {
       const addr = (patch.address && patch.address.raw) ? patch.address : (args.address ? { raw: args.address } : null);
       Promise.resolve(upsertCustomer({
         phone: args.phone || null,
-        name: args.customer_name || null,
+        name: realCustomerName(args.customer_name),
         address: addr,
         providerSlug: "la-locanda",
         consent: true
@@ -849,7 +859,11 @@ function buildModelMessages(provider, incomingMessages, profile = null) {
 function sanitizeReply(text) {
   if (!text) return text;
   const original = String(text).trim();
-  let t = original;
+  // Normaliza comillas tipográficas (el modelo a veces emite “Right…”): las
+  // reglas de abajo solo ven " y ', así “Right…” no se escapa del filtro.
+  let t = original.replace(/[\u201C\u201D\u201E]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  // Muletillas entrecomilladas en CUALQUIER posición: "Entiendo". / "Got it".
+  t = t.replace(/"(?:entiendo|entendido|got\s*it|okay|ok|right|vale|claro|perfecto)[\s.…]*"[\s.,!…]*/gi, " ").replace(/\s{2,}/g, " ").trim();
   let prev;
   // Muletillas en INGLÉS que el modelo cuela al arrancar un turno. Se eliminan
   // siempre que aparezcan al principio. Ampliada tras detectar "Duly noted...".
@@ -868,6 +882,8 @@ function sanitizeReply(text) {
     // 3) arranque en español SOLO si va seguido de puntos suspensivos.
     //    Admite signos entre medias ("¡Entiendo!..." debe caer igual que "Entiendo...").
     t = t.replace(new RegExp("^[¡¿\"'\\s]*(?:" + ES + ")\\s*[!¡?¿]*\\s*(?:\\.{2,}|…)[\"']?[\\s.,!…\"']*", "i"), "").trim();
+    // 3b) "Entiendo."/"Entendido." como frase-muletilla inicial seguida de otra frase
+    t = t.replace(/^[¡¿"'\s]*(?:entiendo|entendido)[."'!]*\s+(?=[A-ZÁÉÍÓÚÑ¡¿"])/i, "").trim();
     // 4) restos: comillas/puntos/comas sueltos al inicio (NO toca ¡¿ ni letras)
     t = t.replace(/^[\s.,!…"']+/, "").trim();
   } while (t !== prev && t.length);
