@@ -974,6 +974,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
 module.exports = {
   generateMartaReply,
+  sanitizeReply,
   buildModelMessages,
   buildSystemPrompt,
   renderMenu,

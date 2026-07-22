@@ -19,7 +19,7 @@
 
 const express  = require("express");
 const { processTurn, buildKitchenTicket } = require("./order-slot-filler.service.js");
-const { generateMartaReply } = require("./marta-llm.service.js");
+const { generateMartaReply, sanitizeReply } = require("./marta-llm.service.js");
 const { getOrCreateOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
 const { validateOrder }   = require("./order-validator.service.js");
 const { buildTicket }     = require("./kitchen-ticket-builder.service.js");
@@ -234,8 +234,9 @@ router.post("/v1/chat/completions", async (req, res) => {
   const userTurns = incoming.filter(m => m && m.role !== "system");
   const callerPhone = extractCallerPhone(req);
   const { reply, dispatched, action } = await generateMartaReply(callId, userTurns, callerPhone);
-    console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(reply).slice(0,60)}"`);
-    return sendStreamResponse(res, reply, id, model);
+    const spoken = sanitizeReply(reply); // segunda pasada: nada sucio llega al TTS
+    console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(spoken).slice(0,60)}"`);
+    return sendStreamResponse(res, spoken, id, model);
   } catch (errLLM) {
     // ── FALLBACK HONESTO (decisión QA #1) ───────────────────────────────────
     // Si el cerebro LLM (OpenAI) falla —p. ej. 429 por saturación o timeout—,
@@ -289,6 +290,7 @@ router.get("/health", (req, res) => {
     ok:        true,
     service:   "vozra-orders-elevenlabs",
     version:   "1.0.1",
+    commit:    (process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 7) || null,
     restaurant: meta.restaurantName,
     timestamp: new Date().toISOString()
   });
