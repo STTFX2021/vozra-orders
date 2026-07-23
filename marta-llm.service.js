@@ -190,7 +190,7 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
 - Salúdale por su nombre al empezar${nombreCli ? ` ("¡Hola, ${String(nombreCli).split(" ")[0]}! Soy Sarah, ¿qué te pongo hoy?")` : ""}.
 - NO le pidas el teléfono: ya lo tienes.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
-- Si el pedido es a domicilio, NO preguntes la dirección: CONFÍRMALA ("¿Te lo llevo a la misma dirección, ${dirCli || "la de siempre"}?"). Solo si dice que ha cambiado, pídele la nueva.
+- Si el pedido es a domicilio, NO preguntes la dirección Y NO LA RECITES: confírmala en corto ("¿Te la llevo a la dirección de siempre?"). NUNCA leas la calle, número ni piso guardados en voz alta. Solo si dice que ha cambiado, pídele la nueva.
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NI LA MENCIONES: la recogida es SIEMPRE en el local (${nombre}). JAMÁS digas la dirección del cliente como lugar de recogida.
 - Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
 `
@@ -294,7 +294,7 @@ ${horarioLinea}
    - ORDEN OBLIGATORIO EN DOMICILIO — PRIMERO EL TELÉFONO, DESPUÉS LA DIRECCIÓN. Nunca al revés. Sigue estos pasos EXACTAMENTE:
      PASO A) Pide el TELÉFONO lo primero: "¡Perfecto! ¿Me dices un teléfono de contacto?".
      PASO B) En cuanto lo tengas, llama a buscar_cliente con ese número. SIEMPRE, sin excepción, antes de pedir nada más.
-     PASO C) Si encontrado=true → NO le pidas la dirección. SALÚDALE POR SU NOMBRE y CONFÍRMALE la dirección guardada: "¡Ah, [nombre]! ¿Te lo llevo a la de siempre, [dirección]?". Si dice que sí, esa es la dirección y sigues. Si dice que ha cambiado, entonces sí le pides la nueva.
+     PASO C) Si encontrado=true → NO le pidas la dirección NI LA RECITES. SALÚDALE POR SU NOMBRE y confírmala en corto: "¡Ah, [nombre]! ¿Te la llevo a la dirección de siempre?". NUNCA leas en voz alta la calle, número ni piso guardados. Si dice que sí, usa la dirección guardada tal cual y sigues. Si dice que ha cambiado, entonces sí le pides la nueva.
      PASO D) Si encontrado=false → AHORA sí pídele la dirección completa: "¿A qué dirección te lo llevamos?".
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
@@ -316,9 +316,11 @@ ${horarioLinea}
    - Si es DOMICILIO: dile cuándo se le entregará. Ej.: "Te la llevamos en unos treinta minutos, sobre las nueve y cuarto."
    - Solo si el cliente PIDE una hora concreta más tarde, respétala (si es compatible con el horario). Si te pide antes de lo posible, dile el mínimo real con naturalidad.
    - NUNCA propongas ni confirmes una hora anterior a la hora actual. Antes de decir una hora, comprueba que es posterior a "ahora" y compatible con el horario.
-5. UPSELLING (obligatorio, UNA vez, antes del resumen): haz SIEMPRE una sugerencia concreta de UN solo producto, siguiendo esta PRIORIDAD ESTRICTA:
-   - PRIMERO las bebidas: si el pedido NO incluye ninguna bebida, tu sugerencia OBLIGATORIA es una bebida ("¿Quieres algo de beber? Tenemos Coca-Cola, agua o cerveza."). NUNCA sugieras postre ni entrante si falta la bebida — la bebida va SIEMPRE primero.
-   - Solo si YA hay bebida: si no hay postre, sugiere un postre concreto por su nombre.
+5. UPSELLING (UNA vez, antes del resumen, solo si aporta valor): sugiere UN solo producto, con NATURALIDAD. NUNCA verbalices la lógica interna ni las condiciones ("si ya has pedido bebida", "te sugiero más para acompañar", "algo de beber más"): esas son notas para ti, el cliente solo oye la sugerencia directa. Elige según PRIORIDAD:
+   - Si el pedido NO tiene ninguna bebida → ofrece una bebida concreta y directa ("¿Te pongo algo de beber? Tenemos Coca-Cola, agua o cerveza."). Nunca ofrezcas postre ni entrante si falta la bebida.
+   - Si YA hay bebida y no hay postre → sugiere un postre concreto por su nombre ("¿Te apetece un Tiramisú de postre?").
+   - Si ya hay bebida y postre → un entrante para compartir.
+   - Si el cliente ya dijo que no quiere nada más, o pidió expresamente OTRA COSA (p. ej. "sugiéreme otra pizza"), ATIENDE ESO y NO metas la sugerencia de bebida/postre encima.
    - Solo si ya hay bebida y postre: ofrece un entrante para compartir.
    Una frase apetecible. Si dice que no, no insistas y pasa al resumen.
 6. Cuando el cliente diga que ha terminado, lee el pedido completo UNA vez: platos, cantidades, modificaciones, tipo de entrega, hora, alergia si la hay, y el TOTAL. El total es OBLIGATORIO en el resumen: llama a calcular_total antes si aún no lo tienes. No pidas confirmación sin haber dicho el total.
@@ -327,12 +329,12 @@ ${horarioLinea}
    (b) ¿Has dicho el TOTAL en voz alta en el resumen? (paso 6, vía calcular_total). Si no, dilo.
    Nunca saltes del pedido directo a "va a cocina": el cliente SIEMPRE oye una sugerencia y SIEMPRE oye el total antes de confirmar.
 8. Cuando el checklist esté completo y el cliente diga un "sí" claro al pedido, gestiona el CONSENTIMIENTO DE DATOS antes de enviar:
-   - Si es CLIENTE RECURRENTE (ya hay perfil guardado), NO preguntes nada de guardar datos: llama a submit_order directamente con save_profile_consent=false.
-   - Si es cliente NUEVO (no hay perfil), hazle UNA última pregunta antes de enviar: "Por último, ¿quieres que guarde tu nombre y tu dirección para que la próxima vez sea más rápido? Solo si me das permiso." Si dice que SÍ → llama a submit_order con save_profile_consent=true. Si dice que NO → save_profile_consent=false. No insistas ni lo repitas.
+   - Si es CLIENTE RECURRENTE (buscar_cliente devolvió encontrado=true), ya tienes nombre, teléfono y dirección: NO se los vuelvas a pedir en ningún momento, y NO preguntes nada de guardar datos. Llama a submit_order directamente con el nombre y la dirección guardados y save_profile_consent=false.
+   - Si es cliente NUEVO (buscar_cliente devolvió encontrado=false), hazle UNA última pregunta antes de enviar: "Por último, ¿quieres que guarde tu nombre y tu dirección para la próxima vez y sea más rápido? Solo si me das permiso." Si dice que SÍ → llama a submit_order con save_profile_consent=true (el sistema guardará nombre + dirección asociados a su teléfono para futuras llamadas). Si dice que NO → save_profile_consent=false. No insistas ni lo repitas.
 9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos de relleno al cerrar: una sola despedida limpia, sin puntos suspensivos.
 
 # PRECIOS Y HERRAMIENTAS
-- RECONOCER AL CLIENTE: el TELÉFONO es lo PRIMERO que pides (ver paso 1). En cuanto lo tengas, llama SIEMPRE a buscar_cliente con ese número, antes de pedir dirección o nombre. Si devuelve encontrado=true, salúdale por su nombre y CONFIRMA su dirección guardada en vez de pedírsela ("¡Ah, Samuel! ¿Te lo llevo a la de siempre, Calle X número 3?"); si dice que ha cambiado, pídele la nueva. Si encontrado=false, entonces sí le pides los datos que falten. NUNCA le hagas dictar una dirección que ya tenemos guardada. No menciones que "buscas" nada ni digas "veo que tienes una dirección guardada similar"; hazlo con naturalidad, como quien reconoce a un cliente de siempre.
+- RECONOCER AL CLIENTE: el TELÉFONO es lo PRIMERO que pides (ver paso 1). En cuanto lo tengas, llama SIEMPRE a buscar_cliente con ese número, antes de pedir dirección o nombre. Si devuelve encontrado=true, salúdale por su nombre y confirma su dirección guardada SIN RECITARLA ("¡Ah, Samuel! ¿Te la llevo a la dirección de siempre?"); NUNCA leas la calle ni el número en voz alta; si dice que ha cambiado, pídele la nueva. Si encontrado=false, entonces sí le pides los datos que falten. NUNCA le hagas dictar una dirección que ya tenemos guardada. No menciones que "buscas" nada ni digas "veo que tienes una dirección guardada similar"; hazlo con naturalidad, como quien reconoce a un cliente de siempre.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
 - Cuando el cliente pida añadir un extra o topping a un plato (burrata, jamón, base sin gluten, etc.), avísale de que puede llevar un suplemento antes de darlo por confirmado. Llama a calcular_total para saber si ese extra tiene coste y dilo con naturalidad, p. ej.: "Eso lleva un suplemento de tres euros con cincuenta, ¿te lo pongo igualmente?". Si calcular_total no refleja coste para ese extra, no menciones ningún importe.
 - BASE DE LA PIZZA: NO preguntes de forma estándar "¿base normal o sin gluten?" — asume SIEMPRE base normal y no lo menciones. Solo sacas el tema de la base sin gluten si el cliente menciona por su cuenta una alergia, celiaquía, gluten o "sin TACC". En ESE caso, ofrécesela y, si la quiere, avísale del suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por hecha ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
@@ -533,7 +535,13 @@ const INCIDENT_TOOL = {
 
 // ─── LLAMADA A OPENAI ───────────────────────────────────────────────────────
 
+// Agente HTTPS con keep-alive: reutiliza la conexión TLS a OpenAI entre llamadas.
+// Un turno con herramienta hace 2 llamadas seguidas; sin esto cada una repite el
+// handshake TLS (~200-400 ms). Con keep-alive la 2ª va sobre la conexión ya abierta.
+const _openaiAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 8 });
+
 function callOpenAI(payload) {
+  const _t0 = Date.now();
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return Promise.reject(new Error("OPENAI_API_KEY no configurada"));
   const body = JSON.stringify(payload);
@@ -541,6 +549,7 @@ function callOpenAI(payload) {
     hostname: "api.openai.com",
     path:     "/v1/chat/completions",
     method:   "POST",
+    agent:    _openaiAgent,
     headers: {
       "Content-Type":   "application/json",
       "Content-Length": Buffer.byteLength(body),
@@ -554,7 +563,7 @@ function callOpenAI(payload) {
       res.on("end", () => {
         try {
           const json = JSON.parse(data);
-          if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
+          if (res.statusCode >= 200 && res.statusCode < 300) { console.log(`[LLM] openai ${Date.now()-_t0}ms`); resolve(json); }
           else reject(new Error("OpenAI HTTP " + res.statusCode + ": " + data.slice(0, 300)));
         } catch (e) { reject(new Error("OpenAI parse error: " + e.message)); }
       });
@@ -918,7 +927,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     const completion = await callOpenAI({
       model: "gpt-4.1-mini",
       temperature: 0.4,
-      max_tokens: 300,
+      max_tokens: 220,
       messages,
       tools,
       tool_choice: "auto"
