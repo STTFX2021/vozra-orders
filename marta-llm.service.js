@@ -188,7 +188,7 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
   const perfilBloque = profile
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
-- Salúdale por su nombre al empezar${nombreCli ? ` ("¡Hola, ${String(nombreCli).split(" ")[0]}! Soy Sarah, ¿qué te pongo hoy?")` : ""}.
+- Al reconocerle, en UNA frase sobria: ${nombreCli ? `"Aa, ${String(nombreCli).split(" ")[0]}, ¿te llevo el pedido a la dirección de siempre?"` : "reconócele con naturalidad"}. Sin efusividad, sin recitar la dirección, sin "Ah/Ahh/Mmm".
 - NO le pidas el teléfono: ya lo tienes.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
 - Si el pedido es a domicilio, NO preguntes la dirección Y NO LA RECITES: confírmala en corto ("¿Te la llevo a la dirección de siempre?"). NUNCA leas la calle, número ni piso guardados en voz alta. Solo si dice que ha cambiado, pídele la nueva.
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NI LA MENCIONES: la recogida es SIEMPRE en el local (${nombre}). JAMÁS digas la dirección del cliente como lugar de recogida.
@@ -294,7 +294,7 @@ ${horarioLinea}
    - ORDEN OBLIGATORIO EN DOMICILIO — PRIMERO EL TELÉFONO, DESPUÉS LA DIRECCIÓN. Nunca al revés. Sigue estos pasos EXACTAMENTE:
      PASO A) Pide el TELÉFONO lo primero: "¡Perfecto! ¿Me dices un teléfono de contacto?".
      PASO B) En cuanto lo tengas, llama a buscar_cliente con ese número. SIEMPRE, sin excepción, antes de pedir nada más.
-     PASO C) Si encontrado=true → NO le pidas la dirección NI LA RECITES. SALÚDALE POR SU NOMBRE y confírmala en corto: "¡Ah, [nombre]! ¿Te la llevo a la dirección de siempre?". NUNCA leas en voz alta la calle, número ni piso guardados. Si dice que sí, usa la dirección guardada tal cual y sigues. Si dice que ha cambiado, entonces sí le pides la nueva.
+     PASO C) Si encontrado=true → reconócele y confirma la dirección en UNA frase sobria: "Aa, [nombre], ¿te llevo el pedido a la dirección de siempre?". Sin efusividad, sin recitar la calle/número/piso, sin "Ah/Ahh/Mmm". Si dice que sí, usa la dirección guardada tal cual y sigues. Si dice que ha cambiado, pídele la nueva. (El sistema te recordará estas reglas por si acaso.)
      PASO D) Si encontrado=false → AHORA sí pídele la dirección completa: "¿A qué dirección te lo llevamos?".
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
@@ -329,12 +329,12 @@ ${horarioLinea}
    (b) ¿Has dicho el TOTAL en voz alta en el resumen? (paso 6, vía calcular_total). Si no, dilo.
    Nunca saltes del pedido directo a "va a cocina": el cliente SIEMPRE oye una sugerencia y SIEMPRE oye el total antes de confirmar.
 8. Cuando el checklist esté completo y el cliente diga un "sí" claro al pedido, gestiona el CONSENTIMIENTO DE DATOS antes de enviar:
-   - Si es CLIENTE RECURRENTE (buscar_cliente devolvió encontrado=true), ya tienes nombre, teléfono y dirección: NO se los vuelvas a pedir en ningún momento, y NO preguntes nada de guardar datos. Llama a submit_order directamente con el nombre y la dirección guardados y save_profile_consent=false.
+   - Si es CLIENTE RECURRENTE (buscar_cliente devolvió encontrado=true), ya tienes nombre, teléfono y dirección: PROHIBIDO volver a pedírselos y PROHIBIDO preguntar por guardar datos o pedir permiso (ya está registrado). Al enviar, submit_order con el nombre y la dirección guardados y save_profile_consent=false. Si por error ibas a preguntar "¿quieres que guarde tus datos?", NO lo hagas: sáltatelo.
    - Si es cliente NUEVO (buscar_cliente devolvió encontrado=false), hazle UNA última pregunta antes de enviar: "Por último, ¿quieres que guarde tu nombre y tu dirección para la próxima vez y sea más rápido? Solo si me das permiso." Si dice que SÍ → llama a submit_order con save_profile_consent=true (el sistema guardará nombre + dirección asociados a su teléfono para futuras llamadas). Si dice que NO → save_profile_consent=false. No insistas ni lo repitas.
 9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos de relleno al cerrar: una sola despedida limpia, sin puntos suspensivos.
 
 # PRECIOS Y HERRAMIENTAS
-- RECONOCER AL CLIENTE: el TELÉFONO es lo PRIMERO que pides (ver paso 1). En cuanto lo tengas, llama SIEMPRE a buscar_cliente con ese número, antes de pedir dirección o nombre. Si devuelve encontrado=true, salúdale por su nombre y confirma su dirección guardada SIN RECITARLA ("¡Ah, Samuel! ¿Te la llevo a la dirección de siempre?"); NUNCA leas la calle ni el número en voz alta; si dice que ha cambiado, pídele la nueva. Si encontrado=false, entonces sí le pides los datos que falten. NUNCA le hagas dictar una dirección que ya tenemos guardada. No menciones que "buscas" nada ni digas "veo que tienes una dirección guardada similar"; hazlo con naturalidad, como quien reconoce a un cliente de siempre.
+- RECONOCER AL CLIENTE: el TELÉFONO es lo PRIMERO que pides (ver paso 1). En cuanto lo tengas, llama SIEMPRE a buscar_cliente con ese número, antes de pedir dirección o nombre. Si devuelve encontrado=true, reconócele y confirma su dirección en UNA frase sobria SIN RECITARLA ("Aa, Samuel, ¿te llevo el pedido a la dirección de siempre?"); NUNCA leas la calle ni el número en voz alta; NUNCA le preguntes por guardar datos; si dice que ha cambiado, pídele la nueva. Si encontrado=false, entonces sí le pides los datos que falten. NUNCA le hagas dictar una dirección que ya tenemos guardada. No menciones que "buscas" nada ni digas "veo que tienes una dirección guardada similar"; hazlo con naturalidad, como quien reconoce a un cliente de siempre.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
 - Cuando el cliente pida añadir un extra o topping a un plato (burrata, jamón, base sin gluten, etc.), avísale de que puede llevar un suplemento antes de darlo por confirmado. Llama a calcular_total para saber si ese extra tiene coste y dilo con naturalidad, p. ej.: "Eso lleva un suplemento de tres euros con cincuenta, ¿te lo pongo igualmente?". Si calcular_total no refleja coste para ese extra, no menciones ningún importe.
 - BASE DE LA PIZZA: NO preguntes de forma estándar "¿base normal o sin gluten?" — asume SIEMPRE base normal y no lo menciones. Solo sacas el tema de la base sin gluten si el cliente menciona por su cuenta una alergia, celiaquía, gluten o "sin TACC". En ESE caso, ofrécesela y, si la quiere, avísale del suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por hecha ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
@@ -832,7 +832,7 @@ async function handleSubmitOrder(callId, args) {
   let reply;
   if (delivered) {
     // Entregado a cocina de verdad → confirmación plena.
-    reply = "¡Perfecto" + name + "! Tu pedido queda confirmado y lo paso a cocina ahora mismo." + totalTxt + " " + wayTxt + " Si surge cualquier cosa te llamamos. ¡Gracias y hasta luego!";
+    reply = "¡Perfecto" + name + "! Tu pedido queda confirmado y va a cocina." + totalTxt + " " + wayTxt + " Muchas gracias por escogernos, espero verte pronto de nuevo!";
   } else if (dispatch && dispatch.ok) {
     // Solo respaldo (file_fallback): tomado y guardado, pero SIN confirmar a cocina.
     reply = "Te he anotado el pedido" + name + " y lo dejo registrado." + totalTxt + " En un par de minutos te confirmamos por teléfono que entra en cocina. Si lo prefieres, también puedes llamarnos directamente al local para asegurarlo. ¡Gracias!";
@@ -966,11 +966,28 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
     // 2) Otras tools (calcular_total, buscar_cliente) → responder y volver a llamar
     if (calls.length) {
+      let clienteRegistrado = null; // nombre si buscar_cliente devolvió encontrado=true
       const toolMsgs = await Promise.all(calls.map(async tc => {
         const out = await toolOutput(tc);
+        if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
+          clienteRegistrado = out.nombre || "el cliente";
+        }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
       messages = messages.concat([{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }], toolMsgs);
+      // INVARIANTE EN CÓDIGO (recencia máxima): si el cliente ya está registrado, el
+      // modelo NO debe repedir datos ni preguntar por guardar. Reglas enterradas en
+      // el system prompt las ignora gpt-4.1-mini; inyectadas aquí, al final, las cumple.
+      if (clienteRegistrado) {
+        const primerNombre = String(clienteRegistrado).split(" ")[0];
+        messages.push({ role: "system", content:
+          `CLIENTE YA REGISTRADO: se llama ${primerNombre}, y su teléfono, nombre y dirección YA están guardados. OBLIGATORIO:\n` +
+          `1) Tu PRÓXIMO turno es EXACTAMENTE y SOLO: "Aa, ${primerNombre}, ¿te llevo el pedido a la dirección de siempre?" (una sola frase, sin efusividad, sin recitar la calle, sin "Ah/Ahh/Mmm/Got it/OK").\n` +
+          `2) NUNCA le pidas el nombre, el teléfono ni la dirección: ya los tienes.\n` +
+          `3) NUNCA le preguntes si guardar sus datos ni pidas permiso para guardar: ya está registrado. Al enviar usa save_profile_consent=false.\n` +
+          `4) Usa el nombre y la dirección guardados en la comanda.`
+        });
+      }
       continue;
     }
 
