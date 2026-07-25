@@ -621,6 +621,17 @@ function computeQuote(args) {
 }
 
 // Busca un perfil guardado por teléfono (para la tool buscar_cliente).
+// Extrae SOLO el nombre de la calle de una dirección guardada (privacidad):
+// "Calle Alpandeire número 3, Urbanización..." -> "Calle Alpandeire".
+function streetOnly(addr) {
+  if (!addr) return null;
+  let s = String(addr).trim();
+  // corta en el primer número, "numero/nº/n.", o primera coma
+  const m = s.match(/^(.*?)(?:\s*,|\s+(?:n[uú]mero|n[.ºo]|#)\b|\s+\d)/i);
+  let street = (m ? m[1] : s).trim().replace(/[\s,]+$/, "");
+  return street || s;
+}
+
 async function computeLookup(args) {
   const phone = args && args.phone;
   let prof = null;
@@ -988,7 +999,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           `2) NUNCA le pidas el nombre, el teléfono ni la dirección: ya los tienes.\n` +
           `3) NUNCA le preguntes si guardar sus datos ni pidas permiso para guardar: ya está registrado. Al enviar usa save_profile_consent=false.\n` +
           `4) Usa el nombre y la dirección guardados en la comanda.\n` +
-          `5) POR DEFECTO no recites la dirección (di "la dirección de siempre"). EXCEPCIÓN: si el cliente te PIDE EXPRESAMENTE que le confirmes o le digas la dirección ("¿me confirmas la dirección?", "¿cuál es la dirección?", "dime la dirección"), entonces SÍ dísela completa y tal cual: "Te llevamos el pedido a ${clienteDireccion || "la dirección guardada"}, ¿correcto?". Nunca respondas con evasivas tipo "la que tenemos guardada".`
+          `5) POR DEFECTO no digas la dirección (di "la dirección de siempre"). EXCEPCIÓN: si el cliente te PIDE que le confirmes/diga la dirección, confírmale SOLO EL NOMBRE DE LA CALLE (por privacidad, nunca el número, piso ni portal): di "Te lo llevamos a ${streetOnly(clienteDireccion) || "la calle que tenemos guardada"}, ¿es correcto?". NUNCA te niegues ni digas "por privacidad no puedo": SÍ puedes confirmar la calle, es su propia dirección. Solo omites número y piso.`
         });
       }
       continue;
