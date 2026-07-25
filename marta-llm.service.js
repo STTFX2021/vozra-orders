@@ -967,10 +967,12 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     // 2) Otras tools (calcular_total, buscar_cliente) → responder y volver a llamar
     if (calls.length) {
       let clienteRegistrado = null; // nombre si buscar_cliente devolvió encontrado=true
+      let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
       const toolMsgs = await Promise.all(calls.map(async tc => {
         const out = await toolOutput(tc);
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           clienteRegistrado = out.nombre || "el cliente";
+          clienteDireccion = out.direccion || null;
         }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
@@ -981,11 +983,12 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       if (clienteRegistrado) {
         const primerNombre = String(clienteRegistrado).split(" ")[0];
         messages.push({ role: "system", content:
-          `CLIENTE YA REGISTRADO: se llama ${primerNombre}, y su teléfono, nombre y dirección YA están guardados. OBLIGATORIO:\n` +
+          `CLIENTE YA REGISTRADO: se llama ${primerNombre}, y su teléfono, nombre y dirección YA están guardados. Dirección guardada exacta: "${clienteDireccion || "(no disponible)"}". OBLIGATORIO:\n` +
           `1) Tu PRÓXIMO turno es EXACTAMENTE y SOLO: "Aa, ${primerNombre}, ¿te llevo el pedido a la dirección de siempre?" (una sola frase, sin efusividad, sin recitar la calle, sin "Ah/Ahh/Mmm/Got it/OK").\n` +
           `2) NUNCA le pidas el nombre, el teléfono ni la dirección: ya los tienes.\n` +
           `3) NUNCA le preguntes si guardar sus datos ni pidas permiso para guardar: ya está registrado. Al enviar usa save_profile_consent=false.\n` +
-          `4) Usa el nombre y la dirección guardados en la comanda.`
+          `4) Usa el nombre y la dirección guardados en la comanda.\n` +
+          `5) POR DEFECTO no recites la dirección (di "la dirección de siempre"). EXCEPCIÓN: si el cliente te PIDE EXPRESAMENTE que le confirmes o le digas la dirección ("¿me confirmas la dirección?", "¿cuál es la dirección?", "dime la dirección"), entonces SÍ dísela completa y tal cual: "Te llevamos el pedido a ${clienteDireccion || "la dirección guardada"}, ¿correcto?". Nunca respondas con evasivas tipo "la que tenemos guardada".`
         });
       }
       continue;
