@@ -921,6 +921,16 @@ function sanitizeReply(text) {
   return t.length ? t.charAt(0).toUpperCase() + t.slice(1) : original;
 }
 
+function registeredCustomerDirective(nombre, direccion) {
+  const primerNombre = String(nombre || "el cliente").split(" ")[0];
+  const calle = streetOnly(direccion);
+  return `CLIENTE YA REGISTRADO en esta llamada: se llama ${primerNombre}; su tel\u00e9fono, nombre y direcci\u00f3n YA est\u00e1n guardados. REGLAS OBLIGATORIAS durante TODA la llamada:\n` +
+    `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
+    `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
+    `3) Usa el nombre "${primerNombre}" y la direcci\u00f3n guardada en la comanda.\n` +
+    `4) Por defecto di "la direcci\u00f3n de siempre" sin recitarla. Si te PIDE confirmar la direcci\u00f3n, di SOLO la calle: "Te lo llevamos a ${calle || "la calle guardada"}, \u00bfcorrecto?". Nunca te niegues por privacidad.`;
+}
+
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
   const provider = getProvider("la-locanda");
   let profile = null;
@@ -929,6 +939,10 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
   }
   let messages = buildModelMessages(provider, incomingMessages, profile);
+  try {
+    const s = getOrCreateOrderSession(callId);
+    if (s && s.registeredName) messages.push({ role: "system", content: registeredCustomerDirective(s.registeredName, s.registeredAddress) });
+  } catch (_) {}
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
 
   // Bucle de herramientas: permite encadenar validar_direccion / consultar_pedido /
@@ -984,6 +998,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           clienteRegistrado = out.nombre || "el cliente";
           clienteDireccion = out.direccion || null;
+          try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; } catch (_) {}
         }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
@@ -992,15 +1007,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       // modelo NO debe repedir datos ni preguntar por guardar. Reglas enterradas en
       // el system prompt las ignora gpt-4.1-mini; inyectadas aquí, al final, las cumple.
       if (clienteRegistrado) {
-        const primerNombre = String(clienteRegistrado).split(" ")[0];
-        messages.push({ role: "system", content:
-          `CLIENTE YA REGISTRADO: se llama ${primerNombre}, y su teléfono, nombre y dirección YA están guardados. Dirección guardada exacta: "${clienteDireccion || "(no disponible)"}". OBLIGATORIO:\n` +
-          `1) Tu PRÓXIMO turno es EXACTAMENTE y SOLO: "Aa, ${primerNombre}, ¿te llevo el pedido a la dirección de siempre?" (una sola frase, sin efusividad, sin recitar la calle, sin "Ah/Ahh/Mmm/Got it/OK").\n` +
-          `2) NUNCA le pidas el nombre, el teléfono ni la dirección: ya los tienes.\n` +
-          `3) NUNCA le preguntes si guardar sus datos ni pidas permiso para guardar: ya está registrado. Al enviar usa save_profile_consent=false.\n` +
-          `4) Usa el nombre y la dirección guardados en la comanda.\n` +
-          `5) POR DEFECTO no digas la dirección (di "la dirección de siempre"). EXCEPCIÓN: si el cliente te PIDE que le confirmes/diga la dirección, confírmale SOLO EL NOMBRE DE LA CALLE (por privacidad, nunca el número, piso ni portal): di "Te lo llevamos a ${streetOnly(clienteDireccion) || "la calle que tenemos guardada"}, ¿es correcto?". NUNCA te niegues ni digas "por privacidad no puedo": SÍ puedes confirmar la calle, es su propia dirección. Solo omites número y piso.`
-        });
+        // Además del saludo, esta orden queda persistida en sesión (arriba) y se
+        // reinyecta en cada turno. Aquí, en el turno del saludo, forzamos el saludo:
+        messages.push({ role: "system", content: registeredCustomerDirective(clienteRegistrado, clienteDireccion) + "\nTu PR\u00d3XIMO turno es SOLO: \"Aa, " + String(clienteRegistrado).split(" ")[0] + ", \u00bfte llevo el pedido a la direcci\u00f3n de siempre?\" (una frase, sin recitar la calle, sin \"Ah/Ahh/Mmm/Got it/OK\")." });
       }
       continue;
     }
