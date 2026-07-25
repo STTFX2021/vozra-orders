@@ -830,7 +830,7 @@ async function handleSubmitOrder(callId, args) {
         consent: true
       }))
         .then(r => {
-          if (r && r.ok) console.log("[CUST] perfil guardado con consentimiento | " + (args.phone || ""));
+          if (r && r.ok) console.log("[CUST] perfil guardado con consentimiento | tel ***" + String(args.phone || "").slice(-3));
           else if (r && r.skipped) console.log("[CUST] guardado omitido | " + r.reason);
         })
         .catch(e => console.error("[CUST] error guardando perfil | " + e.message));

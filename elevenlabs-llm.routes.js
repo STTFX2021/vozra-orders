@@ -32,7 +32,14 @@ const router = express.Router();
 
 function isAuthorized(req) {
   const token = process.env.ELEVENLABS_CUSTOM_LLM_SECRET;
-  if (!token) return true; // sin secret configurado → abierto (solo para dev)
+  if (!token) {
+    // Sin secret: en Railway (producción) FALLA CERRADO por seguridad; en local, abierto.
+    if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_GIT_COMMIT_SHA) {
+      console.error("[SEC] ELEVENLABS_CUSTOM_LLM_SECRET no configurado en producción → rechazo el request");
+      return false;
+    }
+    return true; // dev local
+  }
   const header = req.headers.authorization || "";
   return header === `Bearer ${token}`;
 }
@@ -210,7 +217,7 @@ router.post("/v1/chat/completions", async (req, res) => {
   const callId   = extractCallId(req);
   const userText = extractLastUserMessage(body.messages || []);
 
-  console.log(`[EL] turn | callId=${callId} | user="${userText.slice(0, 60)}"`);
+  console.log(`[EL] turn | callId=${callId} | userLen=${userText.length}`); // PII: no logueamos el contenido hablado del cliente
 
   // ── TURNO 0: Saludo inicial ──────────────────────────────────────────────
   // ElevenLabs puede enviar una primera llamada sin mensaje de usuario
@@ -263,6 +270,8 @@ router.post("/v1/chat/completions", async (req, res) => {
  * Body: { orderId: string, ackType: "acknowledged" | "accepted" | "rejected" }
  */
 router.post("/kitchen/ack", (req, res) => {
+  // Seguridad: exige el mismo Bearer que el LLM (evita ACK falsos "recibido en cocina").
+  if (!isAuthorized(req)) return res.status(401).json({ error: "unauthorized" });
   const { orderId, ackType = "acknowledged" } = req.body || {};
   if (!orderId) return res.status(400).json({ error: "orderId requerido" });
 
