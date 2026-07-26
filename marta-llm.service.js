@@ -921,6 +921,22 @@ function sanitizeReply(text) {
   return t.length ? t.charAt(0).toUpperCase() + t.slice(1) : original;
 }
 
+// Cliente YA registrado -> JAMAS pedir permiso para guardar sus datos.
+// El modelo a veces suelta la pregunta pese a la orden inyectada; esto la BORRA
+// del texto antes de que llegue al TTS. Determinista: no depende de que obedezca.
+function stripConsentIfRegistered(text, callId) {
+  try {
+    const s = getOrCreateOrderSession(callId);
+    if (!s || !s.registeredName || !text) return text;
+    let t = String(text);
+    t = t.replace(/(por\s+[uú]ltimo[,\s]*)?[¿¡]?\s*(quieres|deseas|te\s+gustar[ií]a|quiere|desea)\s+que\s+(te\s+)?guarde[^.?!]*[.?!]+/gi, " ");
+    t = t.replace(/[¿¡]?\s*(quieres|deseas|quiere|desea)\s+que\s+guarde\s+tus?\s+datos[^.?!]*[.?!]+/gi, " ");
+    t = t.replace(/\bsolo\s+si\s+me\s+das\s+permiso[.?!]*/gi, " ");
+    t = t.replace(/\s{2,}/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
+    return t.length ? t : text;
+  } catch (_) { return text; }
+}
+
 function registeredCustomerDirective(nombre, direccion) {
   const primerNombre = String(nombre || "el cliente").split(" ")[0];
   const calle = streetOnly(direccion);
@@ -1018,9 +1034,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       // Despedida INSTANTÁNEA: usamos la respuesta ya redactada por handleSubmitOrder
       // en vez de otra llamada a OpenAI. Quita el round-trip más sensible (justo al
       // confirmar) → sin pausa ni "ruidito de pensando" de ElevenLabs, sin quedarse pillada.
-      const reply = sanitizeReply((result && result.reply && result.reply.trim())
+      const reply = stripConsentIfRegistered(sanitizeReply((result && result.reply && result.reply.trim())
         ? result.reply.trim()
-        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!");
+        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!"), callId);
       return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
     }
 
@@ -1050,7 +1066,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     }
 
     // 3) Texto normal
-    const reply = sanitizeReply((msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien.");
+    const reply = stripConsentIfRegistered(sanitizeReply((msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien."), callId);
     return { reply, dispatched: false, action: "in_progress" };
   }
   return { reply: "Perdona, ¿me lo repites? No te he entendido bien.", dispatched: false, action: "in_progress" };
