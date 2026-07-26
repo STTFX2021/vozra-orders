@@ -938,10 +938,45 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     try { profile = await getCustomerByPhone(callerPhone); }
     catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
   }
+
+  // ── LATENCIA: precarga de perfil por teléfono dicho en la llamada ────────────
+  // Si en el último turno el cliente da un teléfono, buscamos el perfil AQUÍ (en
+  // código) y lo persistimos en la sesión. Así el modelo NO necesita el round-trip
+  // de la herramienta buscar_cliente → el turno del saludo pasa de 2 llamadas al
+  // LLM a 1 (mata la pausa donde ElevenLabs mete "Ahhh/Got it").
+  try {
+    const s0 = getOrCreateOrderSession(callId);
+    if (!s0.registeredName) {
+      const lastUser = [...(incomingMessages || [])].reverse().find(m => m && m.role === "user" && m.content);
+      const digits = lastUser ? String(lastUser.content).replace(/\D/g, "") : "";
+      const tel = (digits.match(/(\d{9,15})/) || [])[1];
+      if (tel) {
+        let prof = null;
+        try { prof = await getCustomerByPhone(tel); } catch (_) { prof = null; }
+        if (prof) {
+          s0.registeredName = prof.name || "el cliente";
+          s0.registeredAddress = prof.address ? (prof.address.raw || prof.address) : null;
+          s0.registeredPreloaded = true;
+          // WIN: prevalidar la zona de la dirección guardada en paralelo (no bloquea
+          // si tarda) → el modelo tampoco necesita el round-trip de validar_direccion.
+          if (s0.registeredAddress && s0.zoneChecked !== true) {
+            checkDeliveryAddress(s0.registeredAddress, "la-locanda")
+              .then(z => { s0.zoneChecked = true; s0.zoneStatus = z && z.status; })
+              .catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
   let messages = buildModelMessages(provider, incomingMessages, profile);
   try {
     const s = getOrCreateOrderSession(callId);
-    if (s && s.registeredName) messages.push({ role: "system", content: registeredCustomerDirective(s.registeredName, s.registeredAddress) });
+    if (s && s.registeredName) {
+      let extra = registeredCustomerDirective(s.registeredName, s.registeredAddress);
+      if (s.registeredPreloaded) extra += "\nYA lo tienes reconocido por su tel\u00e9fono: NO llames a la herramienta buscar_cliente otra vez. La direcci\u00f3n de siempre ya est\u00e1 dentro de la zona de reparto: NO llames a validar_direccion; ve directo a tomar el pedido.";
+      messages.push({ role: "system", content: extra });
+    }
   } catch (_) {}
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
 
