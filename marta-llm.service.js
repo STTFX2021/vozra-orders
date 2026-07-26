@@ -188,7 +188,7 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
   const perfilBloque = profile
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
-- Al reconocerle, en UNA frase sobria: ${nombreCli ? `"Aa, ${String(nombreCli).split(" ")[0]}, ¿te llevo el pedido a la dirección de siempre?"` : "reconócele con naturalidad"}. Sin efusividad, sin recitar la dirección, sin "Ah/Ahh/Mmm".
+- Al reconocerle, en UNA frase sobria confirma la CALLE (solo el nombre de la calle, sin número ni piso): ${nombreCli && dirCli ? `"Aa, ${String(nombreCli).split(" ")[0]}, ¿te llevo el pedido a ${String(dirCli).split(/,| n[uú]mero| n[.ºo]| \d/i)[0].trim()}, la de siempre?"` : "reconócele con naturalidad y confirma la calle guardada"}. Sin efusividad, sin número/piso, sin "Ah/Ahh/Mmm".
 - NO le pidas el teléfono: ya lo tienes.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
 - Si el pedido es a domicilio, NO preguntes la dirección Y NO LA RECITES: confírmala en corto ("¿Te la llevo a la dirección de siempre?"). NUNCA leas la calle, número ni piso guardados en voz alta. Solo si dice que ha cambiado, pídele la nueva.
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NI LA MENCIONES: la recogida es SIEMPRE en el local (${nombre}). JAMÁS digas la dirección del cliente como lugar de recogida.
@@ -294,7 +294,7 @@ ${horarioLinea}
    - ORDEN OBLIGATORIO EN DOMICILIO — PRIMERO EL TELÉFONO, DESPUÉS LA DIRECCIÓN. Nunca al revés. Sigue estos pasos EXACTAMENTE:
      PASO A) Pide el TELÉFONO lo primero: "¡Perfecto! ¿Me dices un teléfono de contacto?".
      PASO B) En cuanto lo tengas, llama a buscar_cliente con ese número. SIEMPRE, sin excepción, antes de pedir nada más.
-     PASO C) Si encontrado=true → reconócele y confirma la dirección en UNA frase sobria: "Aa, [nombre], ¿te llevo el pedido a la dirección de siempre?". Sin efusividad, sin recitar la calle/número/piso, sin "Ah/Ahh/Mmm". Si dice que sí, usa la dirección guardada tal cual y sigues. Si dice que ha cambiado, pídele la nueva. (El sistema te recordará estas reglas por si acaso.)
+     PASO C) Si encontrado=true → reconócele y confirma la CALLE proactivamente (solo el nombre de la calle, sin número ni piso): "Aa, [nombre], ¿te llevo el pedido a [calle guardada], la de siempre?". Sin efusividad, sin "Ah/Ahh/Mmm". Si dice que sí, usa la dirección guardada tal cual y sigues. Si dice que ha cambiado, pídele la nueva. (El sistema te dará la calle exacta.)
      PASO D) Si encontrado=false → AHORA sí pídele la dirección completa: "¿A qué dirección te lo llevamos?".
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
@@ -928,7 +928,7 @@ function registeredCustomerDirective(nombre, direccion) {
     `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
     `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
     `3) Usa el nombre "${primerNombre}" y la direcci\u00f3n guardada en la comanda.\n` +
-    `4) Por defecto di "la direcci\u00f3n de siempre" sin recitarla. Si te PIDE confirmar la direcci\u00f3n, di SOLO la calle: "Te lo llevamos a ${calle || "la calle guardada"}, \u00bfcorrecto?". Nunca te niegues por privacidad.`;
+    `4) Al reconocerle, CONFIRMA la calle proactivamente (solo el nombre de la calle, NUNCA n\u00famero/piso/portal): saluda con "Aa, ${primerNombre}, \u00bfte llevo el pedido a ${calle || "la direcci\u00f3n de siempre"}, la de siempre?". Si te vuelve a preguntar la direcci\u00f3n, repite SOLO la calle. Nunca te niegues por privacidad ni recites n\u00famero/piso.`;
 }
 
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
@@ -1009,7 +1009,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       if (clienteRegistrado) {
         // Además del saludo, esta orden queda persistida en sesión (arriba) y se
         // reinyecta en cada turno. Aquí, en el turno del saludo, forzamos el saludo:
-        messages.push({ role: "system", content: registeredCustomerDirective(clienteRegistrado, clienteDireccion) + "\nTu PR\u00d3XIMO turno es SOLO: \"Aa, " + String(clienteRegistrado).split(" ")[0] + ", \u00bfte llevo el pedido a la direcci\u00f3n de siempre?\" (una frase, sin recitar la calle, sin \"Ah/Ahh/Mmm/Got it/OK\")." });
+        messages.push({ role: "system", content: registeredCustomerDirective(clienteRegistrado, clienteDireccion) + "\nTu PR\u00d3XIMO turno es SOLO: \"Aa, " + String(clienteRegistrado).split(" ")[0] + ", \u00bfte llevo el pedido a " + (streetOnly(clienteDireccion) || "la direcci\u00f3n de siempre") + ", la de siempre?\" (una frase, SOLO el nombre de la calle, sin n\u00famero/piso, sin \"Ah/Ahh/Mmm/Got it/OK\")." });
       }
       continue;
     }
