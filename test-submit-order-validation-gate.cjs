@@ -89,6 +89,7 @@ function assertNoOperationalEffects(before, label) {
   assert.strictEqual(calls.print, 1, "el pedido válido debe conservar la impresión existente");
   assert.strictEqual(calls.notify, 1, "el pedido válido debe conservar la notificación existente");
   assert(/pedido queda confirmado y va a cocina/i.test(retried.reply), "cambió la confirmación verbal del pedido válido");
+  assert(retried.reply.includes("Muchas gracias por escogernos, espero verte pronto de nuevo!"), "cambió la despedida comercial existente");
 
   clearAllSessionsForTests();
   const valid = await handleSubmitOrder("p0-valid", { ...validArgs, phone: "623456789" });

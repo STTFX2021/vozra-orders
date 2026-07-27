@@ -72,5 +72,49 @@ for (const input of spanishDefaultCases) {
   );
 }
 
+const clarification = "¿Pasas a recogerlo o te lo llevamos?";
+assert.strictEqual(prompt.split(clarification).length - 1, 1, "la aclaración de para llevar debe aparecer exactamente una vez");
+assert(prompt.includes('AMBIGUO: "para llevar", "me lo llevo"'));
+assert(prompt.includes("Si ya ha expresado claramente RECOGER o DOMICILIO, NO vuelvas a preguntarlo"));
+assert(prompt.includes('RECOGER inequívoco: "paso a recogerlo"'));
+assert(prompt.includes('DOMICILIO inequívoco: "a domicilio"'));
+assert(!prompt.includes('"para llevar" → domicilio'));
+
+const drinkUpsell = "¿Te pongo algo de beber?";
+assert.strictEqual(prompt.split(drinkUpsell).length - 1, 1, "la pregunta de bebida debe aparecer exactamente una vez");
+assert(!prompt.includes("¿Te pongo algo de beber? Tenemos"), "el upsell no debe enumerar bebidas");
+assert(prompt.includes("UPSELLING (OBLIGATORIO EXACTAMENTE UNA vez en TODOS los pedidos"));
+assert(prompt.includes("Si el cliente la rechaza, no insistas"));
+
+const savedAddress = "Calle Secreta 42, portal 7, piso 3";
+const profilePrompt = buildSystemPrompt(provider, {
+  name: "Samuel García",
+  address: { raw: savedAddress }
+});
+assert(profilePrompt.includes("El caller ID o perfil ya le identifica: NO le pidas el teléfono"));
+assert(profilePrompt.includes("Tampoco el nombre"));
+assert(profilePrompt.includes('pregunta SOLAMENTE: "¿Te lo llevamos a la dirección de siempre?"'));
+assert(profilePrompt.includes("NUNCA verbalices la calle, número, piso, portal ni la dirección completa"));
+assert(profilePrompt.includes("Si el pedido es para RECOGER, NO preguntes, confirmes ni menciones ninguna dirección"));
+assert(profilePrompt.includes("No vuelvas a pedir consentimiento"));
+assert(profilePrompt.includes("SOLO si caller ID está ausente, oculto, es inválido o no identifica un perfil"));
+assert(profilePrompt.includes("Si el perfil ya llegó por caller ID, omite A y B"));
+assert(!profilePrompt.includes("ORDEN OBLIGATORIO EN DOMICILIO — PRIMERO EL TELÉFONO"));
+assert(!profilePrompt.includes("confirma la CALLE"));
+assert(!profilePrompt.includes("calle proactivamente"));
+assert(!profilePrompt.includes("repite SOLO la calle"));
+assert(!profilePrompt.includes(`te llevo el pedido a ${savedAddress}`));
+
+assert(prompt.includes("máximo UNA muletilla por turno"));
+assert(prompt.includes("no repitas la misma en dos turnos consecutivos"));
+assert(prompt.includes("Ante alergias, errores o problemas"));
+assert(prompt.includes('"Entiendo" solo puede usarse con sentido empático real ante una queja'));
+assert(!prompt.includes('"Muy bien", "Entendido", "Hecho"'));
+assert(prompt.includes("seguridad → exactitud → confirmación → eficiencia"));
+assert(prompt.includes("NO es un límite rígido"));
+
+console.log("✅ Sarah contract: ambiguous fulfilment, single drink upsell and caller-ID privacy");
+console.log("✅ Sarah style: fillers, three-minute target and priority order");
+
 console.log("✅ System prompt contract: single brain prompt, multilingual anti-bounce and single final confirmation");
 console.log("✅ Language regression: ciao / ok / un Margherita, por favor keep Spanish opening");
