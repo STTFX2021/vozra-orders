@@ -11,11 +11,12 @@
     "test:fase5": "node test-orders-fase5.cjs",
     "test:fase6": "node test-orders-fase6.cjs",
     "test:demo": "node test-demo-callback.cjs",
-    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs && node test-demo-callback.cjs",
+    "test": "node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs && node test-submit-order-validation-gate.cjs && node test-demo-callback.cjs",
     "test:all": "npm test",
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test:prompt": "node test-system-prompt-contract.cjs"
+    "test:prompt": "node test-system-prompt-contract.cjs",
+    "test:p0-gate": "node test-submit-order-validation-gate.cjs"
   },
   "keywords": [
     "vozra",

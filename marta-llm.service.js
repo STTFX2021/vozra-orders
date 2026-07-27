@@ -745,7 +745,6 @@ async function handleSubmitOrder(callId, args) {
     console.warn("[EL] DUPLICADO bloqueado (misma firma <2min) | " + _sig);
     return { ok: true, delivered: true, order: _sess || null, reply: "", validation: {}, alreadyDone: true };
   }
-  _recentDispatch.set(_sig, _now);  // reservar de inmediato para bloquear concurrentes
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
   const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
   const patch = {
@@ -765,6 +764,23 @@ async function handleSubmitOrder(callId, args) {
   let order = updateOrderSession(callId, patch);
   let validation = {};
   try { validation = validateOrder(order); } catch (e) { validation = { ok: false, errors: [{ message: e.message }] }; }
+
+  // Gate fail-closed: una validación fallida no puede producir ningún efecto
+  // operativo. La firma tampoco se reserva, para permitir corregir y reintentar.
+  if (validation.ok !== true) {
+    return {
+      ok: false,
+      delivered: false,
+      order,
+      reply: "No puedo enviar el pedido todavía porque falta información necesaria. Vamos a corregirlo antes de confirmarlo.",
+      validation,
+      validationFailed: true,
+      retryable: true,
+      reason: "validation_failed"
+    };
+  }
+
+  _recentDispatch.set(_sig, _now);  // reservar solo después de validar con éxito
 
   // PERSISTENCIA DURABLE *antes* del dispatch: si el contenedor cae tras confirmar,
   // el pedido ya existe en Supabase y es recuperable. Mejor esfuerzo (no rompe el pedido).
@@ -1037,7 +1053,11 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       const reply = stripConsentIfRegistered(sanitizeReply((result && result.reply && result.reply.trim())
         ? result.reply.trim()
         : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!"), callId);
-      return { reply, dispatched: !!(result && result.delivered), action: "customer_confirmed" };
+      return {
+        reply,
+        dispatched: !!(result && result.delivered),
+        action: result && result.validationFailed ? "validation_failed" : "customer_confirmed"
+      };
     }
 
     // 2) Otras tools (calcular_total, buscar_cliente) → responder y volver a llamar
