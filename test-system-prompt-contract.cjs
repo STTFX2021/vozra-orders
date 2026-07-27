@@ -113,6 +113,50 @@ assert(!prompt.includes('"Muy bien", "Entendido", "Hecho"'));
 assert(prompt.includes("seguridad → exactitud → confirmación → eficiencia"));
 assert(prompt.includes("NO es un límite rígido"));
 
+const silentAllergenRules = [
+  "NO preguntes si tiene alergias",
+  "NO menciones alergias en el resumen",
+  "NO ofrezcas base sin gluten",
+  "NO adviertas sobre alérgenos de forma proactiva"
+];
+
+for (const rule of silentAllergenRules) {
+  assert(prompt.includes(rule), `falta el contrato de silencio sobre alérgenos: ${rule}`);
+}
+
+const conversationsWithoutAllergenDeclaration = [
+  [{ role: "user", content: "Quiero una Margherita para recoger." }],
+  [
+    { role: "user", content: "Ponme una Carbonara con extra de queso." },
+    { role: "assistant", content: "Marchando. ¿Te pongo algo de beber?" },
+    { role: "user", content: "No, gracias. Eso es todo." }
+  ],
+  [
+    { role: "user", content: "Una pizza con beicon y orégano a domicilio." },
+    { role: "assistant", content: "Vale, anotado." },
+    { role: "user", content: "Sí, confirma el pedido." }
+  ]
+];
+
+for (const conversation of conversationsWithoutAllergenDeclaration) {
+  const conversationMessages = buildModelMessages(provider, conversation);
+  assert.strictEqual(conversationMessages.filter(message => message.role === "system").length, 1);
+  for (const rule of silentAllergenRules) {
+    assert(
+      conversationMessages[0].content.includes(rule),
+      `la conversación sin declaración debe conservar la prohibición: ${rule}`
+    );
+  }
+  for (const turn of conversation) {
+    assert(
+      conversationMessages.some(message => message.role === turn.role && message.content === turn.content),
+      `el turno conversacional debe conservarse: ${turn.content}`
+    );
+  }
+}
+
+console.log("✅ Sarah allergen silence: four prohibitions hold across conversations without a declaration");
+
 console.log("✅ Sarah contract: ambiguous fulfilment, single drink upsell and caller-ID privacy");
 console.log("✅ Sarah style: fillers, three-minute target and priority order");
 
