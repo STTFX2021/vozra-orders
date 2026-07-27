@@ -335,6 +335,16 @@ function validateOrder(order) {
   // 4. Alérgenos cross-check
   const { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk } = crossCheckAllergens(order);
 
+  const allergenReviewRequired = requiresKitchenReview && allergenConflicts.some(conflict =>
+    conflict.highRisk || conflict.severity === "CONFLICT"
+  );
+  if (allergenReviewRequired) {
+    errors.push({
+      code: "ALLERGEN_REVIEW_REQUIRED",
+      message: "La alergia declarada requiere revisión humana antes de confirmar o enviar el pedido."
+    });
+  }
+
   // 5. Precio estimado
   const { estimatedTotal, breakdown, currency } = estimateTotal(order);
 

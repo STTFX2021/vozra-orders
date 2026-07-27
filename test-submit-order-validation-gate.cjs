@@ -47,7 +47,7 @@ Module._load = function(request, parent, isMain) {
 };
 
 const { handleSubmitOrder } = require("./marta-llm.service.js");
-const { clearAllSessionsForTests } = require("./order-call-session.store.js");
+const { clearAllSessionsForTests, ORDER_STATUS } = require("./order-call-session.store.js");
 Module._load = originalLoad;
 
 const validArgs = {
@@ -96,6 +96,68 @@ function assertNoOperationalEffects(before, label) {
   assert.strictEqual(valid.ok, true, "la validación correcta no permite continuar");
   assert.strictEqual(valid.validation.ok, true, "el pedido válido no superó validateOrder");
   assert.strictEqual(calls.dispatch, 2, "el comportamiento válido existente no ejecutó dispatch");
+
+  const perPizzaPhrases = [
+    "una Coca-Cola para cada pizza",
+    "una para cada pizza",
+    "una por pizza",
+    "tantas como pizzas",
+    "una bebida para cada una"
+  ];
+
+  for (const [index, phrase] of perPizzaPhrases.entries()) {
+    clearAllSessionsForTests();
+    const result = await handleSubmitOrder(
+      `per-pizza-${index}`,
+      {
+        ...validArgs,
+        phone: `71${String(index).padStart(7, "0")}`,
+        items: [
+          { menu_item_id: "pizza_margherita", quantity: 3 },
+          { menu_item_id: "pizza_abruzzo", quantity: 1 },
+          { menu_item_id: "coca_cola", quantity: 3 }
+        ]
+      },
+      [{ role: "user", content: phrase }]
+    );
+    assert.strictEqual(result.ok, true, `${phrase}: el pedido válido no continuó`);
+    const coke = result.order.items.find(item => item.id === "coca_cola");
+    assert(coke, `${phrase}: falta Coca-Cola en el pedido`);
+    assert.strictEqual(coke.quantity, 4, `${phrase}: debe derivar cuatro bebidas de 3+1 pizzas`);
+  }
+
+  clearAllSessionsForTests();
+  const allergyBefore = snapshot();
+  const allergyBlocked = await handleSubmitOrder("allergy-abruzzo", {
+    ...validArgs,
+    phone: "722345678",
+    items: [{
+      menu_item_id: "pizza_abruzzo",
+      quantity: 1,
+      modifiers: [{ type: "remove", value: "langostinos" }]
+    }],
+    allergies: ["marisco"]
+  });
+
+  assert.strictEqual(allergyBlocked.ok, false, "la alergia dudosa no debe superar validación");
+  assert.strictEqual(allergyBlocked.delivered, false, "la alergia dudosa no debe figurar como entregada");
+  assert.strictEqual(allergyBlocked.validationFailed, true);
+  assert.strictEqual(allergyBlocked.retryable, true);
+  assert(allergyBlocked.order.allergies.includes("marisco"), "debe conservar la alergia estructurada");
+  assert.strictEqual(allergyBlocked.validation.flags.requiresKitchenReview, true, "debe exigir revisión humana");
+  assert(
+    allergyBlocked.validation.errors.some(error => error.code === "ALLERGEN_REVIEW_REQUIRED"),
+    "falta el error bloqueante de revisión alérgica"
+  );
+  assert.strictEqual(
+    allergyBlocked.order.status,
+    ORDER_STATUS.AWAITING_CONFIRMATION,
+    "no debe marcarse customer_confirmed antes de la revisión"
+  );
+  assert(/no garantiza.*seguro/i.test(allergyBlocked.reply), "Sarah no comunica que retirar el ingrediente sea insuficiente");
+  assert(/contaminación cruzada/i.test(allergyBlocked.reply), "Sarah no comunica el riesgo de contaminación cruzada");
+  assert(!/queda confirmado|va a cocina/i.test(allergyBlocked.reply), "Sarah confirma verbalmente un pedido bloqueado");
+  assertNoOperationalEffects(allergyBefore, "alergia al marisco pendiente de revisión");
 
   console.log("✅ P0 validation gate: invalid orders have zero operational effects and remain retryable");
 })().catch(err => {

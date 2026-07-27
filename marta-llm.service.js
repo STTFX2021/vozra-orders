@@ -599,7 +599,43 @@ function mapToolItem(toolItem) {
   };
 }
 
-function computeQuote(args) {
+function hasPerPizzaQuantityIntent(conversationMessages) {
+  const userTurns = (Array.isArray(conversationMessages) ? conversationMessages : [])
+    .filter(message => message && message.role === "user" && message.content)
+    .map(message => String(message.content).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+
+  const patterns = [
+    /\buna(?:\s+[a-z-]+){0,4}\s+(?:para\s+cada|por)\s+pizza\b/,
+    /\btantas?\s+como\s+pizzas?\b/,
+    /\buna\s+bebida\s+para\s+cada\s+una\b/
+  ];
+  return userTurns.some(turn => patterns.some(pattern => pattern.test(turn)));
+}
+
+function resolvePerPizzaQuantities(args, conversationMessages) {
+  if (!args || !Array.isArray(args.items) || !hasPerPizzaQuantityIntent(conversationMessages)) return args;
+
+  let pizzaQuantity = 0;
+  const beverageIndexes = [];
+  args.items.forEach((item, index) => {
+    const menuItem = getMenuItemById(item.menu_item_id) || getMenuItemByName(item.name);
+    if (!menuItem) return;
+    if (String(menuItem.category || "").startsWith("pizza_")) {
+      pizzaQuantity += Math.max(1, parseInt(item.quantity, 10) || 1);
+    } else if (menuItem.category === "beverages") {
+      beverageIndexes.push(index);
+    }
+  });
+
+  if (pizzaQuantity < 1 || beverageIndexes.length !== 1) return args;
+  const items = args.items.map((item, index) =>
+    index === beverageIndexes[0] ? { ...item, quantity: pizzaQuantity } : item
+  );
+  return { ...args, items };
+}
+
+function computeQuote(args, conversationMessages = []) {
+  args = resolvePerPizzaQuantities(args, conversationMessages);
   const items = ((args && args.items) || []).map(mapToolItem);
   const { estimatedTotal, breakdown, currency } = estimateTotal({ items });
   const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
@@ -700,11 +736,11 @@ async function computeIncident(args) {
 }
 
 // Devuelve la salida de una tool_call (calcular_total, buscar_cliente, u otras).
-async function toolOutput(tc) {
+async function toolOutput(tc, conversationMessages = []) {
   const name = tc && tc.function && tc.function.name;
   let a = {};
   try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
-  if (name === "calcular_total")       return computeQuote(a);
+  if (name === "calcular_total")       return computeQuote(a, conversationMessages);
   if (name === "buscar_cliente")       return await computeLookup(a);
   if (name === "validar_direccion")    return await computeZone(a);
   if (name === "consultar_pedido")     return await computeOrderLookup(a);
@@ -734,7 +770,8 @@ function orderSignature(args) {
   return `${phone}::${items}::${args.order_type || ""}`;
 }
 
-async function handleSubmitOrder(callId, args) {
+async function handleSubmitOrder(callId, args, conversationMessages = []) {
+  args = resolvePerPizzaQuantities(args, conversationMessages);
   const _sess = getOrCreateOrderSession(callId);
   if (_sess && _sess.status === ORDER_STATUS.SENT_TO_KITCHEN) {
     return { ok: true, delivered: _sess.dispatchChannel && _sess.dispatchChannel !== "file_fallback", order: _sess, reply: "", validation: {}, alreadyDone: true };
@@ -759,7 +796,7 @@ async function handleSubmitOrder(callId, args) {
     allergyNotes: (args.allergies && args.allergies.length) ? args.allergies.join(", ") : null,
     notes: args.notes || null,
     paymentMethod: args.payment_method || "cash",
-    status: ORDER_STATUS.CUSTOMER_CONFIRMED
+    status: ORDER_STATUS.AWAITING_CONFIRMATION
   };
   if (orderType === "delivery" && args.address) {
     patch.address = { street: null, number: null, floor: null, city: null, raw: args.address };
@@ -775,7 +812,9 @@ async function handleSubmitOrder(callId, args) {
       ok: false,
       delivered: false,
       order,
-      reply: "No puedo enviar el pedido todavía porque falta información necesaria. Vamos a corregirlo antes de confirmarlo.",
+      reply: (validation.errors || []).some(error => error.code === "ALLERGEN_REVIEW_REQUIRED")
+        ? "Por seguridad, quitar un ingrediente no garantiza que el plato sea seguro ni elimina el riesgo de contaminación cruzada. Necesito que el equipo lo revise antes de confirmar y enviar el pedido."
+        : "No puedo enviar el pedido todavía porque falta información necesaria. Vamos a corregirlo antes de confirmarlo.",
       validation,
       validationFailed: true,
       retryable: true,
@@ -783,6 +822,7 @@ async function handleSubmitOrder(callId, args) {
     };
   }
 
+  order = updateOrderSession(callId, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
   _recentDispatch.set(_sig, _now);  // reservar solo después de validar con éxito
 
   // PERSISTENCIA DURABLE *antes* del dispatch: si el contenedor cae tras confirmar,
@@ -1039,13 +1079,13 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         if (tc.function && tc.function.name === "submit_order") {
           let a = {};
           try { a = JSON.parse(tc.function.arguments || "{}"); } catch (_) { a = {}; }
-          result = await handleSubmitOrder(callId, a);
+          result = await handleSubmitOrder(callId, a, incomingMessages);
           const estado = result.alreadyDone ? "ya_confirmado"
             : result.delivered ? "enviado_a_cocina"
             : result.ok ? "guardado_pendiente_cocina" : "fallo_envio";
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: "submit_order", content: JSON.stringify({ estado }) });
         } else {
-          const out = await toolOutput(tc);
+          const out = await toolOutput(tc, incomingMessages);
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) });
         }
       }
@@ -1067,7 +1107,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       let clienteRegistrado = null; // nombre si buscar_cliente devolvió encontrado=true
       let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
       const toolMsgs = await Promise.all(calls.map(async tc => {
-        const out = await toolOutput(tc);
+        const out = await toolOutput(tc, incomingMessages);
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           clienteRegistrado = out.nombre || "el cliente";
           clienteDireccion = out.direccion || null;
@@ -1109,5 +1149,6 @@ module.exports = {
   mapToolItem,
   getMenuItemById,
   getMenuItemByName,
-  SUBMIT_ORDER_TOOL
+  SUBMIT_ORDER_TOOL,
+  resolvePerPizzaQuantities
 };
