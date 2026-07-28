@@ -27,6 +27,7 @@ const { getCustomerByPhone, upsertCustomer } = require("./customer-store.js");
 const { checkDeliveryAddress } = require("./delivery-zone.service.js");
 const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
 const { lookupOrdersForCustomer, registerIncident } = require("./incident.service.js");
+const { classifyAllergen, hasOntologyData } = require("./allergen-ontology.service.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,17 @@ const ALLERGEN_LABELS = {
 };
 
 function formatItemAllergens(it) {
-  const known = (it.knownAllergens || []).map(a => ALLERGEN_LABELS[a] || a);
+  const known = (it.knownAllergens || []).map(a => {
+    const label = ALLERGEN_LABELS[a] || a;
+    // Enganche de ontología: si hay dato verificado de si este alérgeno es
+    // retirable o intrínseco en ESTE plato, lo añadimos para que Sarah no deduzca.
+    // Con la ontología vacía (hoy) esto no aporta nada y la línea queda igual.
+    if (hasOntologyData()) {
+      const c = classifyAllergen(it.id, a);
+      if (c.known) return label + " (" + (c.removable ? "retirable" + (c.component ? ": " + c.component : "") : "intrínseco, no retirable") + ")";
+    }
+    return label;
+  });
   return known.length ? known.join(", ") : "ninguno declarado";
 }
 
@@ -314,11 +325,11 @@ ${horarioLinea}
    - DOMICILIO: teléfono + dirección completa. Los DOS.
    - RECOGER: teléfono + nombre.
    Si alguno falta, pídelo AHORA (solo el que falte, nunca uno que ya tengas). JAMÁS llames a submit_order sin el teléfono, ni sin dirección en domicilio, ni sin nombre en recoger.
-4. HORA DE RECOGIDA/ENTREGA: NO preguntes "¿para qué hora?" ni ofrezcas ni digas "lo antes posible". Por defecto, NOTIFICA tú directamente el tiempo estimado: coge la hora ACTUAL (mírala en HORARIO DE COCINA), súmale el tiempo de preparación y comunícaselo como un dato, no como pregunta.
-   - Si es RECOGER: dile cuándo puede pasar a recogerla. Ej.: "En unos veinte minutos la tienes lista, sobre las nueve, cuando quieras pasas a recogerla."
-   - Si es DOMICILIO: dile cuándo se le entregará. Ej.: "Te la llevamos en unos treinta minutos, sobre las nueve y cuarto."
-   - Solo si el cliente PIDE una hora concreta más tarde, respétala (si es compatible con el horario). Si te pide antes de lo posible, dile el mínimo real con naturalidad.
-   - NUNCA propongas ni confirmes una hora anterior a la hora actual. Antes de decir una hora, comprueba que es posterior a "ahora" y compatible con el horario.
+4. TIEMPO DE PREPARACIÓN (NO lo inventes): NO conocemos la carga real de cocina, ni la cola, ni los repartidores, así que NO tenemos un tiempo estimado fiable. Por eso:
+   - PROHIBIDO inventar minutos o una hora concreta ("en veinte minutos", "sobre las nueve y media"). PROHIBIDO sumar minutos a la hora actual para dar una hora.
+   - NO preguntes "¿para qué hora?" ni digas "lo antes posible".
+   - Si el cliente pregunta cuánto tardará, respóndele con naturalidad SIN dar cifras: "El restaurante te confirmará el tiempo estimado en un momento." NUNCA digas que está "en camino" ni des una hora ni un rango de minutos.
+   - Lo ÚNICO que sí sabemos por dato es el HORARIO DE COCINA: si la cocina está CERRADA, avisa antes de cerrar el pedido y ofrece la próxima apertura disponible. Eso sí puedes decirlo.
 5. UPSELLING (OBLIGATORIO EXACTAMENTE UNA vez en TODOS los pedidos, antes del resumen): haz una sola sugerencia con naturalidad. Si el cliente la rechaza, no insistas. Elige según PRIORIDAD:
    - Si el pedido NO tiene ninguna bebida → pregunta ÚNICAMENTE: "¿Te pongo algo de beber?". NO enumeres Coca-Cola, agua, cerveza ni otros productos, salvo que el cliente pida opciones. Nunca ofrezcas postre ni entrante si falta la bebida.
    - Si YA hay bebida y no hay postre → sugiere un postre concreto por su nombre ("¿Te apetece un Tiramisú de postre?").
@@ -348,9 +359,13 @@ ${horarioLinea}
 - CANDADO DE ACTIVACIÓN (léelo primero): TODA esta sección se activa ÚNICA y EXCLUSIVAMENTE si el cliente ha DECLARADO por su cuenta una alergia, intolerancia, celiaquía o restricción en ESTA llamada (p. ej. "soy alérgico a algo", "soy celíaco", "no puedo tomar lactosa", "sin gluten"). Si NO ha declarado ninguna, aplica estas cuatro prohibiciones: NO preguntes si tiene alergias; NO menciones alergias en el resumen; NO ofrezcas base sin gluten; NO adviertas sobre alérgenos de forma proactiva. Tampoco menciones que un plato "lleva nata, queso o gluten" ni recites ingredientes proactivamente. Pedir una pizza con extra de queso, beicon u orégano NO es declarar una alergia: anótalo y sigue, sin advertencias. Soltar una alerta de alérgenos que nadie ha pedido confunde al cliente y es un ERROR.
 - Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro.
 - SINÓNIMOS que debes reconocer: "sin TACC", "TACC" o "apto celíacos" = SIN GLUTEN (celiaquía); "sin lácteos" = sin lactosa. Trátalos como la alergia/intolerancia correspondiente y aplícales la misma política de seguridad.
-- CRUZA la alergia contra TODOS los platos ya pedidos y los que pida después. Si un plato probablemente contiene ese alérgeno (ej.: lactosa → Carbonara, quesos, nata; gluten → masa, pasta; frutos secos → pesto, postres), AVÍSALE en ese momento: "Oye, la Carbonara lleva nata y queso, ¿la mantienes o te ofrezco otra?". Nunca lo dejes pasar en silencio.
+- CÓMO AVISAR (CRÍTICO): NUNCA empieces el aviso con "Oye" ni con ninguna muletilla, y NUNCA le repitas como si fuera un descubrimiento algo que el cliente ACABA de declarar. Ve directa y con naturalidad. CRUZA la alergia contra TODOS los platos pedidos y los que pida después. Si un plato contiene ese alérgeno, actúa según de dónde venga el alérgeno:
+  · RETIRABLE (el alérgeno viene de un ingrediente que se puede QUITAR: un topping como langostinos, jamón, queso añadido, frutos secos por encima) → ofrécele quitarlo: "La Abruzzo lleva langostinos; si quieres te la preparo sin ellos, ¿te la pongo así?". Si acepta, añade el modificador "sin [ingrediente]" y sigue.
+  · INTRÍNSECO (el alérgeno NO se puede quitar porque está en la masa, la base o la salsa) → NO ofrezcas quitarlo: avísale con naturalidad de que ese plato lo lleva y RECOMIÉNDALE otro plato equivalente que no tenga ese alérgeno.
+  · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
+  · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca el alérgeno como "(retirable)" o "(intrínseco)", HAZLE CASO a ese dato. Si no lo marca, dedúcelo con sentido común de la descripción del plato: lo que se pone por encima es retirable; la masa, la base y la salsa NO lo son.
 - Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno]. Revisar [platos afectados]". La alergia se menciona también en el resumen final.
-- Ante alergia grave o duda, no confirmes el plato como seguro por tu cuenta: márcalo para revisión del personal.
+- Tú ANOTAS la alergia y ASESORAS al cliente; NO afirmes que un plato es 100% seguro por tu cuenta. Ante alergia grave o duda, márcalo para revisión del personal.
 
 # PEDIDOS DE GRUPO
 Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, confírmalo con especial cuidado y avisa de que puede requerir algo más de tiempo de preparación.
@@ -773,6 +788,10 @@ function orderSignature(args) {
 async function handleSubmitOrder(callId, args, conversationMessages = []) {
   args = resolvePerPizzaQuantities(args, conversationMessages);
   const _sess = getOrCreateOrderSession(callId);
+  // Cliente YA reconocido en esta llamada (por caller ID o buscar_cliente): su
+  // perfil ya existe con consentimiento previo. PROHIBIDO re-guardar o re-preguntar.
+  // Determinista: aunque el modelo ponga save_profile_consent=true, aquí se anula.
+  if (_sess && _sess.registeredName) { args = { ...args, save_profile_consent: false }; }
   if (_sess && _sess.status === ORDER_STATUS.SENT_TO_KITCHEN) {
     return { ok: true, delivered: _sess.dispatchChannel && _sess.dispatchChannel !== "file_fallback", order: _sess, reply: "", validation: {}, alreadyDone: true };
   }
@@ -996,6 +1015,15 @@ function stripConsentIfRegistered(text, callId) {
   } catch (_) { return text; }
 }
 
+// Detecta de forma DETERMINISTA si Sarah ya ofreció el upselling (bebida/postre/
+// entrante) en algún turno anterior. No depende de que el modelo lo recuerde: se
+// calcula del historial y se reinyecta como orden dura para que NO lo repita.
+function upsellAlreadyOffered(incomingMessages) {
+  const asistente = (incomingMessages || []).filter(m => m && m.role === "assistant" && m.content);
+  const rx = /algo de beber|te apetece (?:un|una)\b[^.?!]*\b(?:tiramis|postre|dulce|helado)|(?:un |algún )?entrante para compartir|algo (?:rico )?para (?:compartir|picar)/i;
+  return asistente.some(m => rx.test(String(m.content)));
+}
+
 function registeredCustomerDirective(nombre, direccion) {
   const primerNombre = String(nombre || "el cliente").split(" ")[0];
   return `CLIENTE YA REGISTRADO en esta llamada: se llama ${primerNombre}; su tel\u00e9fono, nombre y direcci\u00f3n YA est\u00e1n guardados. REGLAS OBLIGATORIAS durante TODA la llamada:\n` +
@@ -1050,6 +1078,14 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       let extra = registeredCustomerDirective(s.registeredName, s.registeredAddress);
       if (s.registeredPreloaded) extra += "\nYA lo tienes reconocido por su tel\u00e9fono: NO llames a la herramienta buscar_cliente otra vez. La direcci\u00f3n de siempre ya est\u00e1 dentro de la zona de reparto: NO llames a validar_direccion; ve directo a tomar el pedido.";
       messages.push({ role: "system", content: extra });
+    }
+  } catch (_) {}
+  // INVARIANTE DE UPSELLING (determinista, recencia m\u00e1xima): si en el historial ya
+  // ofreciste el upselling una vez, se proh\u00edbe repetirlo. No basta con la regla del
+  // system prompt (gpt-4.1-mini la olvida); inyectada aqu\u00ed, al final, la cumple.
+  try {
+    if (upsellAlreadyOffered(incomingMessages)) {
+      messages.push({ role: "system", content: "YA ofreciste el upselling UNA vez en esta llamada. PROHIBIDO volver a ofrecer bebida, postre o entrante. Si el cliente no pide nada m\u00e1s, ve directo al resumen con el total dicho en voz alta. No sugieras nada m\u00e1s." });
     }
   } catch (_) {}
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
@@ -1150,5 +1186,6 @@ module.exports = {
   getMenuItemById,
   getMenuItemByName,
   SUBMIT_ORDER_TOOL,
-  resolvePerPizzaQuantities
+  resolvePerPizzaQuantities,
+  upsellAlreadyOffered
 };
