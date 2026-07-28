@@ -2,21 +2,24 @@
 
 > Solo Vozra PID. Roomy Food está en `../roomy-food` con su propia memoria.
 
-**Escrito el:** 2026-07-20
+**Escrito el:** 2026-07-28
 
-## Próximo paso: DESPLEGAR Y VALIDAR EL FIX DEL 20-07
-Rama `fix/pid-nombre-generico-y-recoger-20260720`, commit `353a990`. **Commiteado pero NO desplegado ni validado en llamada real.**
+## Próximo paso: COMMIT + PUSH + DEPLOY + LLAMADA DE PRUEBA
+Fixes del 28-07 aplicados en `main` (working tree), **verdes en tests, SIN commit/push/deploy.**
 
-1. Mergear a `main` y desplegar en Railway.
-2. **Verificar el hash del build desplegado.** El fallo `"Right..."` NO era de código: el saneador ya lo limpiaba en `main`. Railway estaba sirviendo un build viejo → puede haber más fixes del 18-07 sin aplicar (puntos suspensivos, orden teléfono-primero).
-3. **Llamada de prueba obligatoria, escenario RECOGER con teléfono nuevo:**
-   - NO debe decir muletillas en inglés ni puntos suspensivos.
-   - NO debe llamarle "cliente" → debe preguntar "¿A nombre de quién lo dejo?".
-   - **NO debe mencionar NINGUNA dirección** (ni pedirla, ni confirmarla).
-   - NO debe decir "voy a buscar tu perfil" ni similar.
-4. Comprobar en Supabase que el perfil nuevo NO guarda un nombre genérico.
+1. **Commit** (incluye los 2 ficheros nuevos sin trackear):
+   `git add marta-llm.service.js allergen-ontology.service.js test-pid-fixes-20260728.cjs`
+   `git commit -m "fix(pid): alergia sin Oye + retirable/intrinseco + upsell unico + consent forzado + sin ETA inventada"`
+2. **Railway (bloqueante real):** `origin/main` = `2bc9448`; `main` local está +5 (con el commit de hoy, +6) SIN pushear. Confirmar el commit desplegado. Si Railway sirve `origin/main`, en producción NO hay ningún fix desde el 20-07 → `git push` y desplegar.
+3. **Llamada de prueba obligatoria** tras deploy, dos escenarios:
+   - RECOGER, teléfono nuevo: no "cliente" (pregunta "¿a nombre de quién?"), no menciona dirección, no dice "voy a buscar tu perfil", sin muletillas inglesas ni puntos suspensivos.
+   - Alergia: "soy alérgico al marisco, ponme una Abruzzo" → debe avisar de los langostinos y ofrecer quitarlos (topping), SIN empezar con "Oye". Upsell: ofrecer bebida una vez; si el cliente la añade, NO volver a ofrecer postre. NO inventar hora de entrega.
+4. Supabase: el perfil nuevo NO guarda nombre genérico.
 
-⚠️ Los tests automáticos (20+6+10+2, verdes) **no cubren** `generateMartaReply` ni el prompt. Solo prueban no-regresión.
+## Ontología de alérgenos (montada, vacía)
+`backend/allergen-ontology.service.js`, `ONTOLOGY = {}`. Cuando el restaurante dé la info por plato (qué alérgeno es topping retirable vs intrínseco), rellenar el mapa con el formato del ejemplo comentado. En cuanto tenga datos, la carta que ve Sarah los muestra y deja de deducir. Interino: deduce de la descripción.
+
+⚠️ Los tests automáticos (18 nuevos + 20+6+10+5) **no ejecutan** el LLM. Prueban que la regla y el código determinista existen. Que Sarah OBEDEZCA se valida solo en llamada real.
 
 ## Roomy B2 en stash
 El trabajo de B2 quedó en `git stash` ("wip-b2") sobre `work/roomy-b2-domain-tenant-registry-20260719`. Para retomarlo: checkout a esa rama + `git stash pop`. Queda pendiente arreglar el test mock (llama sin ctx) y commitear.

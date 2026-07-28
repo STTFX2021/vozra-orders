@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-07-28 — Cierre de 4 fallos reales de PID (sin commit/deploy aún)
+
+**Base:** `main` @ `171dadb`, working tree limpio. (El fix branch del 20-07 con `cleanCustomerName` quedó huérfano; `main` ya resuelve "¡Cliente!" con `realCustomerName`, L157. No mezclar.)
+
+**Auditoría antes de tocar:** el `main` real estaba MÁS avanzado que la memoria — ya tenía `stripConsentIfRegistered`, `registeredCustomerDirective`, precarga de teléfono, `resolvePerPizzaQuantities`, `realCustomerName`. Faults 5/6/7 ya estaban hechos; 3 casi.
+
+**4 fixes aplicados en `marta-llm.service.js` + 1 módulo nuevo:**
+1. **Alergia (F1):** fuera el ejemplo literal `"Oye, la Carbonara…"` (era la causa del "Oye"). Sección reescrita: no empezar con "Oye", no repetir lo que el cliente declara, rama RETIRABLE (topping→ofrecer quitar, ej. Abruzzo/langostinos) vs INTRÍNSECO (masa/salsa→recomendar alternativa), y deducir si la carta no marca el dato. Se anota siempre en kitchenNote. **NO se auto-confirma seguro.**
+   - Nuevo `allergen-ontology.service.js`: enganche `classifyAllergen(itemId, allergen)` + `hasOntologyData()`. **Ontología VACÍA a propósito** (`ONTOLOGY = {}`). Cuando haya datos por restaurante, `formatItemAllergens` los añade a la carta (retirable/intrínseco) y Sarah deja de deducir. Decisión del usuario: montar el enganche sin la info.
+2. **Upsell (F2):** `upsellAlreadyOffered(historial)` calcula del historial si ya se ofreció; si sí, inyecta orden dura "PROHIBIDO volver a ofrecer" cada turno. Determinista, no depende de la memoria del LLM. Exportado para test.
+3. **Consentimiento (F3):** en `handleSubmitOrder`, si `_sess.registeredName` → `save_profile_consent=false` forzado por código (complementa a `stripConsentIfRegistered`).
+4. **Tiempos (F4):** confirmado que NO existe fuente de ETA. Reescrito paso 4 del flujo: prohibido inventar minutos/hora; copy aprobado "El restaurante te confirmará el tiempo estimado"; se conserva solo el aviso de cocina cerrada (dato real).
+
+**Tests:** nuevo `test-pid-fixes-20260728.cjs` (18, todos verdes). Baseline completo verde: 20+6+10+5. `node --check` OK en ambos ficheros. Lógica determinista (upsell, ontología) validada en sandbox aparte.
+
+**Latencia (medida):** system prompt = **42.685 chars ≈ 10.671 tokens por turno**. 1 llamada/turno normal, tools en paralelo, precarga ya puestas. Única palanca restante: recortar la carta del prompt (NO tocado, requiere test + OK).
+
+**⚠️ SIN COMMIT / SIN PUSH / SIN DEPLOY.** Autorización técnica dada; el usuario decide el gatillo.
+- Commit propuesto: `git add marta-llm.service.js allergen-ontology.service.js test-pid-fixes-20260728.cjs`
+- **Railway sin confirmar:** `origin/main` = `2bc9448`; `main` local +5 (con el commit de hoy, +6). Si Railway sirve `origin/main`, NINGÚN fix (ni hoy ni los 5 previos) está en producción. Paso de impacto: confirmar commit desplegado → push → deploy → **llamada de prueba real**.
+
+**Verificación en llamada real pendiente:** que Sarah OBEDEZCA (no "Oye", ofrecer quitar langostinos, no repetir upsell, no inventar hora) solo se confirma tras desplegar.
+
+---
+
 ## 2026-07-20 — Fix: nombres genéricos + dirección en RECOGER
 
 **Transcript del fallo (llamada real, pedido para RECOGER):**
