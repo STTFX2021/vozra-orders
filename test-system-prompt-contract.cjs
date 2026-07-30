@@ -93,8 +93,9 @@ const profilePrompt = buildSystemPrompt(provider, {
 });
 assert(profilePrompt.includes("El caller ID o perfil ya le identifica: NO le pidas el teléfono"));
 assert(profilePrompt.includes("Tampoco el nombre"));
-assert(profilePrompt.includes('pregunta SOLAMENTE: "¿Te lo llevamos a la dirección de siempre?"'));
-assert(profilePrompt.includes("NUNCA verbalices la calle, número, piso, portal ni la dirección completa"));
+assert(profilePrompt.includes('"¿Te lo llevo a Calle Secreta, la de siempre?"'), "debe confirmar nombrando SOLO la calle (primera línea)");
+assert(profilePrompt.includes('el nombre de la calle ("Calle Secreta")'), "debe nombrar la calle extraída por streetOnly");
+assert(profilePrompt.includes("NUNCA digas el número, el piso, el portal ni el resto de la dirección"), "debe prohibir número/piso/portal (privacidad)");
 assert(profilePrompt.includes("Si el pedido es para RECOGER, NO preguntes, confirmes ni menciones ninguna dirección"));
 assert(profilePrompt.includes("No vuelvas a pedir consentimiento"));
 assert(profilePrompt.includes("SOLO si caller ID está ausente, oculto, es inválido o no identifica un perfil"));

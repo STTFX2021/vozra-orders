@@ -27,7 +27,7 @@ const { getCustomerByPhone, upsertCustomer } = require("./customer-store.js");
 const { checkDeliveryAddress } = require("./delivery-zone.service.js");
 const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
 const { lookupOrdersForCustomer, registerIncident } = require("./incident.service.js");
-const { classifyAllergen, hasOntologyData } = require("./allergen-ontology.service.js");
+const { removableAllergens } = require("./allergen-ontology.service.js");
 
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
@@ -62,16 +62,14 @@ const ALLERGEN_LABELS = {
 };
 
 function formatItemAllergens(it) {
+  // Anota SOLO los alérgenos retirables (los que vienen de un topping que se puede
+  // quitar), calculados por la ontología. Los intrínsecos van sin marca. Así Sarah
+  // sabe por dato cuál se puede retirar, sin inflar la carta con lo obvio.
+  let rem;
+  try { rem = new Set(removableAllergens(it)); } catch (_) { rem = new Set(); }
   const known = (it.knownAllergens || []).map(a => {
     const label = ALLERGEN_LABELS[a] || a;
-    // Enganche de ontología: si hay dato verificado de si este alérgeno es
-    // retirable o intrínseco en ESTE plato, lo añadimos para que Sarah no deduzca.
-    // Con la ontología vacía (hoy) esto no aporta nada y la línea queda igual.
-    if (hasOntologyData()) {
-      const c = classifyAllergen(it.id, a);
-      if (c.known) return label + " (" + (c.removable ? "retirable" + (c.component ? ": " + c.component : "") : "intrínseco, no retirable") + ")";
-    }
-    return label;
+    return rem.has(a) ? label + " (se puede quitar)" : label;
   });
   return known.length ? known.join(", ") : "ninguno declarado";
 }
@@ -196,11 +194,12 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
   // Bloque de cliente recurrente: solo aparece si hay perfil guardado CON consentimiento.
   const nombreCli = realCustomerName(profile && profile.name);
   const dirCli = profile && profile.address ? (profile.address.raw || profile.address) : null;
+  const calleCli = streetOnly(dirCli); // solo el nombre de la calle (primera línea), para verbalizar sin número/piso
   const perfilBloque = profile
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
 - El caller ID o perfil ya le identifica: NO le pidas el teléfono.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
-- Si el pedido es a domicilio, pregunta SOLAMENTE: "¿Te lo llevamos a la dirección de siempre?". NUNCA verbalices la calle, número, piso, portal ni la dirección completa. Solo si dice que ha cambiado, pídele la nueva.
+- Si el pedido es a domicilio, RECONÓCELE por su nombre y confirma la dirección diciendo ÚNICAMENTE el nombre de la calle${calleCli ? ` ("${calleCli}")` : ""}: "¿Te lo llevo a ${calleCli || "la calle de siempre"}, la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada completa internamente; solo si dice que ha cambiado, pídele la nueva.
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NO preguntes, confirmes ni menciones ninguna dirección: la recogida es SIEMPRE en el local (${nombre}).
 - No vuelvas a pedir consentimiento para guardar datos: este perfil ya está registrado con consentimiento.
 - Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
@@ -308,7 +307,7 @@ ${horarioLinea}
    - EN DOMICILIO SIN PERFIL FIABLE: primero identifica al cliente y después fija la dirección. Sigue estos pasos:
      PASO A) SOLO si caller ID está ausente, oculto, es inválido o no identifica un perfil, pide: "¡Perfecto! ¿Me dices un teléfono de contacto?".
      PASO B) Cuando el cliente dé un teléfono, llama a buscar_cliente antes de pedir dirección o nombre. Si el perfil ya llegó por caller ID, omite A y B.
-     PASO C) Si encontrado=true → reconócele sin volver a pedir teléfono ni nombre. Si es domicilio pregunta SOLAMENTE: "¿Te lo llevamos a la dirección de siempre?". NUNCA verbalices calle, número, piso, portal ni la dirección completa. Si dice que sí, usa la dirección guardada internamente; si ha cambiado, pídele la nueva.
+     PASO C) Si encontrado=true → reconócele por su nombre ("Aquí estás, [nombre].") sin volver a pedir teléfono ni nombre. Si es domicilio, confirma la dirección diciendo ÚNICAMENTE el nombre de la calle (la primera línea, ej. "Calle Alpandeire"): "¿Te lo llevo a [calle], la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada internamente; si ha cambiado, pídele la nueva.
      PASO D) Si encontrado=false → AHORA sí pídele la dirección completa: "¿A qué dirección te lo llevamos?".
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
@@ -348,7 +347,7 @@ ${horarioLinea}
 9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos de relleno al cerrar: una sola despedida limpia, sin puntos suspensivos.
 
 # PRECIOS Y HERRAMIENTAS
-- RECONOCER AL CLIENTE: si el caller ID fiable ya devolvió un perfil, NO pidas teléfono ni nombre si consta. Si no hay caller ID fiable o no identifica un perfil, pide el teléfono y llama a buscar_cliente antes de pedir dirección o nombre. Cuando hay perfil y el pedido es domicilio, pregunta SOLAMENTE "¿Te lo llevamos a la dirección de siempre?"; nunca verbalices calle, número, piso, portal ni dirección completa. En recogida no menciones ninguna dirección. No vuelvas a pedir consentimiento a un cliente registrado.
+- RECONOCER AL CLIENTE: si el caller ID fiable ya devolvió un perfil, NO pidas teléfono ni nombre si consta. Si no hay caller ID fiable o no identifica un perfil, pide el teléfono y llama a buscar_cliente antes de pedir dirección o nombre. Cuando hay perfil y el pedido es domicilio, reconócele por su nombre ("Aquí estás, [nombre].") y confirma la dirección diciendo SOLO el nombre de la calle (la primera línea): "¿Te lo llevo a [calle], la de siempre?"; nunca digas el número, el piso, el portal ni el resto de la dirección. En recogida no menciones ninguna dirección. No vuelvas a pedir consentimiento a un cliente registrado.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
 - Cuando el cliente pida añadir un extra o topping a un plato (burrata, jamón, base sin gluten, etc.), avísale de que puede llevar un suplemento antes de darlo por confirmado. Llama a calcular_total para saber si ese extra tiene coste y dilo con naturalidad, p. ej.: "Eso lleva un suplemento de tres euros con cincuenta, ¿te lo pongo igualmente?". Si calcular_total no refleja coste para ese extra, no menciones ningún importe.
 - BASE DE LA PIZZA: NO preguntes de forma estándar "¿base normal o sin gluten?" — asume SIEMPRE base normal y no lo menciones. Solo sacas el tema de la base sin gluten si el cliente menciona por su cuenta una alergia, celiaquía, gluten o "sin TACC". En ESE caso, ofrécesela y, si la quiere, avísale del suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por hecha ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
@@ -363,7 +362,7 @@ ${horarioLinea}
   · RETIRABLE (el alérgeno viene de un ingrediente que se puede QUITAR: un topping como langostinos, jamón, queso añadido, frutos secos por encima) → ofrécele quitarlo: "La Abruzzo lleva langostinos; si quieres te la preparo sin ellos, ¿te la pongo así?". Si acepta, añade el modificador "sin [ingrediente]" y sigue.
   · INTRÍNSECO (el alérgeno NO se puede quitar porque está en la masa, la base o la salsa) → NO ofrezcas quitarlo: avísale con naturalidad de que ese plato lo lleva y RECOMIÉNDALE otro plato equivalente que no tenga ese alérgeno.
   · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
-  · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca el alérgeno como "(retirable)" o "(intrínseco)", HAZLE CASO a ese dato. Si no lo marca, dedúcelo con sentido común de la descripción del plato: lo que se pone por encima es retirable; la masa, la base y la salsa NO lo son.
+  · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE (ofrécele quitarlo). Si NO lo marca, trátalo como INTRÍNSECO: no lo quites, recomiéndale otra opción. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
 - Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno]. Revisar [platos afectados]". La alergia se menciona también en el resumen final.
 - Tú ANOTAS la alergia y ASESORAS al cliente; NO afirmes que un plato es 100% seguro por tu cuenta. Ante alergia grave o duda, márcalo para revisión del personal.
 
@@ -683,6 +682,8 @@ function streetOnly(addr) {
   // corta en el primer número, "numero/nº/n.", o primera coma
   const m = s.match(/^(.*?)(?:\s*,|\s+(?:n[uú]mero|n[.ºo]|#)\b|\s+\d)/i);
   let street = (m ? m[1] : s).trim().replace(/[\s,]+$/, "");
+  // limpia restos de "nº"/"número"/"n." que hayan quedado al final (para no leerlos en voz)
+  street = street.replace(/[\s,]+(?:n[uú]mero|n[.ºo]|#)\.?\s*$/i, "").trim();
   return street || s;
 }
 
@@ -1026,11 +1027,14 @@ function upsellAlreadyOffered(incomingMessages) {
 
 function registeredCustomerDirective(nombre, direccion) {
   const primerNombre = String(nombre || "el cliente").split(" ")[0];
+  const calle = streetOnly(direccion); // SOLO la primera l\u00ednea (nombre de v\u00eda), sin n\u00famero/piso
   return `CLIENTE YA REGISTRADO en esta llamada: se llama ${primerNombre}; su tel\u00e9fono, nombre y direcci\u00f3n YA est\u00e1n guardados. REGLAS OBLIGATORIAS durante TODA la llamada:\n` +
     `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
     `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
-    `3) Usa el nombre "${primerNombre}" y la direcci\u00f3n guardada en la comanda.\n` +
-    `4) Si el pedido es a domicilio, pregunta SOLAMENTE "\u00bfTe lo llevamos a la direcci\u00f3n de siempre?". NUNCA verbalices calle, n\u00famero, piso, portal ni la direcci\u00f3n completa. Si es para recoger, no menciones ninguna direcci\u00f3n.`;
+    `3) RECON\u00d3CELE por su nombre al saludar: "Aqu\u00ed est\u00e1s, ${primerNombre}." (o equivalente natural). NO le llames "cliente".\n` +
+    `4) Usa el nombre "${primerNombre}" y la direcci\u00f3n guardada en la comanda.\n` +
+    `5) Si el pedido es a DOMICILIO, confirma la direcci\u00f3n diciendo \u00daNICAMENTE el nombre de la calle (la primera l\u00ednea)${calle ? `, que es "${calle}"` : ""}: "\u00bfTe lo llevo a ${calle || "la calle de siempre"}, la de siempre?". NUNCA digas el n\u00famero, el piso, el portal ni el resto de la direcci\u00f3n. Si dice que s\u00ed, usa la direcci\u00f3n guardada completa internamente; si ha cambiado, p\u00eddele la nueva.\n` +
+    `6) Si es para RECOGER, NO menciones ninguna direcci\u00f3n: la recogida es en el local.`;
 }
 
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
@@ -1080,12 +1084,20 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       messages.push({ role: "system", content: extra });
     }
   } catch (_) {}
-  // INVARIANTE DE UPSELLING (determinista, recencia m\u00e1xima): si en el historial ya
-  // ofreciste el upselling una vez, se proh\u00edbe repetirlo. No basta con la regla del
-  // system prompt (gpt-4.1-mini la olvida); inyectada aqu\u00ed, al final, la cumple.
+  // INVARIANTE DE UPSELLING (determinista, por ESTADO DE SESI\u00d3N): exactamente una
+  // oferta por pedido. El flag `upsellOffered` vive en la sesi\u00f3n de la llamada; el
+  // barrido del historial es solo un respaldo por si la sesi\u00f3n se reinici\u00f3. No basta
+  // con la regla del system prompt (gpt-4.1-mini la olvida): aqu\u00ed, con el flag, se cumple.
+  let _upsellSession = null;
   try {
-    if (upsellAlreadyOffered(incomingMessages)) {
-      messages.push({ role: "system", content: "YA ofreciste el upselling UNA vez en esta llamada. PROHIBIDO volver a ofrecer bebida, postre o entrante. Si el cliente no pide nada m\u00e1s, ve directo al resumen con el total dicho en voz alta. No sugieras nada m\u00e1s." });
+    _upsellSession = getOrCreateOrderSession(callId);
+    if (_upsellSession) {
+      if (_upsellSession.upsellOffered === undefined) _upsellSession.upsellOffered = false;
+      // Respaldo: si el historial ya contiene una oferta, marca el flag.
+      if (!_upsellSession.upsellOffered && upsellAlreadyOffered(incomingMessages)) _upsellSession.upsellOffered = true;
+      if (_upsellSession.upsellOffered) {
+        messages.push({ role: "system", content: "YA ofreciste el upselling UNA vez en esta llamada (upsellOffered=true). PROHIBIDO volver a ofrecer bebida, postre o entrante. Si el cliente no pide nada m\u00e1s, ve directo al resumen con el total dicho en voz alta. No sugieras nada m\u00e1s." });
+      }
     }
   } catch (_) {}
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
@@ -1161,7 +1173,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         messages.push({
           role: "system",
           content: registeredCustomerDirective(clienteRegistrado, clienteDireccion) +
-            "\nReconócele por su nombre sin pedir teléfono ni nombre. Espera a saber el tipo: en domicilio pregunta solo por la dirección de siempre; en recogida no menciones ninguna dirección."
+            "\nReconócele por su nombre ('Aquí estás, [nombre].') sin pedir teléfono ni nombre. Espera a saber el tipo: en domicilio confirma diciendo SOLO el nombre de la calle ('¿Te lo llevo a [calle], la de siempre?'), nunca el número ni el piso; en recogida no menciones ninguna dirección."
         });
       }
       continue;
@@ -1169,6 +1181,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
     // 3) Texto normal
     const reply = stripConsentIfRegistered(sanitizeReply((msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien."), callId);
+    // Si en ESTA respuesta se ha hecho la oferta de upselling, persistir el flag en
+    // sesión para que el próximo turno no vuelva a ofrecer (una sola vez por pedido).
+    try { if (_upsellSession && upsellAlreadyOffered([{ role: "assistant", content: reply }])) _upsellSession.upsellOffered = true; } catch (_) {}
     return { reply, dispatched: false, action: "in_progress" };
   }
   return { reply: "Perdona, ¿me lo repites? No te he entendido bien.", dispatched: false, action: "in_progress" };
@@ -1187,5 +1202,8 @@ module.exports = {
   getMenuItemByName,
   SUBMIT_ORDER_TOOL,
   resolvePerPizzaQuantities,
-  upsellAlreadyOffered
+  upsellAlreadyOffered,
+  stripConsentIfRegistered,
+  streetOnly,
+  registeredCustomerDirective
 };
