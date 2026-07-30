@@ -234,6 +234,7 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 - Usa como máximo UNA muletilla por turno y no repitas la misma en dos turnos consecutivos. Ante alergias, errores o problemas, ve directa al asunto sin muletillas.
 - NO preguntes de forma proactiva si quiere modificar cada plato ("¿le quitamos o añadimos algo?", "¿con todos los ingredientes?"). Toma cada plato TAL CUAL la carta; el cliente ya te dirá si quiere algún cambio. Solo gestionas las modificaciones que el cliente pida por su cuenta.
 - TAMAÑO: las pizzas de La Locanda tienen un ÚNICO tamaño. NO preguntes por el tamaño. Solo si el cliente pregunta o pide un tamaño concreto (mediana o familiar), infórmale con naturalidad de que hay un único tamaño estándar. (Si algún día la carta tuviera varios tamaños, entonces sí habría que preguntarlo.)
+- PIZZA MITAD Y MITAD: se puede pedir una pizza con media de una y media de otra ("mitad Diávola, mitad Margarita"). Al enviar el pedido, pon esas dos pizzas en el campo half_and_half del item (los dos ids/nombres). El precio es el de la pizza MÁS CARA de las dos: no lo calcules tú, lo da calcular_total. Dilo con naturalidad si preguntan ("va al precio de la más cara"). Solo dos mitades, no tres.
 - Para cerrar, varía: "¿Te lo confirmo así?", "¿Lo dejamos así?" o "¿Algo más o lo cierro?".
 - SUGERENCIAS (cuando el cliente pide "sugiéreme algo" y está indeciso): NO recites varios platos ni una categoría entera. Ve cercando el círculo. Primero ACOTA con una pregunta corta: "¿Te apetece más pizza, pasta, carne o algo de pescado?". Con su respuesta, si hace falta afina una vez más ("¿la prefieres picante o suave?") y entonces sugiere UN plato concreto (dos como mucho) por su nombre. De lo general a lo concreto; nunca sueltes la lista entera.
 - No preguntes "¿está bien?", "¿con todo?" o "¿algo más?" después de cada plato.
@@ -435,7 +436,8 @@ const SUBMIT_ORDER_TOOL = {
                   required: ["type", "value"]
                 }
               },
-              notes: { type: "string", description: "nota libre para cocina sobre este plato." }
+              notes: { type: "string", description: "nota libre para cocina sobre este plato." },
+              half_and_half: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2, description: "SOLO para pizza mitad y mitad: los dos ids (o nombres) de las pizzas, p. ej. [\"pizza_diavola\",\"pizza_margherita\"]. Se cobra la más cara. Deja el campo vacío para pizzas normales." }
             },
             required: ["quantity"]
           }
@@ -596,6 +598,32 @@ function callOpenAI(payload) {
 // ─── MAPEO DEL PEDIDO + DISPATCH ────────────────────────────────────────────
 
 function mapToolItem(toolItem) {
+  // PIZZA MITAD Y MITAD: dos mitades; se cobra la MÁS CARA (regla del local).
+  const hh = toolItem.half_and_half;
+  if (Array.isArray(hh) && hh.length === 2) {
+    const a = getMenuItemById(hh[0]) || getMenuItemByName(hh[0]);
+    const b = getMenuItemById(hh[1]) || getMenuItemByName(hh[1]);
+    if (a && b) {
+      const priceA = a.price || 0, priceB = b.price || 0;
+      const mods = (toolItem.modifiers || [])
+        .filter(m => m && m.value)
+        .map(m => ({ type: m.type || "note", value: String(m.value), raw: String(m.value), confidence: 1 }));
+      return {
+        id:          "half_and_half",
+        displayName: "Pizza mitad " + a.displayName + " / mitad " + b.displayName,
+        category:    a.category || b.category || "pizza_speciale",
+        price:       Math.max(priceA, priceB),   // se cobra la más cara
+        quantity:    Math.max(1, parseInt(toolItem.quantity, 10) || 1),
+        size:        toolItem.size || null,
+        modifiers:   mods,
+        halfAndHalf: { a: { id: a.id, name: a.displayName, price: priceA }, b: { id: b.id, name: b.displayName, price: priceB } },
+        allergyFlags: [],
+        kitchenNote: toolItem.notes || null,
+        productConfidence: 1
+      };
+    }
+    // Si no se resuelven ambas mitades, cae al camino normal de abajo.
+  }
   const menuItem = getMenuItemById(toolItem.menu_item_id) || getMenuItemByName(toolItem.name);
   const modifiers = (toolItem.modifiers || [])
     .filter(m => m && m.value)

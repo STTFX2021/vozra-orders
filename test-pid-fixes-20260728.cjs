@@ -17,8 +17,10 @@ const {
   stripConsentIfRegistered,
   streetOnly,
   registeredCustomerDirective,
-  getMenuItemById
+  getMenuItemById,
+  mapToolItem
 } = require("./marta-llm.service.js");
+const { estimateTotal, validateOrder } = require("./order-validator.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
 const { classifyAllergen, removableAllergens } = require("./allergen-ontology.service.js");
 const { parseRestrictions, mergeRestrictions } = require("./customer-store.js");
@@ -188,6 +190,24 @@ test("F6 mergeRestrictions acumula sin duplicar (case-insensitive)", () => {
 });
 test("F6 mergeRestrictions parte de perfil vacío", () => {
   assert.deepStrictEqual(mergeRestrictions(null, { allergies: ["frutos secos"] }).allergies, ["frutos secos"]);
+});
+
+// ── PIZZA MITAD Y MITAD (se cobra la más cara) ───────────────────────────────
+test("F7 mitad y mitad: precio = la pizza MÁS CARA", () => {
+  const a = getMenuItemById("pizza_abruzzo"), b = getMenuItemById("pizza_margherita");
+  assert.ok(a && b, "faltan las pizzas de referencia en la carta");
+  const expected = Math.max(a.price, b.price);
+  const item = mapToolItem({ half_and_half: ["pizza_abruzzo", "pizza_margherita"], quantity: 1 });
+  assert.ok(item.halfAndHalf, "no se marcó como half_and_half");
+  assert.strictEqual(item.price, expected, "el precio no es el de la más cara");
+  assert.strictEqual(estimateTotal({ items: [item] }).estimatedTotal, expected, "el total no coincide");
+  assert.ok(/mitad/i.test(item.displayName), "el nombre no indica 'mitad'");
+});
+test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades (no bloquea)", () => {
+  const item = mapToolItem({ half_and_half: ["pizza_abruzzo", "pizza_margherita"], quantity: 1 });
+  const v = validateOrder({ items: [item], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["marisco"] });
+  assert.strictEqual(v.flags.requiresKitchenReview, true, "no detectó el marisco de la mitad Abruzzo");
+  assert.strictEqual(v.ok, true, "la alergia no debe bloquear (solo anota)");
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");

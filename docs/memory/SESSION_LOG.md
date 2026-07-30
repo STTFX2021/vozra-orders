@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-07-28 — Pizza mitad y mitad + revisión de los 8 tests "Skipped"
+
+**Los 8 skipped de fase4, revisados (no todos valían):**
+- TEST-019→024 (6): dispatch fallback + ACK timeout. **YA cubiertos** en test-orders-fase5 (dispatch Telegram→Discord→file) y fase6 (ACK). Eran stubs viejos. Actualizado el motivo del skip a "YA cubierto en fase5/6". No se rehacen (duplicado).
+- TEST-014: transferencia por catering. Niche, no construido (no es prioridad de un order-taker).
+- TEST-007 (mitad y mitad): **IMPLEMENTADO** (era el único real).
+
+**Feature mitad y mitad (decisión owner: se cobra la MÁS CARA):**
+- `SUBMIT_ORDER_TOOL`: campo nuevo `half_and_half` en el item (2 ids/nombres).
+- `mapToolItem`: resuelve las dos mitades, `price = Math.max(a,b)`, `id="half_and_half"`, displayName "Pizza mitad X / mitad Y", guarda `halfAndHalf`.
+- `estimateTotal` (order-validator): rama que usa `item.price` para half_and_half (id sintético no está en carta).
+- `crossCheckAllergens`: suma los alérgenos de LAS DOS mitades (seguridad).
+- Prompt: regla de mitad y mitad (precio = la más cara, lo da calcular_total, solo dos mitades).
+- Tests F7 (precio = más cara + cruce de alergias de ambas mitades); sandbox 5/5 OK. fase4 TEST-007 sigue skip pero con motivo actualizado (el motor legacy no se toca; la feature vive en el camino real).
+
+⚠️ Motor legacy (`order-slot-filler`/fase4 `sim`) NO es producción; no se implementa nada ahí.
+
+---
+
 ## 2026-07-28 — Perfil con preferencias/restricciones (alergias guardadas) + test contrato
 
 **Feature nueva (pedida en llamada real: "lo tenías que tener apuntado en la base de datos"):**

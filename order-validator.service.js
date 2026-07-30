@@ -132,12 +132,18 @@ function crossCheckAllergens(order) {
   // Reunir todos los alérgenos de todos los items del pedido
   const itemAllergenCodes = new Set();
   for (const item of order.items) {
-    const menuItem = menuTax.items.find(i => i.id === item.id);
-    if (!menuItem) continue;
+    // Pizza mitad y mitad: sumar los alérgenos de LAS DOS mitades (id sintético no está en la carta).
+    const lookupIds = (item.halfAndHalf && item.halfAndHalf.a && item.halfAndHalf.b)
+      ? [item.halfAndHalf.a.id, item.halfAndHalf.b.id]
+      : [item.id];
+    const menuItems = lookupIds.map(id => menuTax.items.find(i => i.id === id)).filter(Boolean);
+    if (!menuItems.length) continue;
 
-    // Alérgenos base del item
-    for (const a of (menuItem.knownAllergens || [])) itemAllergenCodes.add(norm(a));
-    for (const a of (menuItem.traceAllergens || [])) itemAllergenCodes.add(norm(a));
+    // Alérgenos base del item (o de ambas mitades)
+    for (const menuItem of menuItems) {
+      for (const a of (menuItem.knownAllergens || [])) itemAllergenCodes.add(norm(a));
+      for (const a of (menuItem.traceAllergens || [])) itemAllergenCodes.add(norm(a));
+    }
 
     // Alérgenos añadidos por modificadores
     for (const mod of (item.modifiers || [])) {
@@ -224,6 +230,14 @@ function estimateTotal(order) {
   const breakdown = [];
 
   for (const item of order.items) {
+    // Pizza mitad y mitad: el precio (la mitad más cara) ya viene calculado en item.price.
+    if (item.halfAndHalf && item.price != null) {
+      const qty = item.quantity || 1;
+      const itemTotal = (item.price || 0) * qty;
+      breakdown.push({ label: item.displayName, qty, unitPrice: item.price, subtotal: itemTotal });
+      total += itemTotal;
+      continue;
+    }
     const menuItem = menuTax.items.find(i => i.id === item.id);
     if (!menuItem) {
       breakdown.push({ label: item.displayName || item.id, qty: item.quantity || 1, unitPrice: null, subtotal: null, note: "precio no encontrado" });

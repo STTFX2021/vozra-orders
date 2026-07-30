@@ -156,7 +156,7 @@ run("TEST-006", "Frase natural compleja (producto + tamaño + 2 modificadores)",
   assert(extraMod  && extraMod.value.includes("queso"),    `extra no capturado: ${JSON.stringify(item.modifiers)}`);
 });
 
-skip("TEST-007", "Mitad y mitad", "P0", "requiere halfAndHalf — pendiente implementación");
+skip("TEST-007", "Mitad y mitad", "P0", "IMPLEMENTADO en el camino real (LLM: campo half_and_half, precio = la más cara). Probado en test-pid-fixes (F7). El motor legacy de fase4 no se toca.");
 
 run("TEST-008", "Cambio de tamaño tras mencionarlo", "P0", () => {
   const o = sim("T008", [
@@ -319,12 +319,12 @@ run("TEST-018", "Producto inventado no existe en menú", "P1", () => {
 
 console.log(`\n${BOLD}══ P2 — Robustez y Edge Cases ═══════════════════${RESET}\n`);
 
-skip("TEST-019", "Cocina no confirma ACK (timeout)", "P2", "requiere Kitchen ACK Monitor — Fase 5");
-skip("TEST-020", "Dispatch fallido fallback al segundo canal", "P2", "requiere Dispatch Adapter — Fase 5");
-skip("TEST-021", "Todos los canales de dispatch fallan", "P2", "requiere Dispatch Adapter — Fase 5");
-skip("TEST-022", "WhatsApp no disponible, Telegram OK", "P2", "requiere Dispatch Adapter — Fase 5");
-skip("TEST-023", "Telegram no disponible, Discord OK", "P2", "requiere Dispatch Adapter — Fase 5");
-skip("TEST-024", "Discord no disponible", "P2", "requiere Dispatch Adapter — Fase 5");
+skip("TEST-019", "Cocina no confirma ACK (timeout)", "P2", "YA cubierto en test-orders-fase6 (Kitchen ACK Monitor: warning/critical).");
+skip("TEST-020", "Dispatch fallido fallback al segundo canal", "P2", "YA cubierto en test-orders-fase5 (Telegram→Discord).");
+skip("TEST-021", "Todos los canales de dispatch fallan", "P2", "YA cubierto en test-orders-fase5 (todos fallan → failed_dispatch).");
+skip("TEST-022", "WhatsApp no disponible, Telegram OK", "P2", "YA cubierto en test-orders-fase5 (fallback de canales).");
+skip("TEST-023", "Telegram no disponible, Discord OK", "P2", "YA cubierto en test-orders-fase5 (Telegram→Discord).");
+skip("TEST-024", "Discord no disponible", "P2", "YA cubierto en test-orders-fase5 (fallback a fichero).");
 
 run("TEST-025", "Cliente se enfada — Marta mantiene tono calmado", "P2", () => {
   clearAllSessionsForTests();
