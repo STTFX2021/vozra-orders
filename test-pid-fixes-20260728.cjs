@@ -44,11 +44,15 @@ test("F1 lógica retirable vs intrínseco presente", () => {
   assert.ok(/RETIRABLE/.test(prompt) && /INTR[IÍ]NSECO/i.test(prompt), "faltan las dos ramas");
   assert.ok(/recomi[eé]ndale otro plato/i.test(prompt), "falta recomendar alternativa en intrínseco");
 });
-test("F1 deduce retirable/intrínseco de la descripción del plato", () => {
-  assert.ok(/ded[uú]celo con sentido com[uú]n/i.test(prompt));
+test("F1 regla de apoyo retirable/intrínseco presente", () => {
+  assert.ok(/lo que se pone por encima \(un topping\) es retirable/i.test(prompt));
 });
 test("F1 no afirmar 100% seguro por su cuenta", () => {
   assert.ok(/NO afirmes que un plato es 100% seguro/i.test(prompt));
+});
+test("F1 PID NUNCA bloquea el pedido por una alergia", () => {
+  assert.ok(/SOLO TOMA PEDIDOS/i.test(prompt), "falta la regla madre 'PID solo toma pedidos'");
+  assert.ok(/NUNCA bloquees/i.test(prompt), "el prompt no prohíbe bloquear el pedido");
 });
 
 // ── FALLO 4: TIEMPOS INVENTADOS ──────────────────────────────────────────────

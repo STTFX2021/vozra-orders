@@ -335,13 +335,14 @@ function validateOrder(order) {
   // 4. Alérgenos cross-check
   const { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk } = crossCheckAllergens(order);
 
-  const allergenReviewRequired = requiresKitchenReview && allergenConflicts.some(conflict =>
-    conflict.highRisk || conflict.severity === "CONFLICT"
-  );
-  if (allergenReviewRequired) {
-    errors.push({
-      code: "ALLERGEN_REVIEW_REQUIRED",
-      message: "La alergia declarada requiere revisión humana antes de confirmar o enviar el pedido."
+  // Vozra PID SOLO TOMA PEDIDOS: una alergia declarada NUNCA bloquea ni retiene el
+  // pedido. Se ANOTA (aviso no bloqueante + flag requiresKitchenReview + kitchenNote)
+  // y la cocina la ve en el ticket. Antes esto empujaba un error ALLERGEN_REVIEW_REQUIRED
+  // que fallaba la validación y retenía el pedido — eliminado a propósito.
+  if (requiresKitchenReview && allergenConflicts.length) {
+    warnings.push({
+      code: "ALLERGEN_NOTED",
+      message: "Alergia declarada anotada para cocina. NO bloquea el pedido (PID solo toma pedidos)."
     });
   }
 

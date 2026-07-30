@@ -127,8 +127,9 @@ function assertNoOperationalEffects(before, label) {
   }
 
   clearAllSessionsForTests();
-  const allergyBefore = snapshot();
-  const allergyBlocked = await handleSubmitOrder("allergy-abruzzo", {
+  // Vozra PID SOLO TOMA PEDIDOS: una alergia declarada NO bloquea. Se anota (flag +
+  // warning ALLERGEN_NOTED + kitchenNote) y el pedido PROCEDE con normalidad.
+  const allergyOrder = await handleSubmitOrder("allergy-abruzzo", {
     ...validArgs,
     phone: "722345678",
     items: [{
@@ -139,25 +140,19 @@ function assertNoOperationalEffects(before, label) {
     allergies: ["marisco"]
   });
 
-  assert.strictEqual(allergyBlocked.ok, false, "la alergia dudosa no debe superar validación");
-  assert.strictEqual(allergyBlocked.delivered, false, "la alergia dudosa no debe figurar como entregada");
-  assert.strictEqual(allergyBlocked.validationFailed, true);
-  assert.strictEqual(allergyBlocked.retryable, true);
-  assert(allergyBlocked.order.allergies.includes("marisco"), "debe conservar la alergia estructurada");
-  assert.strictEqual(allergyBlocked.validation.flags.requiresKitchenReview, true, "debe exigir revisión humana");
+  assert.strictEqual(allergyOrder.ok, true, "una alergia NO debe bloquear el pedido (PID solo toma pedidos)");
+  assert.notStrictEqual(allergyOrder.validationFailed, true, "una alergia no debe marcar validationFailed");
+  assert(allergyOrder.order.allergies.includes("marisco"), "debe conservar la alergia estructurada");
+  assert.strictEqual(allergyOrder.validation.flags.requiresKitchenReview, true, "la alergia se anota como flag para cocina");
   assert(
-    allergyBlocked.validation.errors.some(error => error.code === "ALLERGEN_REVIEW_REQUIRED"),
-    "falta el error bloqueante de revisión alérgica"
+    (allergyOrder.validation.warnings || []).some(w => w.code === "ALLERGEN_NOTED"),
+    "la alergia debe quedar como AVISO no bloqueante (ALLERGEN_NOTED)"
   );
-  assert.strictEqual(
-    allergyBlocked.order.status,
-    ORDER_STATUS.AWAITING_CONFIRMATION,
-    "no debe marcarse customer_confirmed antes de la revisión"
+  assert(
+    !(allergyOrder.validation.errors || []).some(error => error.code === "ALLERGEN_REVIEW_REQUIRED"),
+    "NO debe existir ya el error bloqueante ALLERGEN_REVIEW_REQUIRED"
   );
-  assert(/no garantiza.*seguro/i.test(allergyBlocked.reply), "Sarah no comunica que retirar el ingrediente sea insuficiente");
-  assert(/contaminación cruzada/i.test(allergyBlocked.reply), "Sarah no comunica el riesgo de contaminación cruzada");
-  assert(!/queda confirmado|va a cocina/i.test(allergyBlocked.reply), "Sarah confirma verbalmente un pedido bloqueado");
-  assertNoOperationalEffects(allergyBefore, "alergia al marisco pendiente de revisión");
+  assert(!/contaminación cruzada|no garantiza/i.test(allergyOrder.reply || ""), "no debe soltar el mensaje de bloqueo por contaminación");
 
   console.log("✅ P0 validation gate: invalid orders have zero operational effects and remain retryable");
 })().catch(err => {
