@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-07-30 — Anti-repetición (saludo/dirección/alergia) + borrar alergia del perfil
+
+**WIN confirmado en llamada real:** cliente registrado hace el pedido entero y va a cocina SIN que le pidan nombre ni dirección; "una por pizza" con 4 pizzas → 4 bebidas. El muro está roto.
+
+**3 fallos de esa llamada, arreglados:**
+1. **Repetía "la de siempre" y la alergia en cada turno.** Causa: como la sesión se pierde (callId inestable), re-inyecto la directiva "salúdale/di la dirección/menciona la alergia" cada turno. Fix: se detecta del HISTORIAL si ya lo dijo (`yaDicho(rx)` sobre mensajes assistant) y se añade "YA lo dijiste, NO lo repitas". Saludo, "la de siempre" y la alergia se dicen una vez.
+2. **No borraba la alergia de la BD** cuando el cliente decía "ya no soy alérgico". Fix: campo `removed_allergies` en submit_order; `handleSubmitOrder` la excluye del pedido Y actualiza el perfil; `customer-store.upsertCustomer` acepta `removeAllergies` y la quita de `restrictions.allergies`. Directiva instruye al modelo a usar `removed_allergies`.
+3. Repetición del cierre al final (menos crítico) — mitigada por la anti-repetición del saludo/dirección.
+
+Tests F10 (contrato). Sandbox 5/5 (borrado pedido+perfil, detección anti-repetición). Samuel mantiene "marisco" en BD para poder probar el borrado en vivo.
+
+---
+
 ## 2026-07-30 — RAÍZ REAL del "pide datos que ya tiene": la SESIÓN se pierde cada turno (callId inestable)
 
 **Esto es lo que explica por qué NADA de lo anterior funcionaba en llamada real.** `extractCallId` (elevenlabs-llm.routes.js) cae al fallback `el-${Date.now()}` cuando ElevenLabs no manda el conversation id → **callId NUEVO en cada turno → sesión nueva cada turno → `registeredName`/`registeredAddress`/`registeredRestrictions` (y upsellOffered) se BORRAN entre turnos.** En los logs de Railway se ve: `callId=el-1785172696543` (el fallback). Por eso saluda "Aquí estás, Juan" (en ese turno acababa de leer el teléfono) pero al confirmar ya no se acuerda y pide los datos. Todos mis fixes guardaban en esa sesión efímera → inútiles en vivo.

@@ -149,13 +149,19 @@ async function upsertCustomer(data = {}) {
 
     // Restricciones/preferencias: se ACUMULAN, no se sobrescriben. Leemos las
     // existentes y unimos con las nuevas (alergias del pedido, etc.).
-    if (data.restrictions) {
+    if (data.restrictions || (Array.isArray(data.removeAllergies) && data.removeAllergies.length)) {
       let existing = null;
       try {
         const cur = await request("GET", "/rest/v1/customers?phone=eq." + encodeURIComponent(p) + "&select=restrictions&limit=1", null);
         existing = (JSON.parse(cur.body || "[]")[0] || {}).restrictions;
       } catch (_) { existing = null; }
-      row.restrictions = mergeRestrictions(existing, data.restrictions);
+      let merged = mergeRestrictions(existing, data.restrictions || {});
+      // Borrado: quita del perfil las alergias que el cliente dice que ya no tiene.
+      if (Array.isArray(data.removeAllergies) && data.removeAllergies.length) {
+        const rm = new Set(data.removeAllergies.map(x => String(x).toLowerCase()));
+        merged.allergies = merged.allergies.filter(a => !rm.has(String(a).toLowerCase()));
+      }
+      row.restrictions = merged;
     }
     Object.keys(row).forEach(k => { if (row[k] === undefined) delete row[k]; });
 

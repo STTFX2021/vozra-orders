@@ -474,7 +474,8 @@ const SUBMIT_ORDER_TOOL = {
         customer_name: { type: "string", description: "nombre del cliente. Si es un cliente ya reconocido (registrado), OMITE este campo: el sistema usa el nombre guardado. Solo lo incluyes si el cliente lo dice en esta llamada." },
         phone:         { type: "string" },
         address:       { type: "string", description: "dirección completa, solo si order_type=delivery." },
-        allergies:     { type: "array", items: { type: "string" }, description: "alergias o intolerancias declaradas." },
+        allergies:     { type: "array", items: { type: "string" }, description: "alergias o intolerancias declaradas por el cliente en esta llamada." },
+        removed_allergies: { type: "array", items: { type: "string" }, description: "alergias que el cliente dice que YA NO tiene o pide borrar (p. ej. estaba mal apuntada). Se quitan del pedido y de su perfil guardado." },
         notes:         { type: "string", description: "nota general del pedido." },
         payment_method: { type: "string", enum: ["cash", "card"], description: "forma de pago. En este local SOLO se acepta efectivo ('cash'): no lo preguntes, solo infórmalo." },
         save_profile_consent: { type: "boolean", description: "true SOLO si el cliente ha dado permiso EXPLÍCITO para guardar su nombre, teléfono y dirección para futuros pedidos (se le pregunta tras confirmar el pedido). false o ausente si no consintió." }
@@ -888,9 +889,13 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   // no las repita ("lo tenías que tener apuntado en la base de datos").
   const _savedAlg = (_sess && _sess.registeredRestrictions && _sess.registeredRestrictions.allergies) || [];
   const _declaredAlg = Array.isArray(args.allergies) ? args.allergies : [];
+  // Alergias que el cliente dice que YA NO tiene / pide borrar: fuera del pedido Y del perfil.
+  const _removedAlg = (Array.isArray(args.removed_allergies) ? args.removed_allergies : [])
+    .map(x => String(x || "").trim().toLowerCase()).filter(Boolean);
   const _seenAlg = new Set();
   const _allAlg = [..._savedAlg, ..._declaredAlg]
     .map(x => String(x || "").trim()).filter(Boolean)
+    .filter(x => !_removedAlg.includes(x.toLowerCase()))
     .filter(x => { const k = x.toLowerCase(); if (_seenAlg.has(k)) return false; _seenAlg.add(k); return true; });
   // Nombre del cliente: el que pase el modelo, o —si es un registrado y no lo repite—
   // el GUARDADO en su perfil. Determinista: un registrado nunca falla por "falta el nombre".
@@ -1003,19 +1008,19 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
         })
         .catch(e => console.error("[CUST] error guardando perfil | " + e.message));
     } catch (e) { console.error("[CUST] error perfil | " + e.message); }
-  } else if (_sess && _sess.registeredName && _declaredAlg.length) {
-    // Cliente YA registrado (ya consintió) que declara una alergia NUEVA en esta
-    // llamada: se ACUMULA en su perfil. upsertCustomer solo escribe restrictions, no
-    // toca su nombre ni su dirección.
+  } else if (_sess && _sess.registeredName && (_declaredAlg.length || _removedAlg.length)) {
+    // Cliente YA registrado (ya consintió) que AÑADE o BORRA alergias en esta llamada:
+    // se actualiza su perfil. upsertCustomer solo toca restrictions, no nombre ni dirección.
     try {
       Promise.resolve(upsertCustomer({
         phone: args.phone || null,
         providerSlug: "la-locanda",
         consent: true,
-        restrictions: { allergies: _declaredAlg }
+        restrictions: _declaredAlg.length ? { allergies: _declaredAlg } : undefined,
+        removeAllergies: _removedAlg.length ? _removedAlg : undefined
       }))
-        .then(r => { if (r && r.ok) console.log("[CUST] alergia añadida al perfil | tel ***" + String(args.phone || "").slice(-3)); })
-        .catch(e => console.error("[CUST] error añadiendo alergia | " + e.message));
+        .then(r => { if (r && r.ok) console.log("[CUST] perfil de alergias actualizado | tel ***" + String(args.phone || "").slice(-3)); })
+        .catch(e => console.error("[CUST] error actualizando alergias | " + e.message));
     } catch (e) { console.error("[CUST] error alergia perfil | " + e.message); }
   }
   const name = _custName ? ", " + _custName.split(" ")[0] : "";
@@ -1183,11 +1188,26 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
   try {
     const s = getOrCreateOrderSession(callId);
     if (s && s.registeredName) {
+      // \u00bfSarah YA dijo esto antes en la llamada? (se detecta del historial, que s\u00ed
+      // persiste aunque el callId cambie). Sirve para NO repetir en cada turno.
+      const yaDicho = rx => (incomingMessages || []).some(m => m && m.role === "assistant" && m.content && rx.test(String(m.content)));
+      const yaSaludado  = yaDicho(/aqu[i\u00ed] est[a\u00e1]s/i);
+      const yaDireccion = yaDicho(/la de siempre/i);
+      const yaAlergia   = yaDicho(/alergia|al[e\u00e9]rgic/i);
+
       let extra = registeredCustomerDirective(s.registeredName, s.registeredAddress);
       if (s.registeredPreloaded) extra += "\nYA lo tienes reconocido por su tel\u00e9fono: NO llames a la herramienta buscar_cliente otra vez. La direcci\u00f3n de siempre ya est\u00e1 dentro de la zona de reparto: NO llames a validar_direccion; ve directo a tomar el pedido.";
+
+      // ANTI-REPETICI\u00d3N: saludo, "la de siempre" y la alergia se dicen UNA vez por llamada.
+      if (yaSaludado)  extra += "\nYA le has SALUDADO por su nombre antes en esta llamada: NO vuelvas a decir \"Aqu\u00ed est\u00e1s\" ni a saludarle otra vez.";
+      if (yaDireccion) extra += "\nYA confirmaste la direcci\u00f3n con \"la de siempre\": NO repitas esa coletilla ni la direcci\u00f3n en los siguientes turnos ni en el resumen; solo la mencionas si el cliente pregunta o la cambia.";
+
       const _alg = s.registeredRestrictions && s.registeredRestrictions.allergies;
       if (_alg && _alg.length) {
-        extra += "\nALERGIAS YA GUARDADAS de este cliente: " + _alg.join(", ") + ". D\u00e1selas por sabidas: NO se las preguntes. Menci\u00f3nale con naturalidad que las tienes en cuenta (\"te tengo apuntada la alergia a " + _alg.join(", ") + "\") y quedan anotadas en el pedido autom\u00e1ticamente. Aplica igualmente la pol\u00edtica de alergias con los platos que pida.";
+        extra += yaAlergia
+          ? "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): YA se las mencionaste antes en esta llamada, NO lo repitas. Se siguen anotando en el pedido autom\u00e1ticamente."
+          : "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): menci\u00f3nalo UNA sola vez con naturalidad (\"te tengo apuntada la alergia a " + _alg.join(", ") + "\"), no se las preguntes; quedan anotadas autom\u00e1ticamente.";
+        extra += " Si el cliente dice que YA NO tiene esa alergia o pide borrarla, ponla en el campo removed_allergies de submit_order y deja de mencionarla.";
       }
       messages.push({ role: "system", content: extra });
     }

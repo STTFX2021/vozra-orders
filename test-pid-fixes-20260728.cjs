@@ -21,7 +21,8 @@ const {
   mapToolItem,
   resolveDeliveryAddress,
   resolvePerPizzaQuantities,
-  phoneFromHistory
+  phoneFromHistory,
+  SUBMIT_ORDER_TOOL
 } = require("./marta-llm.service.js");
 const { estimateTotal, validateOrder } = require("./order-validator.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
@@ -253,6 +254,16 @@ test("F9 encuentra el teléfono aunque NO sea el último turno", () => {
 test("F9 acepta el teléfono con separadores y sin él da null", () => {
   assert.strictEqual(phoneFromHistory([{ role: "user", content: "el 611 223 225" }]), "611223225");
   assert.strictEqual(phoneFromHistory([{ role: "user", content: "ponme 2 pizzas y 3 cocacolas" }]), null);
+});
+
+// ── CONTRATO submit_order: nombre no obligatorio + poder borrar alergia ──────
+test("F10 customer_name NO es obligatorio (cliente registrado no falla)", () => {
+  const req = SUBMIT_ORDER_TOOL.function.parameters.required;
+  assert.ok(!req.includes("customer_name"), "customer_name no debe ser obligatorio");
+  assert.ok(req.includes("items") && req.includes("order_type") && req.includes("phone"));
+});
+test("F10 submit_order acepta removed_allergies (borrar alergia guardada)", () => {
+  assert.ok(SUBMIT_ORDER_TOOL.function.parameters.properties.removed_allergies, "falta removed_allergies");
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");
