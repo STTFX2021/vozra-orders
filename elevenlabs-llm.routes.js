@@ -25,6 +25,7 @@ const { validateOrder }   = require("./order-validator.service.js");
 const { buildTicket }     = require("./kitchen-ticket-builder.service.js");
 const { dispatchOrder }   = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
+const { upsertCallLog } = require("./supabase-store.js");
 
 const router = express.Router();
 
@@ -243,6 +244,24 @@ router.post("/v1/chat/completions", async (req, res) => {
   const { reply, dispatched, action } = await generateMartaReply(callId, userTurns, callerPhone);
     const spoken = sanitizeReply(reply); // segunda pasada: nada sucio llega al TTS
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(spoken).slice(0,60)}"`);
+
+    // Registro de la conversación en Supabase (call_logs). Fire-and-forget: NO bloquea
+    // la respuesta de voz. Se upserta por conversation_id con el transcript acumulado
+    // (el último turno deja la conversación completa) + la respuesta de este turno.
+    try {
+      const transcript = (userTurns || [])
+        .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
+        .map(m => ({ role: m.role, content: String(m.content) }));
+      transcript.push({ role: "assistant", content: spoken });
+      Promise.resolve(upsertCallLog({
+        conversationId: callId,
+        callerPhone,
+        callStatus: dispatched ? "order_sent" : "in_progress",
+        orderCaptured: dispatched === true ? true : undefined,
+        transcript
+      })).catch(() => {});
+    } catch (_) {}
+
     return sendStreamResponse(res, spoken, id, model);
   } catch (errLLM) {
     // ── FALLBACK HONESTO (decisión QA #1) ───────────────────────────────────

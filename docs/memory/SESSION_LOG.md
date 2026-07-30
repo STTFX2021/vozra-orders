@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-30 — Guardado de conversaciones en Supabase (call_logs)
+
+**Hallazgo:** las conversaciones NO se guardaban. `call_logs` (tabla ya existente, buen esquema: conversation_id UNIQUE, transcript jsonb, order_id, caller_phone, analysis, raw…) estaba **vacía** — nada escribía en ella. Solo se guardaban pedidos (`orders`, 60 filas) y perfiles (`customers`). Los transcripts que veíamos venían de **ElevenLabs** (su panel), no de Supabase.
+
+**Implementado:**
+- `supabase-store.js`: nuevo `upsertCallLog({conversationId, callerPhone, callStatus, orderCaptured, transcript})` — upsert por `conversation_id` (merge-duplicates), no-op si Supabase off, no lanza. `order_captured` solo se escribe true (nunca desmarca).
+- `elevenlabs-llm.routes.js`: tras `generateMartaReply`, fire-and-forget que guarda el transcript acumulado (historial + respuesta del turno). NO bloquea la voz. El último turno deja la conversación completa.
+- Verificado contra Supabase real: insert + upsert por conversation_id OK (fila de prueba insertada y borrada).
+- ⚠️ GDPR: `call_logs` guarda datos personales; retención/borrado (DELETE por conversation_id) responsabilidad del restaurante. Anotado en el código.
+
+**Confirmado además:** el fix de "pedir datos que ya tiene" (nombre+dirección desde el perfil) está desplegado en `95f6aa9`.
+
+---
+
 ## 2026-07-30 — DESPLEGADO + 3 bugs de la 1ª llamada real post-deploy
 
 **Deploy:** commit `ae1cf7e` ("feat(pid): pizza mitad y mitad…") **ACTIVE/Online en Railway** (verificado en el panel; el del 26/07 `2bc9448` pasó a Removed). Producción al día.

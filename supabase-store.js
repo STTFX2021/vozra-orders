@@ -212,4 +212,42 @@ async function insertIncident(incident) {
   }
 }
 
-module.exports = { upsertOrder, patchByOrderId, getOrder, findOrdersByPhone, insertIncident, isEnabled, toRow };
+/**
+ * Guarda/actualiza el registro de una LLAMADA (conversación) por conversation_id.
+ * Se llama en cada turno con el transcript acumulado; el último turno deja el completo.
+ * Fire-and-forget desde la ruta: no bloquea la respuesta de voz. No lanza.
+ * ⚠️ GDPR: contiene datos personales (nombre, dirección, teléfono, voz transcrita). La
+ * retención y el borrado (DELETE por conversation_id) son responsabilidad del restaurante.
+ */
+async function upsertCallLog(data = {}) {
+  try {
+    if (!isEnabled()) return { ok: false, skipped: true, reason: "Supabase no configurado" };
+    const convId = data.conversationId || data.callId || null;
+    if (!convId) return { ok: false, skipped: true, reason: "sin conversation_id" };
+    const row = {
+      conversation_id: String(convId),
+      agent_id:        data.agentId || undefined,
+      provider_slug:   data.providerSlug || "la-locanda",
+      call_status:     data.callStatus || undefined,
+      caller_phone:    data.callerPhone || undefined,
+      direction:       data.direction || "inbound",
+      order_id:        data.orderId || undefined,
+      order_captured:  data.orderCaptured === true ? true : undefined, // solo se escribe true (nunca desmarca)
+      transcript:      Array.isArray(data.transcript) ? data.transcript : undefined,
+      call_ended_at:   data.ended ? new Date().toISOString() : undefined
+    };
+    Object.keys(row).forEach(k => { if (row[k] === undefined) delete row[k]; });
+    await request(
+      "POST",
+      "/rest/v1/call_logs?on_conflict=conversation_id",
+      row,
+      { "Prefer": "resolution=merge-duplicates,return=minimal" }
+    );
+    return { ok: true };
+  } catch (e) {
+    console.error("[CALLLOG] upsertCallLog error:", e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { upsertOrder, patchByOrderId, getOrder, findOrdersByPhone, insertIncident, upsertCallLog, isEnabled, toRow };
