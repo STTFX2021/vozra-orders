@@ -378,7 +378,7 @@ ${horarioLinea}
 # PRECIOS Y HERRAMIENTAS
 - RECONOCER AL CLIENTE: si el caller ID fiable ya devolvió un perfil, NO pidas teléfono ni nombre si consta. Si no hay caller ID fiable o no identifica un perfil, pide el teléfono y llama a buscar_cliente antes de pedir dirección o nombre. Cuando hay perfil y el pedido es domicilio, reconócele por su nombre ("Aquí estás, [nombre].") y confirma la dirección diciendo SOLO el nombre de la calle (la primera línea): "¿Te lo llevo a [calle], la de siempre?"; nunca digas el número, el piso, el portal ni el resto de la dirección. En recogida no menciones ninguna dirección. No vuelvas a pedir consentimiento a un cliente registrado.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
-- Cuando el cliente pida añadir un extra o topping a un plato (burrata, jamón, base sin gluten, etc.), avísale de que puede llevar un suplemento antes de darlo por confirmado. Llama a calcular_total para saber si ese extra tiene coste y dilo con naturalidad, p. ej.: "Eso lleva un suplemento de tres euros con cincuenta, ¿te lo pongo igualmente?". Si calcular_total no refleja coste para ese extra, no menciones ningún importe.
+- EXTRAS CON SUPLEMENTO (OBLIGATORIO avisar del importe): cuando el cliente añada un extra o topping (burrata, jamón, gambas, etc.), responde PRIMERO breve y natural ("Hecho, te lo anoto.") SIN re-leer todo el pedido. Luego llama a calcular_total: si su respuesta trae el campo 'aviso_suplementos' o 'suplementos', DEBES decirle el importe de cada suplemento antes de confirmar, con naturalidad ("La burrata lleva un suplemento de seis euros, ¿te la pongo igualmente?"). NO te saltes ese aviso. Si calcular_total no devuelve suplementos, no menciones ningún importe.
 - BASE DE LA PIZZA: NO preguntes de forma estándar "¿base normal o sin gluten?" — asume SIEMPRE base normal y no lo menciones. Solo sacas el tema de la base sin gluten si el cliente menciona por su cuenta una alergia, celiaquía, gluten o "sin TACC". En ESE caso, ofrécesela y, si la quiere, avísale del suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por hecha ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
 - Al llamar a submit_order, usa el menu_item_id exacto de cada producto de la carta.
 - NUNCA llames a submit_order sin TODO esto: productos, tipo de pedido, nombre, teléfono, dirección (si es domicilio), **upselling ofrecido una vez**, **TOTAL dicho en voz alta** y confirmación explícita del cliente. Si falta cualquiera, complétalo antes. Jamás confirmes un pedido sin haber ofrecido una sugerencia y sin haber dicho el precio.
@@ -582,6 +582,26 @@ const INCIDENT_TOOL = {
   }
 };
 
+// ─── HERRAMIENTA eliminar_alergia_guardada ──────────────────────────────────
+// Cuando un cliente registrado dice que YA NO tiene una alergia guardada (o que fue
+// un error), esta tool la borra AL INSTANTE de su perfil (Supabase) y de la sesión,
+// para que Sarah deje de mencionarla el resto de la llamada. Determinista: no depende
+// de que el modelo lo repita al final en submit_order.
+const ALLERGY_REMOVE_TOOL = {
+  type: "function",
+  function: {
+    name: "eliminar_alergia_guardada",
+    description: "Elimina una alergia GUARDADA del perfil del cliente. Llámala INMEDIATAMENTE en cuanto el cliente diga que ya NO tiene esa alergia o que estaba mal apuntada. Borra la alergia del perfil (base de datos) y deja de tenerla en cuenta durante el resto de la llamada. Tras llamarla, NO vuelvas a mencionar esa alergia ni a avisar de sus ingredientes.",
+    parameters: {
+      type: "object",
+      properties: {
+        alergias: { type: "array", items: { type: "string" }, description: "alergias a eliminar del perfil, p. ej. [\"marisco\"]." }
+      },
+      required: ["alergias"]
+    }
+  }
+};
+
 // ─── LLAMADA A OPENAI ───────────────────────────────────────────────────────
 
 // Agente HTTPS con keep-alive: reutiliza la conexión TLS a OpenAI entre llamadas.
@@ -724,11 +744,25 @@ function computeQuote(args, conversationMessages = []) {
     promo = applyPromotions(items, { orderType: args && args.order_type, baseTotal: estimatedTotal }, "la-locanda");
   } catch (e) { console.error("[PROMO] error | " + e.message); }
 
+  // Suplementos con precio (extras/toppings de pago), explícitos para que Sarah los
+  // diga en voz alta y no se los salte. El importe ya está incluido en total_eur.
+  const suplementos = [];
+  for (const b of (breakdown || [])) {
+    for (const m of (b.modifiers || [])) {
+      if (m && m.price > 0) suplementos.push({ plato: b.label, extra: m.label, importe_eur: m.price });
+    }
+  }
+
   const out = {
     total_eur: promo.totalDiscount > 0 ? promo.newTotal : estimatedTotal,
     moneda: currency || "EUR",
     productos_sin_precio: sinPrecio
   };
+  if (suplementos.length) {
+    out.suplementos = suplementos;
+    out.aviso_suplementos = "AVISA al cliente del importe de estos suplementos ANTES de confirmar: " +
+      suplementos.map(s => s.extra + " +" + s.importe_eur + " euros").join("; ") + ".";
+  }
   if (promo.totalDiscount > 0) {
     out.total_sin_descuento_eur = estimatedTotal;
     out.descuento_eur = promo.totalDiscount;
@@ -829,15 +863,32 @@ async function computeIncident(args) {
 }
 
 // Devuelve la salida de una tool_call (calcular_total, buscar_cliente, u otras).
+// Borra alergias guardadas del perfil (Supabase) AL INSTANTE. Determinista.
+async function computeRemoveAllergy(args, conversationMessages) {
+  const lista = Array.isArray(args && args.alergias) ? args.alergias
+    : (args && args.alergia ? [args.alergia] : []);
+  const alergias = lista.map(x => String(x || "").trim()).filter(Boolean);
+  if (!alergias.length) return { ok: false, motivo: "sin_alergia" };
+  const tel = phoneFromHistory(conversationMessages);
+  let db = { ok: false };
+  if (tel) {
+    try { db = await upsertCustomer({ phone: tel, providerSlug: "la-locanda", consent: true, removeAllergies: alergias }); }
+    catch (e) { console.error("[ALERGIA] eliminar error | " + e.message); db = { ok: false }; }
+    try { _profileCache.delete(tel); } catch (_) {} // recargar perfil sin la alergia
+  }
+  return { ok: true, eliminadas: alergias, perfil_actualizado: !!(db && db.ok) };
+}
+
 async function toolOutput(tc, conversationMessages = []) {
   const name = tc && tc.function && tc.function.name;
   let a = {};
   try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
-  if (name === "calcular_total")       return computeQuote(a, conversationMessages);
-  if (name === "buscar_cliente")       return await computeLookup(a);
-  if (name === "validar_direccion")    return await computeZone(a);
-  if (name === "consultar_pedido")     return await computeOrderLookup(a);
-  if (name === "registrar_incidencia") return await computeIncident(a);
+  if (name === "calcular_total")            return computeQuote(a, conversationMessages);
+  if (name === "buscar_cliente")            return await computeLookup(a);
+  if (name === "validar_direccion")         return await computeZone(a);
+  if (name === "consultar_pedido")          return await computeOrderLookup(a);
+  if (name === "registrar_incidencia")      return await computeIncident(a);
+  if (name === "eliminar_alergia_guardada") return await computeRemoveAllergy(a, conversationMessages);
   return { ok: true };
 }
 
@@ -1207,7 +1258,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         extra += yaAlergia
           ? "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): YA se las mencionaste antes en esta llamada, NO lo repitas. Se siguen anotando en el pedido autom\u00e1ticamente."
           : "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): menci\u00f3nalo UNA sola vez con naturalidad (\"te tengo apuntada la alergia a " + _alg.join(", ") + "\"), no se las preguntes; quedan anotadas autom\u00e1ticamente.";
-        extra += " Si el cliente dice que YA NO tiene esa alergia o pide borrarla, ponla en el campo removed_allergies de submit_order y deja de mencionarla.";
+        extra += " Si el cliente dice que YA NO tiene esa alergia o que estaba mal apuntada, llama INMEDIATAMENTE a la herramienta eliminar_alergia_guardada con esa alergia (NO esperes a submit_order). A partir de ese momento deja de mencionarla y NO avises de sus ingredientes.";
       }
       messages.push({ role: "system", content: extra });
     }
@@ -1228,7 +1279,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       }
     }
   } catch (_) {}
-  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL];
+  const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL, ALLERGY_REMOVE_TOOL];
 
   // Bucle de herramientas: permite encadenar validar_direccion / consultar_pedido /
   // calcular_total y luego hablar. 5 pasos: hay 6 tools y un turno puede necesitar
@@ -1282,6 +1333,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     if (calls.length) {
       let clienteRegistrado = null; // nombre si buscar_cliente devolvió encontrado=true
       let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
+      let alergiasEliminadas = null; // alergias que el cliente ha borrado en este turno
       const toolMsgs = await Promise.all(calls.map(async tc => {
         const out = await toolOutput(tc, incomingMessages);
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
@@ -1289,9 +1341,23 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           clienteDireccion = out.direccion || null;
           try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; s.registeredRestrictions = { allergies: out.alergias_guardadas || [], preferences: out.preferencias_guardadas || [] }; } catch (_) {}
         }
+        // Alergia eliminada: quitarla YA de la sesión para que no se vuelva a mencionar.
+        if (tc.function && tc.function.name === "eliminar_alergia_guardada" && out && out.ok && Array.isArray(out.eliminadas)) {
+          alergiasEliminadas = out.eliminadas;
+          try {
+            const s = getOrCreateOrderSession(callId);
+            const rm = new Set(out.eliminadas.map(x => String(x).toLowerCase()));
+            if (s.registeredRestrictions && Array.isArray(s.registeredRestrictions.allergies)) {
+              s.registeredRestrictions.allergies = s.registeredRestrictions.allergies.filter(a => !rm.has(String(a).toLowerCase()));
+            }
+          } catch (_) {}
+        }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
       messages = messages.concat([{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }], toolMsgs);
+      if (alergiasEliminadas && alergiasEliminadas.length) {
+        messages.push({ role: "system", content: "ALERGIA(S) ELIMINADA(S) del perfil: " + alergiasEliminadas.join(", ") + ". El cliente YA NO las tiene. NO las vuelvas a mencionar, NO avises de sus ingredientes y NO las anotes en el pedido. Sigue con normalidad." });
+      }
       // INVARIANTE EN CÓDIGO (recencia máxima): si el cliente ya está registrado, el
       // modelo NO debe repedir datos ni preguntar por guardar. Reglas enterradas en
       // el system prompt las ignora gpt-4.1-mini; inyectadas aquí, al final, las cumple.
@@ -1330,10 +1396,13 @@ module.exports = {
   getMenuItemByName,
   SUBMIT_ORDER_TOOL,
   resolvePerPizzaQuantities,
+  computeQuote,
   upsellAlreadyOffered,
   stripConsentIfRegistered,
   streetOnly,
   resolveDeliveryAddress,
   phoneFromHistory,
-  registeredCustomerDirective
+  registeredCustomerDirective,
+  computeRemoveAllergy,
+  ALLERGY_REMOVE_TOOL
 };
