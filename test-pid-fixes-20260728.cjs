@@ -18,7 +18,9 @@ const {
   streetOnly,
   registeredCustomerDirective,
   getMenuItemById,
-  mapToolItem
+  mapToolItem,
+  resolveDeliveryAddress,
+  resolvePerPizzaQuantities
 } = require("./marta-llm.service.js");
 const { estimateTotal, validateOrder } = require("./order-validator.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
@@ -208,6 +210,31 @@ test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades (no bloquea)", () 
   const v = validateOrder({ items: [item], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["marisco"] });
   assert.strictEqual(v.flags.requiresKitchenReview, true, "no detectó el marisco de la mitad Abruzzo");
   assert.strictEqual(v.ok, true, "la alergia no debe bloquear (solo anota)");
+});
+
+// ── DIRECCIÓN DE DOMICILIO (número) + "una por pizza"/"piso" ──────────────────
+test("F8 registrado sin número en el turno → usa la dirección guardada (con número)", () => {
+  const saved = "Calle Alpandeire número 3, Ribera Luar, bloque 1, primero B";
+  const da = resolveDeliveryAddress("Calle Alpandeire", saved);
+  assert.strictEqual(da.raw, saved);
+  assert.strictEqual(da.number, "3");
+});
+test("F8 el cliente cambia la dirección (con número) → usa esa", () => {
+  assert.strictEqual(resolveDeliveryAddress("Avenida del Mar 25", "Calle Vieja 1").number, "25");
+});
+test("F8 nueva sin número y sin guardada → number null (se pedirá el número)", () => {
+  assert.strictEqual(resolveDeliveryAddress("Calle Sol", null).number, null);
+});
+test("F8 'una para cada piso' (STT de pizza) deriva las bebidas por nº de pizzas", () => {
+  const args = { items: [
+    { menu_item_id: "pizza_diavola", quantity: 1 },
+    { menu_item_id: "pizza_margherita", quantity: 1 },
+    { menu_item_id: "pizza_abruzzo", quantity: 1 },
+    { menu_item_id: "coca_cola", quantity: 1 }
+  ]};
+  const out = resolvePerPizzaQuantities(args, [{ role: "user", content: "ponme una coca cola para cada piso" }]);
+  const coke = out.items.find(i => i.menu_item_id === "coca_cola");
+  assert.strictEqual(coke.quantity, 3, "no derivó 3 bebidas de 3 pizzas");
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");

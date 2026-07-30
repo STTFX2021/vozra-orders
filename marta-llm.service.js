@@ -648,7 +648,8 @@ function hasPerPizzaQuantityIntent(conversationMessages) {
     .map(message => String(message.content).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
 
   const patterns = [
-    /\buna(?:\s+[a-z-]+){0,4}\s+(?:para\s+cada|por)\s+pizza\b/,
+    // "pizza" y "piso" (el transcriptor confunde a menudo pizza→piso).
+    /\buna(?:\s+[a-z-]+){0,4}\s+(?:para\s+cada|por)\s+(?:pizza|piso)s?\b/,
     /\btantas?\s+como\s+pizzas?\b/,
     /\buna\s+bebida\s+para\s+cada\s+una\b/
   ];
@@ -661,6 +662,11 @@ function resolvePerPizzaQuantities(args, conversationMessages) {
   let pizzaQuantity = 0;
   const beverageIndexes = [];
   args.items.forEach((item, index) => {
+    // Una pizza mitad y mitad cuenta como una pizza.
+    if (Array.isArray(item.half_and_half) && item.half_and_half.length === 2) {
+      pizzaQuantity += Math.max(1, parseInt(item.quantity, 10) || 1);
+      return;
+    }
     const menuItem = getMenuItemById(item.menu_item_id) || getMenuItemByName(item.name);
     if (!menuItem) return;
     if (String(menuItem.category || "").startsWith("pizza_")) {
@@ -714,6 +720,17 @@ function streetOnly(addr) {
   // limpia restos de "nº"/"número"/"n." que hayan quedado al final (para no leerlos en voz)
   street = street.replace(/[\s,]+(?:n[uú]mero|n[.ºo]|#)\.?\s*$/i, "").trim();
   return street || s;
+}
+
+// Decide la dirección de reparto a usar en submit y extrae su número (para el gate).
+//  - Si el modelo pasó una dirección CON número, es la que dio el cliente (nueva/cambiada) → úsala.
+//  - Si no (solo la calle, o nada) → usa la GUARDADA del perfil (completa, con número).
+// Devuelve { raw, number } o null.
+function resolveDeliveryAddress(argAddr, savedAddr) {
+  const raw = (argAddr && /\d/.test(argAddr)) ? argAddr : (savedAddr || argAddr || null);
+  if (!raw) return null;
+  const m = String(raw).match(/\b(\d{1,4})\b/);
+  return { raw, number: m ? m[1] : null };
 }
 
 async function computeLookup(args) {
@@ -847,10 +864,13 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   const _allAlg = [..._savedAlg, ..._declaredAlg]
     .map(x => String(x || "").trim()).filter(Boolean)
     .filter(x => { const k = x.toLowerCase(); if (_seenAlg.has(k)) return false; _seenAlg.add(k); return true; });
+  // Nombre del cliente: el que pase el modelo, o —si es un registrado y no lo repite—
+  // el GUARDADO en su perfil. Determinista: un registrado nunca falla por "falta el nombre".
+  const _custName = realCustomerName(args.customer_name) || realCustomerName(_sess && _sess.registeredName) || null;
   const patch = {
     items,
     orderType,
-    customerName: args.customer_name || null,
+    customerName: _custName,
     phone: args.phone || null,
     allergies: _allAlg,
     allergyNotes: _allAlg.length ? _allAlg.join(", ") : null,
@@ -858,8 +878,9 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     paymentMethod: args.payment_method || "cash",
     status: ORDER_STATUS.AWAITING_CONFIRMATION
   };
-  if (orderType === "delivery" && args.address) {
-    patch.address = { street: null, number: null, floor: null, city: null, raw: args.address };
+  if (orderType === "delivery") {
+    const da = resolveDeliveryAddress(args.address, (_sess && _sess.registeredAddress) || null);
+    if (da) patch.address = { street: null, number: da.number, floor: null, city: null, raw: da.raw };
   }
   let order = updateOrderSession(callId, patch);
   let validation = {};
@@ -969,8 +990,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
         .catch(e => console.error("[CUST] error añadiendo alergia | " + e.message));
     } catch (e) { console.error("[CUST] error alergia perfil | " + e.message); }
   }
-  const _rawName = args.customer_name ? String(args.customer_name).trim() : "";
-  const name = (_rawName && !/^(customer|cliente|client)$/i.test(_rawName)) ? ", " + _rawName.split(" ")[0] : "";
+  const name = _custName ? ", " + _custName.split(" ")[0] : "";
   const totalTxt = ""; // el total ya se dice en el resumen; no repetirlo (evita contradicciones)
   const wayTxt = orderType === "delivery" ? "Te lo llevamos a domicilio en cuanto esté listo." : "Puedes pasar a recogerlo en cuanto esté listo.";
   let reply;
@@ -1264,5 +1284,6 @@ module.exports = {
   upsellAlreadyOffered,
   stripConsentIfRegistered,
   streetOnly,
+  resolveDeliveryAddress,
   registeredCustomerDirective
 };

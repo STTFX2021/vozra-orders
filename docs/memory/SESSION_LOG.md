@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-30 — DESPLEGADO + 3 bugs de la 1ª llamada real post-deploy
+
+**Deploy:** commit `ae1cf7e` ("feat(pid): pizza mitad y mitad…") **ACTIVE/Online en Railway** (verificado en el panel; el del 26/07 `2bc9448` pasó a Removed). Producción al día.
+
+**Wins confirmados en llamada real:** "Aquí estás, Samuel. ¿Te lo llevo a Calle Alpandeire, la de siempre?" (calle sí, número no), "te tengo apuntada la alergia a marisco" (alergia del perfil), Abruzzo sin langostinos sin bloquear ni "Oye".
+
+**3 bugs detectados y arreglados (sin desplegar aún):**
+- **A (GRAVE): cliente registrado fallaba "falta algún dato".** RAÍZ GENERAL: para un registrado el código NO rellenaba nombre ni dirección desde el perfil — dependía de que el LLM los repitiera en submit_order, y al decirle "ya los tienes, no los pidas", a veces NO los pasaba → llegaban vacíos → validador falla. Se vio con la DIRECCIÓN (llamada de Samuel) y con el NOMBRE (llamada de Juan). Fix determinista en `handleSubmitOrder`:
+  · Dirección: helper `resolveDeliveryAddress(argAddr, savedAddr)` — usa la del modelo si trae número, si no la GUARDADA (completa) del perfil y extrae el número para el gate. Exportado + tests F8.
+  · Nombre: `_custName = realCustomerName(args.customer_name) || realCustomerName(_sess.registeredName)` — si el modelo no lo repite, usa el guardado. Usado en el patch y en la despedida.
+- **B: pidió consentimiento a cliente registrado.** Diagnóstico: efecto secundario de A (al fallar el pedido, el modelo regresó al flujo de cliente nuevo). `stripConsentIfRegistered` + save_profile_consent=false siguen puestos. A re-testear tras desplegar A; si reaparece, instrumentar con logs.
+- **C: "una Coca-Cola para cada pizza" dio 2 en vez de 3.** El STT oyó "para cada piso". Fix: `hasPerPizzaQuantityIntent` acepta "piso" (variante STT de pizza); `resolvePerPizzaQuantities` cuenta las mitad-y-mitad como pizza. Test F8.
+
+Sandbox: dirección + per-pizza 7/7 OK. Pendiente: npm test + commit + push (auto-deploy).
+
+---
+
 ## 2026-07-28 — Pizza mitad y mitad + revisión de los 8 tests "Skipped"
 
 **Los 8 skipped de fase4, revisados (no todos valían):**
