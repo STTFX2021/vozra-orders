@@ -324,7 +324,7 @@ ${horarioLinea}
 3. Datos de contacto: normalmente YA los tienes del paso 1 (teléfono primero, luego perfil o dirección). Aquí solo COMPRUEBAS que no falta ninguno:
    - DOMICILIO: teléfono + dirección completa. Los DOS.
    - RECOGER: teléfono + nombre.
-   Si alguno falta, pídelo AHORA (solo el que falte, nunca uno que ya tengas). JAMÁS llames a submit_order sin el teléfono, ni sin dirección en domicilio, ni sin nombre en recoger.
+   Si alguno falta, pídelo AHORA (solo el que falte, nunca uno que ya tengas). Si el cliente está REGISTRADO (reconocido por su teléfono), su nombre y su dirección YA los tienes guardados: NO se los pidas, el sistema los rellena solo. Solo debes pedir el teléfono si no lo tienes; y a un cliente NUEVO en recoger, su nombre.
 4. TIEMPO DE PREPARACIÓN (NO lo inventes): NO conocemos la carga real de cocina, ni la cola, ni los repartidores, así que NO tenemos un tiempo estimado fiable. Por eso:
    - PROHIBIDO inventar minutos o una hora concreta ("en veinte minutos", "sobre las nueve y media"). PROHIBIDO sumar minutos a la hora actual para dar una hora.
    - NO preguntes "¿para qué hora?" ni digas "lo antes posible".
@@ -443,7 +443,7 @@ const SUBMIT_ORDER_TOOL = {
           }
         },
         order_type:    { type: "string", enum: ["pickup", "delivery"], description: "pickup=recoger, delivery=domicilio." },
-        customer_name: { type: "string" },
+        customer_name: { type: "string", description: "nombre del cliente. Si es un cliente ya reconocido (registrado), OMITE este campo: el sistema usa el nombre guardado. Solo lo incluyes si el cliente lo dice en esta llamada." },
         phone:         { type: "string" },
         address:       { type: "string", description: "dirección completa, solo si order_type=delivery." },
         allergies:     { type: "array", items: { type: "string" }, description: "alergias o intolerancias declaradas." },
@@ -451,7 +451,7 @@ const SUBMIT_ORDER_TOOL = {
         payment_method: { type: "string", enum: ["cash", "card"], description: "forma de pago. En este local SOLO se acepta efectivo ('cash'): no lo preguntes, solo infórmalo." },
         save_profile_consent: { type: "boolean", description: "true SOLO si el cliente ha dado permiso EXPLÍCITO para guardar su nombre, teléfono y dirección para futuros pedidos (se le pregunta tras confirmar el pedido). false o ausente si no consintió." }
       },
-      required: ["items", "order_type", "customer_name", "phone"]
+      required: ["items", "order_type", "phone"]
     }
   }
 };

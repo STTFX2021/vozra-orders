@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-30 — RAÍZ del "pide datos que ya tiene": customer_name era REQUIRED en la tool
+
+El backfill (95f6aa9) rellenaba el nombre en submit, pero el modelo SEGUÍA preguntándolo porque **`customer_name` estaba en el `required` del esquema de `submit_order`** → el LLM se veía obligado a tenerlo antes de poder llamar la tool, así que lo pedía aunque le dijéramos que no. Fix definitivo (4 capas):
+1. Quitado `customer_name` de `required` (`["items","order_type","phone"]`).
+2. Descripción de `customer_name`: "si es registrado, OMÍTELO; el sistema usa el guardado".
+3. Prompt (paso 3): "si el cliente está registrado, NO pidas nombre ni dirección; el sistema los rellena".
+4. Backfill de nombre+dirección desde la sesión (ya en 95f6aa9).
+El validador SIGUE exigiendo nombre a cliente NUEVO (gate P0 intacto). Verificado: ningún test asume customer_name required.
+
+---
+
 ## 2026-07-30 — Guardado de conversaciones en Supabase (call_logs)
 
 **Hallazgo:** las conversaciones NO se guardaban. `call_logs` (tabla ya existente, buen esquema: conversation_id UNIQUE, transcript jsonb, order_id, caller_phone, analysis, raw…) estaba **vacía** — nada escribía en ella. Solo se guardaban pedidos (`orders`, 60 filas) y perfiles (`customers`). Los transcripts que veíamos venían de **ElevenLabs** (su panel), no de Supabase.
