@@ -2,8 +2,10 @@
 
 > **LÉEME PRIMERO en cada sesión nueva.** Este es el punto de entrada único a la memoria del proyecto. La IA no recuerda nada entre sesiones: todo el contexto vive aquí.
 
-**Última actualización:** 2026-07-18
+**Última actualización:** 2026-07-28
 **Owner:** sam (STTFX2021 / sttfx2021@gmail.com)
+
+> **TODO Vozra PID está aquí, en `backend/docs/memory/`.** El snapshot completo y actual vive en `PROJECT_STATE.md` (un solo fichero con todo). Este es el sitio único: los chats van y vienen, esta carpeta permanece (y se versiona en git).
 
 ---
 

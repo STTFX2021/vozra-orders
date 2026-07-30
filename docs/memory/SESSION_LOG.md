@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-07-28 — Correcciones pre-commit (ontología fuera + flujo de reconocimiento)
+
+- **Ontología: eliminada y luego DEVUELTA con datos** (el owner aclaró que es primordial). Ya NO es un esqueleto vacío: `allergen-ontology.service.js` es un **clasificador determinista por reglas** que lee los parámetros de la taxonomía (categoría + alérgeno + descripción) y decide retirable/intrínseco para los 79 platos, con una capa `OVERRIDES` (vacía) para datos validados por restaurante. Reglas: gluten/huevo/lácteo=intrínseco siempre; marisco=retirable en pizza, intrínseco en pasta/risotto; frutos secos=intrínseco en pesto, retirable por encima; pescado=intrínseco en césar/plato de pescado. `formatItemAllergens` anota SOLO los retirables en la carta con "(se puede quitar)" (mínimo peso en prompt); el prompt manda hacer caso a esa marca. ⚠️ Reglas v1 inferidas — validar OVERRIDES con el restaurante antes de piloto real. Tests: 7 nuevos (reglas + datos reales del menú), verde en sandbox 9/9.
+- **Upselling a estado de sesión:** flag `upsellOffered` en la sesión (arranca false, true en la 1ª oferta, bloquea la 2ª). El barrido de historial queda como respaldo.
+- **Tests de consentimiento** por los dos caminos (caller ID precargado y teléfono dictado) + negativo. Exportado `stripConsentIfRegistered`.
+- **FLUJO DE RECONOCIMIENTO CORREGIDO (fallo detectado por el owner):** el código NO nombraba la calle. Un commit posterior a `74e4243` apagó el nombrado y dejó `streetOnly` huérfana, con el prompt diciendo "NUNCA verbalices la calle" en 4 sitios. Reconectado: `registeredCustomerDirective` + perfilBloque + PASO C + PRECIOS ahora → saluda "Aquí estás, [nombre]." y confirma SOLO la calle (primera línea, vía `streetOnly`): "¿Te lo llevo a Calle Alpandeire, la de siempre?", nunca número/piso/portal. `streetOnly` pulida (no deja "nº" colgando). +3 tests F5. Verificado en sandbox: OK.
+- `test-pid-fixes-20260728.cjs` añadido a `npm test`.
+- **Sandbox ejecutado (real):** upsell + consent (2 caminos) 9/9 OK; streetOnly 8 formatos OK; directiva de reconocimiento 4/4 checks OK. `node --check`/`npm test`/git → pendientes de correr por el owner (mi shell no alcanza D:).
+
+---
+
+## 2026-07-28 — Fusión con el otro chat + reconciliación de estado
+
+Se importó el volcado del otro chat ("Actualización del proyecto", nomenclatura de parches 0012–0015). **Su estado de git/deploy estaba DESACTUALIZADO**; reconciliado contra la verdad (git log + Railway) de esta sesión:
+- El otro chat daba el parche **0015 `stripConsentIfRegistered` como "pendiente de push, sin confirmar"**. FALSO a día de hoy: **es el commit `2bc9448`, es `origin/main`, y está DESPLEGADO en Railway (Active desde 26-jul).** El fix de consentimiento YA está en producción.
+- El otro chat creía HEAD = `64511ab` (0014). Realidad: HEAD local = `171dadb` = `2bc9448` +5 commits. Su foto era anterior al push de 0015 y a esos 5 commits.
+- Mapa parche→commit consolidado en KEY_FACTS.
+
+Info nueva y útil incorporada a PROJECT_STATE/KEY_FACTS: panel ElevenLabs (Backup LLM **Disabled** = causa de fillers ingleses; model id `vozra-marta-orders`; Speed 1.03; solo Español), **conflicto de voz Aitana vs Cristina (a verificar en panel)**, auditoría 2026-07-17 (riesgo S6), capacidad de llamada saliente Twilio.
+
+**Archivos esparcidos detectados** (lo que preocupaba al owner): carpeta fuera del repo `C:\Users\Orochika\Claude\Projects\04_Vozra_Orders\` con parches PID históricos + copia de `marta-llm.service.js` + ficheros de ROOMY mezclados (`THE_MARKET_menu-taxonomy.v1.json`, `PROMPT_SARA_room_service_v1.md` → mover a `../roomy-food`). Anotado en PROJECT_STATE §8 para limpieza.
+
+Nombres aclarados: producto = **Vozra PID**; `vozra-orders` = identificador técnico (no renombrar). "Sarah" = PID; "SARA AI" = Roomy.
+
+---
+
 ## 2026-07-28 — Cierre de 4 fallos reales de PID (sin commit/deploy aún)
 
 **Base:** `main` @ `171dadb`, working tree limpio. (El fix branch del 20-07 con `cleanCustomerName` quedó huérfano; `main` ya resuelve "¡Cliente!" con `realCustomerName`, L157. No mezclar.)
