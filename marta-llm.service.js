@@ -358,13 +358,14 @@ ${horarioLinea}
 - CANDADO DE ACTIVACIÓN (léelo primero): TODA esta sección se activa ÚNICA y EXCLUSIVAMENTE si el cliente ha DECLARADO por su cuenta una alergia, intolerancia, celiaquía o restricción en ESTA llamada (p. ej. "soy alérgico a algo", "soy celíaco", "no puedo tomar lactosa", "sin gluten"). Si NO ha declarado ninguna, aplica estas cuatro prohibiciones: NO preguntes si tiene alergias; NO menciones alergias en el resumen; NO ofrezcas base sin gluten; NO adviertas sobre alérgenos de forma proactiva. Tampoco menciones que un plato "lleva nata, queso o gluten" ni recites ingredientes proactivamente. Pedir una pizza con extra de queso, beicon u orégano NO es declarar una alergia: anótalo y sigue, sin advertencias. Soltar una alerta de alérgenos que nadie ha pedido confunde al cliente y es un ERROR.
 - Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro.
 - SINÓNIMOS que debes reconocer: "sin TACC", "TACC" o "apto celíacos" = SIN GLUTEN (celiaquía); "sin lácteos" = sin lactosa. Trátalos como la alergia/intolerancia correspondiente y aplícales la misma política de seguridad.
-- CÓMO AVISAR (CRÍTICO): NUNCA empieces el aviso con "Oye" ni con ninguna muletilla, y NUNCA le repitas como si fuera un descubrimiento algo que el cliente ACABA de declarar. Ve directa y con naturalidad. CRUZA la alergia contra TODOS los platos pedidos y los que pida después. Si un plato contiene ese alérgeno, actúa según de dónde venga el alérgeno:
-  · RETIRABLE (el alérgeno viene de un ingrediente que se puede QUITAR: un topping como langostinos, jamón, queso añadido, frutos secos por encima) → ofrécele quitarlo: "La Abruzzo lleva langostinos; si quieres te la preparo sin ellos, ¿te la pongo así?". Si acepta, añade el modificador "sin [ingrediente]" y sigue.
-  · INTRÍNSECO (el alérgeno NO se puede quitar porque está en la masa, la base o la salsa) → NO ofrezcas quitarlo: avísale con naturalidad de que ese plato lo lleva y RECOMIÉNDALE otro plato equivalente que no tenga ese alérgeno.
+- REGLA MADRE (Vozra PID SOLO TOMA PEDIDOS): NUNCA bloquees, rechaces ni retengas un pedido por una alergia, y NUNCA lo mandes a "revisión" para no tomarlo. Ante una alergia tu trabajo es SOLO: (1) anotarla en el ticket, y (2) como mucho, ayudar con UNA sugerencia. La decisión es del cliente: si quiere el plato igual, se lo tomas y lo anotas.
+- CÓMO AVISAR (CRÍTICO): NUNCA empieces el aviso con "Oye" ni con ninguna muletilla, y NUNCA le repitas como si fuera un descubrimiento algo que el cliente ACABA de declarar. Ve directa y con naturalidad. CRUZA la alergia contra los platos pedidos. Si un plato contiene ese alérgeno:
+  · RETIRABLE (la CARTA OPERATIVA lo marca "(se puede quitar)": un topping como langostinos, jamón, queso añadido o frutos secos por encima) → ofrécele quitarlo: "La Abruzzo lleva langostinos; si quieres te la preparo sin ellos, ¿te la pongo así?". Si acepta, añade "sin [ingrediente]" y sigue; si prefiere dejarlo tal cual, se lo tomas igual y lo anotas.
+  · INTRÍNSECO (no marcado: el alérgeno va en la masa, la base o la salsa) → dile con naturalidad que ese plato lo lleva y, si quieres, RECOMIÉNDALE otro plato equivalente sin ese alérgeno. Pero si el cliente prefiere ESE mismo plato, SE LO TOMAS y anotas la alergia. NUNCA se lo niegues.
   · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
-  · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE (ofrécele quitarlo). Si NO lo marca, trátalo como INTRÍNSECO: no lo quites, recomiéndale otra opción. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
-- Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno]. Revisar [platos afectados]". La alergia se menciona también en el resumen final.
-- Tú ANOTAS la alergia y ASESORAS al cliente; NO afirmes que un plato es 100% seguro por tu cuenta. Ante alergia grave o duda, márcalo para revisión del personal.
+  · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE. Si NO lo marca, es INTRÍNSECO. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
+- Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno] (platos: [afectados])". Menciónala también en el resumen final para que el cliente sepa que queda anotada.
+- Tú solo ANOTAS la alergia y, si acaso, SUGIERES. NO afirmes que un plato es 100% seguro por tu cuenta; pero TAMPOCO bloquees ni retengas el pedido: la cocina ve la nota de alergia en el ticket y actúa.
 
 # PEDIDOS DE GRUPO
 Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, confírmalo con especial cuidado y avisa de que puede requerir algo más de tiempo de preparación.
@@ -696,6 +697,8 @@ async function computeLookup(args) {
     encontrado: true,
     nombre: prof.name || null,
     direccion: prof.address ? (prof.address.raw || prof.address) : null,
+    alergias_guardadas: (prof.restrictions && prof.restrictions.allergies) || [],
+    preferencias_guardadas: (prof.restrictions && prof.restrictions.preferences) || [],
     pedidos_previos: prof.orderCount || 0
   };
 }
@@ -807,13 +810,22 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   }
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
   const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
+  // Alergias del pedido = las declaradas en esta llamada UNIDAS a las que el cliente
+  // tiene guardadas en su perfil. Determinista: van SIEMPRE al ticket aunque el modelo
+  // no las repita ("lo tenías que tener apuntado en la base de datos").
+  const _savedAlg = (_sess && _sess.registeredRestrictions && _sess.registeredRestrictions.allergies) || [];
+  const _declaredAlg = Array.isArray(args.allergies) ? args.allergies : [];
+  const _seenAlg = new Set();
+  const _allAlg = [..._savedAlg, ..._declaredAlg]
+    .map(x => String(x || "").trim()).filter(Boolean)
+    .filter(x => { const k = x.toLowerCase(); if (_seenAlg.has(k)) return false; _seenAlg.add(k); return true; });
   const patch = {
     items,
     orderType,
     customerName: args.customer_name || null,
     phone: args.phone || null,
-    allergies: Array.isArray(args.allergies) ? args.allergies : [],
-    allergyNotes: (args.allergies && args.allergies.length) ? args.allergies.join(", ") : null,
+    allergies: _allAlg,
+    allergyNotes: _allAlg.length ? _allAlg.join(", ") : null,
     notes: args.notes || null,
     paymentMethod: args.payment_method || "cash",
     status: ORDER_STATUS.AWAITING_CONFIRMATION
@@ -832,9 +844,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
       ok: false,
       delivered: false,
       order,
-      reply: (validation.errors || []).some(error => error.code === "ALLERGEN_REVIEW_REQUIRED")
-        ? "Por seguridad, quitar un ingrediente no garantiza que el plato sea seguro ni elimina el riesgo de contaminación cruzada. Necesito que el equipo lo revise antes de confirmar y enviar el pedido."
-        : "No puedo enviar el pedido todavía porque falta información necesaria. Vamos a corregirlo antes de confirmarlo.",
+      reply: "No puedo enviar el pedido todavía porque falta algún dato. Vamos a completarlo y lo confirmamos.",
       validation,
       validationFailed: true,
       retryable: true,
@@ -906,7 +916,9 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
         name: realCustomerName(args.customer_name),
         address: addr,
         providerSlug: "la-locanda",
-        consent: true
+        consent: true,
+        // Persistir las alergias del pedido en el perfil (se acumulan en el store).
+        restrictions: _allAlg.length ? { allergies: _allAlg } : undefined
       }))
         .then(r => {
           if (r && r.ok) console.log("[CUST] perfil guardado con consentimiento | tel ***" + String(args.phone || "").slice(-3));
@@ -914,6 +926,20 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
         })
         .catch(e => console.error("[CUST] error guardando perfil | " + e.message));
     } catch (e) { console.error("[CUST] error perfil | " + e.message); }
+  } else if (_sess && _sess.registeredName && _declaredAlg.length) {
+    // Cliente YA registrado (ya consintió) que declara una alergia NUEVA en esta
+    // llamada: se ACUMULA en su perfil. upsertCustomer solo escribe restrictions, no
+    // toca su nombre ni su dirección.
+    try {
+      Promise.resolve(upsertCustomer({
+        phone: args.phone || null,
+        providerSlug: "la-locanda",
+        consent: true,
+        restrictions: { allergies: _declaredAlg }
+      }))
+        .then(r => { if (r && r.ok) console.log("[CUST] alergia añadida al perfil | tel ***" + String(args.phone || "").slice(-3)); })
+        .catch(e => console.error("[CUST] error añadiendo alergia | " + e.message));
+    } catch (e) { console.error("[CUST] error alergia perfil | " + e.message); }
   }
   const _rawName = args.customer_name ? String(args.customer_name).trim() : "";
   const name = (_rawName && !/^(customer|cliente|client)$/i.test(_rawName)) ? ", " + _rawName.split(" ")[0] : "";
@@ -1062,6 +1088,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         if (prof) {
           s0.registeredName = prof.name || "el cliente";
           s0.registeredAddress = prof.address ? (prof.address.raw || prof.address) : null;
+          s0.registeredRestrictions = prof.restrictions || null; // { allergies, preferences }
           s0.registeredPreloaded = true;
           // WIN: prevalidar la zona de la dirección guardada en paralelo (no bloquea
           // si tarda) → el modelo tampoco necesita el round-trip de validar_direccion.
@@ -1081,6 +1108,10 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     if (s && s.registeredName) {
       let extra = registeredCustomerDirective(s.registeredName, s.registeredAddress);
       if (s.registeredPreloaded) extra += "\nYA lo tienes reconocido por su tel\u00e9fono: NO llames a la herramienta buscar_cliente otra vez. La direcci\u00f3n de siempre ya est\u00e1 dentro de la zona de reparto: NO llames a validar_direccion; ve directo a tomar el pedido.";
+      const _alg = s.registeredRestrictions && s.registeredRestrictions.allergies;
+      if (_alg && _alg.length) {
+        extra += "\nALERGIAS YA GUARDADAS de este cliente: " + _alg.join(", ") + ". D\u00e1selas por sabidas: NO se las preguntes. Menci\u00f3nale con naturalidad que las tienes en cuenta (\"te tengo apuntada la alergia a " + _alg.join(", ") + "\") y quedan anotadas en el pedido autom\u00e1ticamente. Aplica igualmente la pol\u00edtica de alergias con los platos que pida.";
+      }
       messages.push({ role: "system", content: extra });
     }
   } catch (_) {}
@@ -1159,7 +1190,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           clienteRegistrado = out.nombre || "el cliente";
           clienteDireccion = out.direccion || null;
-          try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; } catch (_) {}
+          try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; s.registeredRestrictions = { allergies: out.alergias_guardadas || [], preferences: out.preferencias_guardadas || [] }; } catch (_) {}
         }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));

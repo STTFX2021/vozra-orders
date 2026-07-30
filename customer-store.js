@@ -71,6 +71,28 @@ function normalizePhone(phone) {
   return p || null;
 }
 
+// Normaliza el objeto de restricciones a { allergies:[], preferences:[] }.
+function parseRestrictions(raw) {
+  let r = raw;
+  if (typeof r === "string") { try { r = JSON.parse(r); } catch (_) { r = null; } }
+  r = r && typeof r === "object" ? r : {};
+  const arr = v => Array.isArray(v) ? v.filter(x => x != null && String(x).trim()).map(x => String(x).trim()) : [];
+  return { allergies: arr(r.allergies), preferences: arr(r.preferences) };
+}
+
+// Une (sin duplicados, case-insensitive) las restricciones existentes con las nuevas.
+function mergeRestrictions(existing, incoming) {
+  const a = parseRestrictions(existing);
+  const b = parseRestrictions(incoming);
+  const uniq = (x, y) => {
+    const seen = new Set(x.map(s => s.toLowerCase()));
+    const out = x.slice();
+    for (const it of y) if (!seen.has(it.toLowerCase())) { seen.add(it.toLowerCase()); out.push(it); }
+    return out;
+  };
+  return { allergies: uniq(a.allergies, b.allergies), preferences: uniq(a.preferences, b.preferences) };
+}
+
 /**
  * Devuelve el perfil del cliente por teléfono SOLO si dio consentimiento.
  * @returns {Promise<{phone,name,address,orderCount,lastOrderAt}|null>}
@@ -88,11 +110,12 @@ async function getCustomerByPhone(phone) {
     const row = arr[0];
     if (!row) return null;
     return {
-      phone:       row.phone,
-      name:        row.name || null,
-      address:     row.address || null,   // jsonb: { raw, ... }
-      orderCount:  row.order_count || 0,
-      lastOrderAt: row.last_order_at || null
+      phone:        row.phone,
+      name:         row.name || null,
+      address:      row.address || null,   // jsonb: { raw, ... }
+      restrictions: parseRestrictions(row.restrictions), // { allergies, preferences }
+      orderCount:   row.order_count || 0,
+      lastOrderAt:  row.last_order_at || null
     };
   } catch (e) {
     console.error("[CUST] getCustomerByPhone error:", e.message);
@@ -113,14 +136,27 @@ async function upsertCustomer(data = {}) {
 
     const row = {
       phone:         p,
-      name:          data.name || null,
-      address:       data.address || null,   // objeto → jsonb
       provider_slug: data.providerSlug || "la-locanda",
       consent:       true,
       consent_at:    new Date().toISOString(),
       last_order_at: new Date().toISOString(),
       updated_at:    new Date().toISOString()
     };
+    // Solo se escriben nombre/dirección si vienen: así actualizar SOLO las restricciones
+    // (p. ej. una alergia nueva de un cliente ya registrado) no borra su nombre ni su dirección.
+    if (data.name != null) row.name = data.name;
+    if (data.address != null) row.address = data.address;
+
+    // Restricciones/preferencias: se ACUMULAN, no se sobrescriben. Leemos las
+    // existentes y unimos con las nuevas (alergias del pedido, etc.).
+    if (data.restrictions) {
+      let existing = null;
+      try {
+        const cur = await request("GET", "/rest/v1/customers?phone=eq." + encodeURIComponent(p) + "&select=restrictions&limit=1", null);
+        existing = (JSON.parse(cur.body || "[]")[0] || {}).restrictions;
+      } catch (_) { existing = null; }
+      row.restrictions = mergeRestrictions(existing, data.restrictions);
+    }
     Object.keys(row).forEach(k => { if (row[k] === undefined) delete row[k]; });
 
     await request(
@@ -149,4 +185,4 @@ async function deleteCustomer(phone) {
   }
 }
 
-module.exports = { getCustomerByPhone, upsertCustomer, deleteCustomer, normalizePhone, isEnabled };
+module.exports = { getCustomerByPhone, upsertCustomer, deleteCustomer, normalizePhone, isEnabled, parseRestrictions, mergeRestrictions };

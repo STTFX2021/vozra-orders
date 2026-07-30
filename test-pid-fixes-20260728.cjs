@@ -21,6 +21,7 @@ const {
 } = require("./marta-llm.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
 const { classifyAllergen, removableAllergens } = require("./allergen-ontology.service.js");
+const { parseRestrictions, mergeRestrictions } = require("./customer-store.js");
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -174,6 +175,19 @@ test("ONTO datos REALES del menú: Abruzzo langostinos retirable, frutti di mare
 });
 test("F1 el prompt usa el dato '(se puede quitar)' de la carta", () => {
   assert.ok(/se puede quitar/i.test(prompt), "el prompt no referencia la marca de retirable");
+});
+
+// ── PERFIL: preferencias y restricciones (alergias guardadas) ────────────────
+test("F6 parseRestrictions normaliza jsonb/string/null a {allergies,preferences}", () => {
+  assert.deepStrictEqual(parseRestrictions('{"allergies":["marisco"],"preferences":[]}'), { allergies: ["marisco"], preferences: [] });
+  assert.deepStrictEqual(parseRestrictions(null), { allergies: [], preferences: [] });
+});
+test("F6 mergeRestrictions acumula sin duplicar (case-insensitive)", () => {
+  const m = mergeRestrictions({ allergies: ["marisco"] }, { allergies: ["Marisco", "gluten"] });
+  assert.deepStrictEqual(m.allergies, ["marisco", "gluten"]);
+});
+test("F6 mergeRestrictions parte de perfil vacío", () => {
+  assert.deepStrictEqual(mergeRestrictions(null, { allergies: ["frutos secos"] }).allergies, ["frutos secos"]);
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");

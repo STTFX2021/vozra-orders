@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-07-28 — Perfil con preferencias/restricciones (alergias guardadas) + test contrato
+
+**Feature nueva (pedida en llamada real: "lo tenías que tener apuntado en la base de datos"):**
+- **Supabase:** migración `add_restrictions_to_customers` → columna `restrictions jsonb` (default `{"allergies":[],"preferences":[]}`) en `vozra_orders.customers`. Aplicada.
+- **`customer-store.js`:** `parseRestrictions` + `mergeRestrictions` (unión sin duplicados, case-insensitive). `getCustomerByPhone` devuelve `restrictions`. `upsertCustomer` acumula restricciones (lee+merge) y ahora **solo escribe nombre/dirección si vienen** (no los borra al actualizar solo alergias).
+- **`marta-llm.service.js`:** `buscar_cliente`/`computeLookup` devuelven `alergias_guardadas`/`preferencias_guardadas`; precarga y rama de buscar_cliente las guardan en sesión (`registeredRestrictions`); al reconocer al cliente se inyecta directiva ("te tengo apuntada la alergia a X, no se la preguntes"); `handleSubmitOrder` **une alergias guardadas + declaradas** (determinista → siempre al ticket) y las persiste (cliente nuevo con consent, o cliente ya registrado que declara una nueva).
+- **Seed:** perfil `634425921` (Samuel Tineo) → `restrictions.allergies=["marisco"]`.
+- Tests F6 (parse/merge) + sandbox 6/6 OK.
+- ⚠️ Recordatorio: el fix de "alergia no bloquea" (`order-validator.service.js` + `test-submit-order-validation-gate.cjs`) quedó SIN commitear en el commit `408ca51`. Va en el commit de cierre junto con esto.
+
+---
+
+## 2026-07-28 — LAS ALERGIAS YA NO BLOQUEAN (bug real en el validador) + regla madre
+
+Llamada real detectó el bloqueo: Sarah decía "quitar un ingrediente no garantiza... contaminación cruzada... necesito que el equipo lo revise antes de confirmar" y NO enviaba el pedido. **La causa NO era el prompt: era CÓDIGO.**
+- `order-validator.service.js` empujaba un error bloqueante `ALLERGEN_REVIEW_REQUIRED` → `validation.ok=false` → `handleSubmitOrder` retenía el pedido y devolvía el mensaje de contaminación (L837).
+- **Fix:** ese error pasa a **aviso no bloqueante `ALLERGEN_NOTED`**. La alergia se sigue anotando (flag `requiresKitchenReview`/`allergyRisk` → ticket de cocina "! ALERGIA" + bloque foodSafety) pero **NUNCA bloquea**. Verificado: esos flags solo alimentan el ticket, ningún otro punto bloquea.
+- Mensaje muerto de "contaminación cruzada" eliminado del cerebro.
+- Prompt: **REGLA MADRE "Vozra PID SOLO TOMA PEDIDOS"** — nunca bloquea/rechaza/retiene por alergia; solo anota y, como mucho, sugiere quitar el ingrediente o recomendar otro plato; si el cliente quiere el plato igual, se lo toma y lo anota.
+- Tests actualizados: `test-submit-order-validation-gate.cjs` (sección de alergia reescrita: ahora aserta que NO bloquea, warning ALLERGEN_NOTED, sin error); +test F1 "PID nunca bloquea". `test-orders-fase4.cjs` intacto (solo comprueba flags, que se mantienen).
+
+**Pendiente (feature nueva, pedida por el owner):** guardar en el perfil del cliente (tabla `customers`) sus **preferencias y restricciones/alergias**, para que al reconocerlo ya las tengamos. Requiere columna nueva en Supabase (migración) + código en customer-store/marta-llm. NO ejecutado — propuesto, a la espera de OK del owner para tocar el esquema.
+
+---
+
 ## 2026-07-28 — Correcciones pre-commit (ontología fuera + flujo de reconocimiento)
 
 - **Ontología: eliminada y luego DEVUELTA con datos** (el owner aclaró que es primordial). Ya NO es un esqueleto vacío: `allergen-ontology.service.js` es un **clasificador determinista por reglas** que lee los parámetros de la taxonomía (categoría + alérgeno + descripción) y decide retirable/intrínseco para los 79 platos, con una capa `OVERRIDES` (vacía) para datos validados por restaurante. Reglas: gluten/huevo/lácteo=intrínseco siempre; marisco=retirable en pizza, intrínseco en pasta/risotto; frutos secos=intrínseco en pesto, retirable por encima; pescado=intrínseco en césar/plato de pescado. `formatItemAllergens` anota SOLO los retirables en la carta con "(se puede quitar)" (mínimo peso en prompt); el prompt manda hacer caso a esa marca. ⚠️ Reglas v1 inferidas — validar OVERRIDES con el restaurante antes de piloto real. Tests: 7 nuevos (reglas + datos reales del menú), verde en sandbox 9/9.
