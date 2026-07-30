@@ -29,6 +29,34 @@ const { applyPromotions, listActivePromotions } = require("./promotions.service.
 const { lookupOrdersForCustomer, registerIncident } = require("./incident.service.js");
 const { removableAllergens } = require("./allergen-ontology.service.js");
 
+// Caché de perfil por teléfono (120s). El callId de ElevenLabs puede ser inestable
+// (fallback el-<timestamp>: sesión NUEVA cada turno), así que re-cargamos el perfil
+// en CADA turno a partir del teléfono dicho en la llamada. El caché evita golpear la
+// BD en cada frase. Durante una llamada el perfil es estable; entre llamadas refresca.
+const _profileCache = new Map(); // phone -> { prof, at }
+const _PROFILE_TTL_MS = 120000;
+async function loadProfileCached(tel) {
+  if (!tel) return null;
+  const now = Date.now();
+  const hit = _profileCache.get(tel);
+  if (hit && (now - hit.at) < _PROFILE_TTL_MS) return hit.prof;
+  let prof = null;
+  try { prof = await getCustomerByPhone(tel); } catch (_) { prof = null; }
+  _profileCache.set(tel, { prof: prof || null, at: now });
+  return prof || null;
+}
+// Extrae el teléfono (9-15 dígitos) dicho en CUALQUIER turno de usuario del historial.
+function phoneFromHistory(incomingMessages) {
+  let tel = null;
+  for (const m of (incomingMessages || [])) {
+    if (m && m.role === "user" && m.content) {
+      const mt = String(m.content).replace(/\D/g, "").match(/(\d{9,15})/);
+      if (mt) tel = mt[1]; // el último teléfono mencionado gana
+    }
+  }
+  return tel;
+}
+
 // ─── MENÚ ─────────────────────────────────────────────────────────────────────
 
 let _menu = null;
@@ -1126,13 +1154,14 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
   // LLM a 1 (mata la pausa donde ElevenLabs mete "Ahhh/Got it").
   try {
     const s0 = getOrCreateOrderSession(callId);
+    // Re-derivamos el reconocimiento en CADA turno desde el teléfono del historial.
+    // No dependemos de que la sesión (callId) sobreviva: si el cliente dio su teléfono
+    // en cualquier momento y tiene perfil, siempre lo reconocemos. Así "ya te conoce,
+    // no vuelve a pedir datos" se cumple aunque el callId cambie entre turnos.
     if (!s0.registeredName) {
-      const lastUser = [...(incomingMessages || [])].reverse().find(m => m && m.role === "user" && m.content);
-      const digits = lastUser ? String(lastUser.content).replace(/\D/g, "") : "";
-      const tel = (digits.match(/(\d{9,15})/) || [])[1];
+      const tel = phoneFromHistory(incomingMessages);
       if (tel) {
-        let prof = null;
-        try { prof = await getCustomerByPhone(tel); } catch (_) { prof = null; }
+        const prof = await loadProfileCached(tel);
         if (prof) {
           s0.registeredName = prof.name || "el cliente";
           s0.registeredAddress = prof.address ? (prof.address.raw || prof.address) : null;
@@ -1285,5 +1314,6 @@ module.exports = {
   stripConsentIfRegistered,
   streetOnly,
   resolveDeliveryAddress,
+  phoneFromHistory,
   registeredCustomerDirective
 };

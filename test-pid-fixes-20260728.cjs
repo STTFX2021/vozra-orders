@@ -20,7 +20,8 @@ const {
   getMenuItemById,
   mapToolItem,
   resolveDeliveryAddress,
-  resolvePerPizzaQuantities
+  resolvePerPizzaQuantities,
+  phoneFromHistory
 } = require("./marta-llm.service.js");
 const { estimateTotal, validateOrder } = require("./order-validator.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
@@ -235,6 +236,23 @@ test("F8 'una para cada piso' (STT de pizza) deriva las bebidas por nº de pizza
   const out = resolvePerPizzaQuantities(args, [{ role: "user", content: "ponme una coca cola para cada piso" }]);
   const coke = out.items.find(i => i.menu_item_id === "coca_cola");
   assert.strictEqual(coke.quantity, 3, "no derivó 3 bebidas de 3 pizzas");
+});
+
+// ── RECONOCIMIENTO PERSISTE AUNQUE EL callId CAMBIE (teléfono en el historial) ──
+test("F9 encuentra el teléfono aunque NO sea el último turno", () => {
+  const h = [
+    { role: "assistant", content: "¿Teléfono?" },
+    { role: "user", content: "el 611223225" },
+    { role: "assistant", content: "Aquí estás, Juan" },
+    { role: "user", content: "correcto" },
+    { role: "user", content: "una B&B y una Ludi" },
+    { role: "user", content: "sí, por favor" }
+  ];
+  assert.strictEqual(phoneFromHistory(h), "611223225");
+});
+test("F9 acepta el teléfono con separadores y sin él da null", () => {
+  assert.strictEqual(phoneFromHistory([{ role: "user", content: "el 611 223 225" }]), "611223225");
+  assert.strictEqual(phoneFromHistory([{ role: "user", content: "ponme 2 pizzas y 3 cocacolas" }]), null);
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");

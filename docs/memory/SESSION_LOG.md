@@ -4,7 +4,21 @@
 
 ---
 
-## 2026-07-30 — RAÍZ del "pide datos que ya tiene": customer_name era REQUIRED en la tool
+## 2026-07-30 — RAÍZ REAL del "pide datos que ya tiene": la SESIÓN se pierde cada turno (callId inestable)
+
+**Esto es lo que explica por qué NADA de lo anterior funcionaba en llamada real.** `extractCallId` (elevenlabs-llm.routes.js) cae al fallback `el-${Date.now()}` cuando ElevenLabs no manda el conversation id → **callId NUEVO en cada turno → sesión nueva cada turno → `registeredName`/`registeredAddress`/`registeredRestrictions` (y upsellOffered) se BORRAN entre turnos.** En los logs de Railway se ve: `callId=el-1785172696543` (el fallback). Por eso saluda "Aquí estás, Juan" (en ese turno acababa de leer el teléfono) pero al confirmar ya no se acuerda y pide los datos. Todos mis fixes guardaban en esa sesión efímera → inútiles en vivo.
+
+**Fix (no depende del callId):** el reconocimiento se RE-DERIVA en CADA turno del teléfono dicho en el historial completo.
+- `phoneFromHistory(incomingMessages)`: busca un teléfono (9-15 dígitos) en CUALQUIER turno de usuario, no solo el último.
+- `loadProfileCached(tel)`: carga el perfil con caché de 120s (evita golpear la BD cada frase).
+- La precarga usa ambos y re-aplica `registeredName/Address/Restrictions` aunque la sesión sea nueva.
+- Tests F9. Sandbox 4/4.
+
+**Deuda relacionada (pendiente):** con callId inestable, `call_logs` tendría UNA fila por turno (no por llamada), y el dedup por callId es débil. Lo ideal es estabilizar el callId (que ElevenLabs mande el conversation id, o derivarlo). Anotado para después; NO bloquea el fix del reconocimiento.
+
+---
+
+## 2026-07-30 — RAÍZ (parcial) del "pide datos que ya tiene": customer_name era REQUIRED en la tool
 
 El backfill (95f6aa9) rellenaba el nombre en submit, pero el modelo SEGUÍA preguntándolo porque **`customer_name` estaba en el `required` del esquema de `submit_order`** → el LLM se veía obligado a tenerlo antes de poder llamar la tool, así que lo pedía aunque le dijéramos que no. Fix definitivo (4 capas):
 1. Quitado `customer_name` de `required` (`["items","order_type","phone"]`).
