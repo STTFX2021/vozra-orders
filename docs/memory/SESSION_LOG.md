@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-31 (tarde 2) — Llamada saliente de prueba + cerrados dos agujeros de seguridad reales
+
+**Desplegado. HEAD = `84f8e94` = producción** (verificado en `/health` y `/whatsapp/health`). Cadena: `c93f4db` → `1844f06` → `bf2e5be` → `84f8e94`.
+
+**1) "Que Twilio me llame" → en realidad es ElevenLabs quien llama (`bf2e5be`).** El número de Twilio está conectado al agente; llamar con la API de Twilio a pelo haría sonar el teléfono SIN Sarah (haría falta TwiML propio). La vía correcta —`POST /v1/convai/twilio/outbound-call`— ya existía en `placeOutboundCall` (`demo-callback.routes.js`) pero estaba enterrada tras el captcha Turnstile y los límites de la demo pública de Lovable. Nuevo **`admin-test-call.routes.js`**: `GET /admin/test-call/diag` (dice qué variables faltan, solo booleanos, nunca valores) y `POST /admin/test-call` con `{"to":"+34…"}`. Como esto gasta dinero: Bearer obligatorio (`ADMIN_TEST_CALL_SECRET` o, si falta, `ELEVENLABS_CUSTOM_LLM_SECRET`), **fail-closed** (sin secreto → 503, no abierto), allowlist opcional `TEST_CALL_ALLOWED_NUMBERS` y teléfono enmascarado en logs. Test `test-admin-test-call-20260731.cjs` (10). Confirmado en producción que **el secret de Railway ≠ el del `.env` local** (el diag devolvió 401 con el local). Las 3 vars de ElevenLabs SÍ estaban ya en Railway.
+
+**2) BOQUETE: el webhook de Twilio estaba abierto en producción (`84f8e94`).** Revisando las variables de Railway apareció `TWILIO_SKIP_SIGNATURE`. Al mirar `verifyTwilioSignature` había **dos** vías de escape: (a) `TWILIO_SKIP_SIGNATURE==="true"` devolvía true — pensado para dev pero puesto en producción; (b) `if (!authToken) return true` — sin token, **fail-OPEN**. Con la URL, cualquiera podía inyectar mensajes al canal de WhatsApp. Fix con el mismo patrón que ya usa `elevenlabs-llm.routes.js`: en Railway (`RAILWAY_ENVIRONMENT`/`RAILWAY_GIT_COMMIT_SHA`) ambas se **ignoran** y sin firma válida no se pasa; en local siguen funcionando para desarrollar.
+   - **Bug latente que habría reventado justo al cerrarlo:** detrás del proxy de Railway `req.protocol` devuelve `http`, pero Twilio firma la URL pública `https` → la firma NUNCA habría cuadrado y el webhook se habría caído entero. Ahora usa `x-forwarded-proto`. Hay test específico para las dos direcciones.
+   - Añadida comparación en **tiempo constante** (`timingSafeEqual`) en vez de `===`.
+
+**3) Turnstile no se leía (`84f8e94`).** En Railway las claves de Cloudflare estaban con el nombre literal del panel — `Secret key` / `Site key`, con espacio — así que `process.env.TURNSTILE_SECRET` era undefined y la demo web de Lovable devolvía 503 en silencio. `turnstileSecret()` ahora acepta `TURNSTILE_SECRET` (canónico) y varios alias, incluido `"Secret key"`. **Sigue siendo fail-closed**: sin ninguno, no pasa.
+
+Test nuevo `test-webhook-security-20260731.cjs` (10/10). Todos los demás en verde (47 · 21 · 10 · 6 · 5 · gate P0).
+
+**Panel de seguridad en el diag:** `/admin/test-call/diag` devuelve ahora `seguridad{es_produccion, twilio_firma_obligatoria, twilio_skip_signature_puesta, turnstile_configurado, turnstile_nombre_canonico}` — booleanos, sin valores.
+
+**PENDIENTE:** la llamada de prueba en sí (falta que el owner corra el `diag` con el secret de Railway y luego el POST). Y limpieza en Railway: quitar `TWILIO_SKIP_SIGNATURE` (ya no hace nada en prod, pero sobra) y renombrar `Secret key` → `TURNSTILE_SECRET`.
+
+---
+
 ## 2026-07-31 (tarde) — Latencia/coste: el system prompt pasa a ser CACHEABLE (prefijo estable + cola dinámica)
 
 **Todo commiteado, pusheado y desplegado. HEAD = `c93f4db` = producción** (verificado en `/health`). Cadena del día: `1e4e435` → `bb6288a` → `888767c` → **`c93f4db`**.

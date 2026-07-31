@@ -2,17 +2,28 @@
 
 > Solo Vozra PID. Roomy Food está en `../roomy-food` con su propia memoria.
 
-**Escrito el:** 2026-07-31 (tarde)
-**HEAD = producción:** `c93f4db` (commiteado, pusheado, desplegado en Railway — verificado en `/health`).
+**Escrito el:** 2026-07-31 (tarde 2)
+**HEAD = producción:** `84f8e94` (commiteado, pusheado, desplegado en Railway — verificado en `/health`).
 
 ## ⚡ EMPIEZA POR AQUÍ: UNA llamada de prueba cierra los tres pendientes
-Haz **una llamada real a Sarah** (pedido corto de cliente registrado `634425921` + despedida) y guarda los logs de Railway. Con eso se resuelve todo lo de abajo de golpe:
+
+**Ahora Sarah puede llamarte ella** (no hace falta que llames tú). Con el valor de `ELEVENLABS_CUSTOM_LLM_SECRET` de Railway → Variables:
+
+```
+curl -s -H "Authorization: Bearer TU_SECRET" https://vozra-orders-production.up.railway.app/admin/test-call/diag
+curl -s -X POST -H "Authorization: Bearer TU_SECRET" -H "Content-Type: application/json" -d "{\"to\":\"+34634425921\"}" https://vozra-orders-production.up.railway.app/admin/test-call
+```
+
+Pedido corto + despedida, y guarda los logs de Railway. Con eso se resuelve todo lo de abajo de golpe:
 
 | Qué mirar | Dónde | Qué significa |
 |---|---|---|
 | `[EL] turn \| callId=…` | log Railway | `conv_…` = estable ✅ (desbloquea el refactor). `el-…` = la cabecera no llega ❌ |
 | `[LLM] openai …ms \| in=… cached=… out=…` | log Railway | `cached≈11000` desde el 2º turno = caché de prompt OK ✅. `cached=0` siempre = algo la rompió ❌ |
 | ¿Cuelga al despedirse? | la propia llamada | Si habla el adiós pero no cuelga → falta activar "End Call" en Sarah |
+| ¿Te reconoce como Samuel? | la propia llamada | ⚠️ En SALIENTE el `system__caller_id` puede no llegar igual que en entrante. Si NO te reconoce, mira `callerPhone` en el log: vacío o con el número de Twilio = problema del modo saliente, **no** regresión del reconocimiento |
+
+**Limpieza pendiente en Railway (30 seg, no bloquea):** borrar `TWILIO_SKIP_SIGNATURE` (en producción ya se ignora) y renombrar `Secret key`/`Site key` → `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` (con ese nombre y espacio `process.env` no las leía → la demo web de Lovable daba 503; el código ya las rescata por alias, pero el nombre correcto es mejor).
 
 ## Cómo arrancar (léelo en este orden)
 1. `MEMORY_INDEX.md` → este archivo → `PROJECT_STATE.md` → `KEY_FACTS.md`.
@@ -21,7 +32,7 @@ Haz **una llamada real a Sarah** (pedido corto de cliente registrado `634425921`
 4. **Git root está en `backend/.git`.** Todo `git` se corre desde `…\vozra-orders\backend`, NO desde la carpeta padre (da "not a git repository").
 
 ## Estado actual (todo verde y en producción)
-Cliente registrado hace el pedido completo SIN que le repregunten nombre/teléfono/dirección; reconoce por nombre y confirma la calle sin cantar el número; alergia se anota pero NUNCA bloquea; borrar alergia funciona en el acto (tool `eliminar_alergia_guardada`); suplementos de extras se avisan; colgar al despedirse implementado (`end_call`); y el system prompt ya es **cacheable** (prefijo estable de 11.206 tokens). Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21 · `test-prompt-cache-20260731.cjs` 6/6 · gate P0 OK.
+Cliente registrado hace el pedido completo SIN que le repregunten nombre/teléfono/dirección; reconoce por nombre y confirma la calle sin cantar el número; alergia se anota pero NUNCA bloquea; borrar alergia funciona en el acto (tool `eliminar_alergia_guardada`); suplementos de extras se avisan; colgar al despedirse implementado (`end_call`); y el system prompt ya es **cacheable** (prefijo estable de 11.206 tokens). Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21 · `test-prompt-cache-20260731.cjs` 6/6 · `test-admin-test-call-20260731.cjs` 10/10 · `test-webhook-security-20260731.cjs` 10/10 · gate P0 OK. Además: Sarah te puede llamar (`/admin/test-call`) y los webhooks son fail-closed en producción.
 
 ## PENDIENTE #1 (raíz aún abierta, prioridad alta): ¿el callId es estable?
 Todo lo demás cuelga de esto. Hay que **mirar los logs de Railway** una línea `[EL] turn | callId=…`:

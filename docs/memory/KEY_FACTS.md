@@ -48,8 +48,15 @@
 ## Modelos
 - LLM producción: OpenAI `gpt-4.1-mini` (vía Custom LLM, model id `vozra-marta-orders`). Ojo: comentarios del código dicen "gpt-4o-mini" (contradicción documental, no de código).
 
+## Endpoints propios (además del Custom LLM)
+- `GET /health` — commit desplegado. **Fuente de verdad de qué hay en producción.**
+- `GET /whatsapp/health` — comprueba que el servicio arrancó bien tras un deploy.
+- `GET /admin/test-call/diag` · `POST /admin/test-call` — **Sarah te llama**. Bearer = `ADMIN_TEST_CALL_SECRET` o `ELEVENLABS_CUSTOM_LLM_SECRET`. Body: `{"to":"+34…"}`.
+- ⚠️ El secret de `ELEVENLABS_CUSTOM_LLM_SECRET` en **Railway ≠ el del `.env` local** (verificado 31-07: el diag da 401 con el local). Para los curl hay que coger el de Railway → Variables.
+
 ## Mapa de commits
-- **HEAD = producción = `c93f4db`** (prompt cacheable: cola dinámica al final + `prompt_cache_key` + log de tokens cacheados). Todo sincronizado con `origin/main`.
+- **HEAD = producción = `84f8e94`** (webhook Twilio fail-closed + Turnstile por alias). Todo sincronizado con `origin/main`.
+- `c93f4db` prompt cacheable · `bf2e5be` endpoint `/admin/test-call` · `84f8e94` seguridad de webhooks.
 - Cadena reciente desplegada: `2bc9448` (stripConsentIfRegistered) → … → `06ba512` → `4d44956` (tool eliminar_alergia + backtick roto) → `002a590` (fix backtick crítico) → `1e4e435` (end_call) → `bb6288a` (memoria) → `888767c` (tests F11 suplementos) → **`c93f4db`** (caché de prompt).
 - ⚠️ `4d44956` estuvo desplegado ROTO (backtick en el prompt). Arreglado en `002a590`.
 
@@ -64,7 +71,12 @@
 - **Colgar = `end_call`**: system tool de ElevenLabs (NO del cerebro). El backend lo emite como `tool_call` en el SSE (`sendStreamResponseWithEndCall` en `elevenlabs-llm.routes.js`). Requiere que "End Call" esté activo en el agente Sarah.
 
 ## Ficheros de test (todos desde `backend/`)
-- `test-pid-fixes-20260728.cjs` (47) · `test-allergy-remove-20260730.cjs` (5) · `test-end-call-20260731.cjs` (21) · `test-prompt-cache-20260731.cjs` (6) · `test-submit-order-validation-gate.cjs` (gate P0).
+- `test-pid-fixes-20260728.cjs` (47) · `test-allergy-remove-20260730.cjs` (5) · `test-end-call-20260731.cjs` (21) · `test-prompt-cache-20260731.cjs` (6) · `test-admin-test-call-20260731.cjs` (10) · `test-webhook-security-20260731.cjs` (10) · `test-submit-order-validation-gate.cjs` (gate P0).
+
+## Seguridad de webhooks (31-07) — no volver atrás
+- **`/whatsapp/incoming`**: en Railway la firma de Twilio es OBLIGATORIA. `TWILIO_SKIP_SIGNATURE` se **ignora** en producción y sin `TWILIO_AUTH_TOKEN` se **rechaza** (antes ambas dejaban el webhook abierto).
+- La URL a firmar usa **`x-forwarded-proto`**: detrás del proxy de Railway `req.protocol` da `http` y Twilio firma `https`. Sin esto, ninguna firma cuadra.
+- **Turnstile**: `turnstileSecret()` acepta `TURNSTILE_SECRET` (canónico), `TURNSTILE_SECRET_KEY`, `CLOUDFLARE_TURNSTILE_SECRET` y el literal `"Secret key"` de Cloudflare. En Railway estaban como `Secret key`/`Site key` (con espacio) → `process.env` no las leía y la demo web daba 503.
 
 ## Dato de prueba en Supabase
 - Cliente registrado de test: teléfono `634425921` (Samuel Tineo), `vozra_orders.customers`, con `restrictions.allergies` para probar el borrado de alergia en vivo.

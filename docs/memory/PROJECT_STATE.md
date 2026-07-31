@@ -18,9 +18,9 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Supabase:** proyecto `vozra` (`igdbkndadrrljbycfekh`, eu-west-2), schema `vozra_orders` (orders, customers, call_logs, demo_callbacks, providers, usage_monthly, incidents). También existe `vozra_control` (control plane, uso Roomy/multi-tenant).
 
 ## 3. ESTADO DE DESPLIEGUE
-- **Commit desplegado en producción = HEAD = `c93f4db`** (verificado en `/health` 31-07 12:42Z). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
-- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, colgar al despedirse y **prompt cacheable**.
-- Cadena reciente: `…06ba512` → `4d44956` → `002a590` → `1e4e435` → `bb6288a` → `888767c` → **`c93f4db`** (HEAD).
+- **Commit desplegado en producción = HEAD = `84f8e94`** (verificado en `/health` 31-07 13:10Z). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
+- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, colgar al despedirse, **prompt cacheable**, `/admin/test-call` y **webhooks fail-closed**.
+- Cadena reciente: `…1e4e435` → `bb6288a` → `888767c` → `c93f4db` → `1844f06` → `bf2e5be` → **`84f8e94`** (HEAD).
 - ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo; `node --check` fallaba). Arreglado en `002a590`. **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
 - **Para desplegar:** commit → `git push origin main` (desde `backend/`) → Railway auto-despliega → llamada de prueba.
 
@@ -35,7 +35,14 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
   - Verificación en logs de Railway: `[LLM] openai 900ms | in=11400 cached=11136 out=48`. `cached≈11000` desde el 2º turno = caché OK; `cached=0` siempre = algo la rompió.
   - Palanca restante sin aplicar: **adelgazar la carta** (requiere test + OK del owner).
 
+## 4bis. Endpoints de administración y seguridad de webhooks (31-07)
+- **`/admin/test-call`** (`admin-test-call.routes.js`) — **Sarah te llama**. `GET /admin/test-call/diag` dice qué falta (solo booleanos) y trae un panel `seguridad{}`; `POST /admin/test-call` con `{"to":"+34…"}` lanza la llamada. Bearer obligatorio (`ADMIN_TEST_CALL_SECRET` → si falta, `ELEVENLABS_CUSTOM_LLM_SECRET`), fail-closed, allowlist `TEST_CALL_ALLOWED_NUMBERS`, teléfono enmascarado.
+  - ⚠️ **La llamada saliente la hace ElevenLabs, NO Twilio directo** (`POST /v1/convai/twilio/outbound-call`). Con la API de Twilio a pelo el teléfono suena pero SIN Sarah.
+- **Webhook de Twilio (`/whatsapp/incoming`): fail-closed en producción.** En Railway se **ignora** `TWILIO_SKIP_SIGNATURE` y se **exige** `TWILIO_AUTH_TOKEN` (antes ambas dejaban el webhook abierto). La URL a firmar se construye con `x-forwarded-proto` (detrás del proxy `req.protocol` da `http` y Twilio firma `https`). Comparación con `timingSafeEqual`. Test: `test-webhook-security-20260731.cjs`.
+- **Turnstile:** `turnstileSecret()` acepta `TURNSTILE_SECRET` (canónico) y alias, incluido el literal `"Secret key"` que pone Cloudflare — así estaba en Railway y por eso la demo web daba 503. Sigue fail-closed.
+
 ## 5. Fixes aplicados (detalle en SESSION_LOG)
+- **31-07 tarde-2 (desplegado, `bf2e5be` + `84f8e94`):** endpoint `/admin/test-call` (llamada saliente de prueba) y **cierre de dos agujeros**: webhook de Twilio abierto en producción (SKIP_SIGNATURE + fail-open sin token) y Turnstile que no se leía por el nombre de la variable. Ver §4bis.
 - **31-07 tarde (desplegado, `c93f4db`):** **prompt cacheable** — cola dinámica (horario + perfil recurrente) movida al final del system prompt, `prompt_cache_key` en el payload de OpenAI y log `in=/cached=/out=` para verificar la caché en Railway. Prefijo estable 69 → 11.206 tokens. Test `test-prompt-cache-20260731.cjs` (6). Además: higiene de `.git` (lock huérfano de `geometric-repack` limpiado con `git gc --prune=now`).
 - **31-07 (desplegado):** (a) tool determinista **`eliminar_alergia_guardada`** — borra la alergia de Supabase y de la sesión en el acto y deja de mencionarla en el mismo turno; (b) **colgar al despedirse** — al despachar se arma `session.farewellArmed`; en el turno siguiente, si `isFarewell()`, el backend (`elevenlabs-llm.routes.js`) da una despedida corta y emite `tool_call end_call` en el SSE (ElevenLabs cuelga), lo que además elimina el doble "queda confirmado"; (c) **fix crítico** del backtick roto en el prompt. Tests `test-allergy-remove-20260730.cjs` (5) + `test-end-call-20260731.cjs` (21).
 - **30-07 (desplegado):** raíz del "pide datos que ya tiene" = callId inestable → re-derivación por historial (`phoneFromHistory`, `loadProfileCached` 120s); anti-repetición saludo/dirección/alergia (`yaDicho`); `removed_allergies` en submit_order; `restrictions` jsonb en `customers`; `call_logs` (`upsertCallLog`); mitad-y-mitad (precio de la más cara); "una por pizza" (`resolvePerPizzaQuantities`); suplementos de extras (`computeQuote` → `suplementos`/`aviso_suplementos`). Cabecera `X-ElevenLabs-Conversation-Id={{system__conversation_id}}` publicada.
@@ -52,7 +59,8 @@ Se **anota** la alergia (kitchenNote) y se **asesora** al cliente. Si el alérge
 ## 8. Deuda técnica conocida
 - Tests cubren motor legacy (`order-slot-filler`) + contrato del prompt; el camino real (`generateMartaReply`) no se testea con el LLM en vivo.
 - Mono-tenant de facto (`la-locanda` hardcodeado en varios sitios).
-- Endpoints sin auth (`/kitchen/ack`); LLM abierto si falta secret; PII en logs y en `orders_fallback/` (32 pedidos en texto plano).
+- Endpoints sin auth: queda **`/kitchen/ack`** (el webhook de Twilio y el LLM ya son fail-closed en producción). PII en logs y en `orders_fallback/` (32 pedidos en texto plano).
+- **Limpieza pendiente en Railway (no bloquea):** borrar `TWILIO_SKIP_SIGNATURE` (en producción ya se ignora, pero sobra y confunde) y renombrar `Secret key`/`Site key` → `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY`.
 - Monitor de ACK en memoria (se pierde al reiniciar).
 - `simulator.js` usa el motor legacy `processTurn`, NO el cerebro → no refleja producción.
 - Memoria del proyecto ahora vive en `backend/docs/memory/` (dentro del git root) para quedar versionada.
