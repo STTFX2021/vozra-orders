@@ -2,8 +2,17 @@
 
 > Solo Vozra PID. Roomy Food está en `../roomy-food` con su propia memoria.
 
-**Escrito el:** 2026-07-31
-**HEAD = producción:** `1e4e435` (commiteado, pusheado, desplegado en Railway).
+**Escrito el:** 2026-07-31 (tarde)
+**HEAD = producción:** `c93f4db` (commiteado, pusheado, desplegado en Railway — verificado en `/health`).
+
+## ⚡ EMPIEZA POR AQUÍ: UNA llamada de prueba cierra los tres pendientes
+Haz **una llamada real a Sarah** (pedido corto de cliente registrado `634425921` + despedida) y guarda los logs de Railway. Con eso se resuelve todo lo de abajo de golpe:
+
+| Qué mirar | Dónde | Qué significa |
+|---|---|---|
+| `[EL] turn \| callId=…` | log Railway | `conv_…` = estable ✅ (desbloquea el refactor). `el-…` = la cabecera no llega ❌ |
+| `[LLM] openai …ms \| in=… cached=… out=…` | log Railway | `cached≈11000` desde el 2º turno = caché de prompt OK ✅. `cached=0` siempre = algo la rompió ❌ |
+| ¿Cuelga al despedirse? | la propia llamada | Si habla el adiós pero no cuelga → falta activar "End Call" en Sarah |
 
 ## Cómo arrancar (léelo en este orden)
 1. `MEMORY_INDEX.md` → este archivo → `PROJECT_STATE.md` → `KEY_FACTS.md`.
@@ -12,7 +21,7 @@
 4. **Git root está en `backend/.git`.** Todo `git` se corre desde `…\vozra-orders\backend`, NO desde la carpeta padre (da "not a git repository").
 
 ## Estado actual (todo verde y en producción)
-Cliente registrado hace el pedido completo SIN que le repregunten nombre/teléfono/dirección; reconoce por nombre y confirma la calle sin cantar el número; alergia se anota pero NUNCA bloquea; borrar alergia funciona en el acto (tool `eliminar_alergia_guardada`); suplementos de extras se avisan; colgar al despedirse implementado (`end_call`). Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21.
+Cliente registrado hace el pedido completo SIN que le repregunten nombre/teléfono/dirección; reconoce por nombre y confirma la calle sin cantar el número; alergia se anota pero NUNCA bloquea; borrar alergia funciona en el acto (tool `eliminar_alergia_guardada`); suplementos de extras se avisan; colgar al despedirse implementado (`end_call`); y el system prompt ya es **cacheable** (prefijo estable de 11.206 tokens). Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21 · `test-prompt-cache-20260731.cjs` 6/6 · gate P0 OK.
 
 ## PENDIENTE #1 (raíz aún abierta, prioridad alta): ¿el callId es estable?
 Todo lo demás cuelga de esto. Hay que **mirar los logs de Railway** una línea `[EL] turn | callId=…`:
@@ -24,15 +33,19 @@ Confirmar en llamada real que Sarah CUELGA al despedirse. Si no cuelga:
 - Revisar que el system tool **"End Call"** esté activo en Sarah (ElevenLabs → agente Sarah → Tools). Viene por defecto en agentes de dashboard.
 - Si habla la despedida pero no cuelga, o cuelga sin hablar: mover la despedida al parámetro `message` de `end_call` (ajuste de 1 línea en `sendStreamResponseWithEndCall`, `elevenlabs-llm.routes.js`).
 
-## PENDIENTE #3 (latencia)
-El owner notó que al activar Backup LLM sube la latencia (por eso está Disabled). Aparte, el system prompt son ~10.671 tokens/turno porque embebe la carta entera (`buildMenuText()` en `marta-llm.service.js` ~L400). Palancas seguras sin aplicar: **prompt caching de OpenAI** (el system prompt es idéntico cada turno) y/o adelgazar la carta. Requieren test + OK del owner.
+## PENDIENTE #3 (latencia) — MEDIO HECHO ✅, falta verificar en vivo
+**Hecho (`c93f4db`, desplegado):** el prompt caching de OpenAI **no se activaba nunca**. Medido: el prefijo estable eran **69 tokens** (mínimo de OpenAI para cachear: 1024), porque `${perfilBloque}` estaba en la línea 3 y `${horarioLinea}` —con "Ahora son las HH:MM"— a ~3.500 tokens del inicio, con la carta entera (~9k tokens) detrás. Fix: **cola dinámica al final** (horario + cliente recurrente), `prompt_cache_key` y log `in=/cached=/out=`. Prefijo estable ahora **11.206 tokens** (99,5% del prompt).
+- ⚠️ **Regla nueva: nada dinámico (hora, perfil, estado) por encima de la carta.** `test-prompt-cache-20260731.cjs` falla si alguien lo reintroduce.
+- **Falta:** confirmar `cached≈11000` en los logs de Railway (tabla de arriba).
+
+**Palanca restante:** adelgazar la carta que se embebe (`buildMenuText()`, ~9k tokens). Con la caché puesta ya no urge por coste, pero sigue pesando en el primer turno. Requiere test + OK del owner.
 
 ## Deuda técnica conocida (no urgente)
 - Tests cubren contrato del prompt y código determinista, NO ejecutan el LLM en vivo → que Sarah OBEDEZCA se valida en llamada real.
 - `validateOrder` es gate P0 fail-closed (OK), pero mono-tenant `la-locanda` hardcodeado en varios sitios.
 - `/kitchen/ack` sin auth extra; PII en logs y en `orders_fallback/`. Monitor de ACK en memoria (se pierde al reiniciar).
 - `simulator.js` usa el motor legacy `processTurn`, NO el cerebro → no refleja producción. No copiar de ahí.
-- Warning `geometric-repack ... File exists` en cada commit: lock huérfano en `.git`. Limpiar con `git gc --prune=now`.
+- ~~Warning `geometric-repack ... File exists` en cada commit~~ → **RESUELTO 31-07**: era un `.pack` huérfano; borrado + `git gc --prune=now` + `git fsck` limpio.
 - Higiene .git: los `.env` tienen mensajes de "vestauth/inject env" al correr node — es una lib de terceros en el entorno del owner, no del proyecto.
 
 ## Comandos útiles (desde `…\vozra-orders\backend`)
@@ -42,7 +55,10 @@ node --check elevenlabs-llm.routes.js
 node test-pid-fixes-20260728.cjs
 node test-allergy-remove-20260730.cjs
 node test-end-call-20260731.cjs
+node test-prompt-cache-20260731.cjs
+node test-submit-order-validation-gate.cjs
 git add <ficheros> && git commit -m "..." && git push origin main   # Railway auto-despliega
+curl -s https://vozra-orders-production.up.railway.app/health        # commit realmente desplegado
 ```
 
 ## Datos de prueba en Supabase
@@ -58,7 +74,7 @@ Cliente registrado de test: teléfono **`634425921`** (Samuel Tineo), `restricti
 
 **Filosofía del owner (sam), innegociable:** "arreglamos LÓGICA, no parches". La autorización de cualquier acción crítica debe ser CÓDIGO DETERMINISTA, nunca "confiar en que el LLM se acuerde". Cada vez que un fallo se puede resolver en código (no en el prompt), se hace en código. El owner prueba TODO con llamadas reales y trae los transcripts; los tests automáticos no ejecutan el LLM, solo prueban que la regla/el código determinista existen.
 
-**Cómo trabaja este dúo:** yo edito los ficheros del backend en `D:\…\vozra-orders\backend` (a veces se pierde el acceso y hay que re-pedir la carpeta con permiso). NO tengo acceso al disco `D:` desde el sandbox de shell, así que **el owner corre los `node --check`, los tests y el git** en su PowerShell y me pega la salida. Git root está en `backend/.git`. Respondo en español, directo, con pasos numerados y comandos listos para copiar.
+**Cómo trabaja este dúo:** yo edito los ficheros del backend en `D:\…\vozra-orders\backend`. **ACTUALIZADO 31-07: con Desktop Commander SÍ llego al disco `D:` y puedo ejecutar yo mismo** `node --check`, los tests, `git commit/push` y `curl /health` — no hace falta que el owner pegue salidas (aunque puede). Ojo: el shell del sandbox de Claude **no** llega a `D:`; el runner válido es Desktop Commander, y en Windows hay que usar **`cmd`** (PowerShell bloquea `npm` por ExecutionPolicy) y evitar `head`/`timeout` (no existen; usar `findstr` / `ping -n`). Git root está en `backend/.git`. Respondo en español, directo, con pasos numerados y comandos listos para copiar.
 
 **Distinción importante de nombres:** "Sarah" = agente PID de la pizzería (este proyecto). "SARA AI" = agente de Roomy Food (hotel room service), que vive en `../roomy-food` con su propia memoria. No confundir.
 
@@ -79,3 +95,13 @@ Esta sesión resolvió tres cosas encima de eso:
 **Tono y estado emocional del owner:** venía quemado ("llevo 3 días con esta mierda", "por qué cojones sigue preguntando"). Lo que le dio la vuelta fue el WIN real en llamada + encontrar el bug del backtick que explicaba la frustración. Cerramos la sesión con todo verde y desplegado, y con él pidiendo dejar la memoria lista para continuar en otro chat sin perder el hilo.
 
 **Lo único que queda por VERIFICAR de esta sesión (no está confirmado en vivo):** que el `end_call` efectivamente cuelga (depende de que "End Call" esté activo en Sarah) y que el `callId` ya llega estable en los logs de Railway. Ambos están en los pendientes de arriba.
+
+---
+
+## CONTEXTO DE LA SESIÓN DEL 31-07 POR LA TARDE — caché de prompt
+
+Sesión corta y quirúrgica, sin el owner delante: arranqué verificando (checks + los 4 tests + `/health`), encontré 3 tests de suplementos sin commitear y los subí, y fui a por el **PENDIENTE #3 (latencia)**, el único de los tres que no depende de una llamada real.
+
+**La lección de la sesión: medir antes de optimizar.** "Activar prompt caching" sonaba a tocar un flag. Al medirlo se vio que la caché de OpenAI **es automática pero por prefijo exacto y solo desde 1024 tokens**, y que nuestro prefijo estable eran **69 tokens** — es decir, llevábamos meses pagando y esperando los ~11k tokens completos en cada turno. La culpa no era del tamaño del prompt sino del **orden**: la hora ("Ahora son las 14:37") y el bloque de cliente recurrente estaban ARRIBA, con la carta entera detrás. Mover lo dinámico al final es un cambio de cero riesgo semántico (no se tocó ni una palabra del contenido) que además **mejora la adherencia por recencia** — justo la palanca que ya usábamos con las directivas inyectadas.
+
+**Encaja con la filosofía del owner:** no es un parche de prompt, es estructura. Y para que nadie lo rompa sin enterarse, el invariante quedó blindado en `test-prompt-cache-20260731.cjs` y el resultado es observable en los logs (`cached=`), no una promesa.

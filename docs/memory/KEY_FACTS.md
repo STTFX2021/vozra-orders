@@ -49,16 +49,22 @@
 - LLM producción: OpenAI `gpt-4.1-mini` (vía Custom LLM, model id `vozra-marta-orders`). Ojo: comentarios del código dicen "gpt-4o-mini" (contradicción documental, no de código).
 
 ## Mapa de commits
-- **HEAD = producción = `1e4e435`** (colgar al despedirse + fin doble despedida). Todo sincronizado con `origin/main`.
-- Cadena reciente desplegada: `2bc9448` (stripConsentIfRegistered) → … → `06ba512` → `4d44956` (tool eliminar_alergia + backtick roto) → `002a590` (fix backtick crítico) → `1e4e435` (end_call).
+- **HEAD = producción = `c93f4db`** (prompt cacheable: cola dinámica al final + `prompt_cache_key` + log de tokens cacheados). Todo sincronizado con `origin/main`.
+- Cadena reciente desplegada: `2bc9448` (stripConsentIfRegistered) → … → `06ba512` → `4d44956` (tool eliminar_alergia + backtick roto) → `002a590` (fix backtick crítico) → `1e4e435` (end_call) → `bb6288a` (memoria) → `888767c` (tests F11 suplementos) → **`c93f4db`** (caché de prompt).
 - ⚠️ `4d44956` estuvo desplegado ROTO (backtick en el prompt). Arreglado en `002a590`.
+
+## Caché de prompt (OpenAI) — reglas que NO se pueden romper
+- La caché es **automática**, pero solo con **prefijo EXACTO** y a partir de **1024 tokens**. Se enruta con `prompt_cache_key: "vozra-pid-<slug>"`.
+- Por eso el system prompt es **prefijo estable (~11.206 tokens: identidad, reglas, carta) + cola dinámica al final (`# HORARIO DE COCINA` con la hora, `# CLIENTE RECURRENTE`)**.
+- ⚠️ **Nada dinámico por encima de la carta.** Antes del 31-07 el prefijo estable eran 69 tokens y la caché no entraba nunca.
+- Verificación en logs de Railway: `[LLM] openai 900ms | in=11400 cached=11136 out=48`.
 
 ## Herramientas del cerebro (7) y colgado
 - `submit_order`, `calcular_total`, `buscar_cliente`, `validar_direccion`, `consultar_pedido`, `registrar_incidencia`, `eliminar_alergia_guardada`.
 - **Colgar = `end_call`**: system tool de ElevenLabs (NO del cerebro). El backend lo emite como `tool_call` en el SSE (`sendStreamResponseWithEndCall` en `elevenlabs-llm.routes.js`). Requiere que "End Call" esté activo en el agente Sarah.
 
 ## Ficheros de test (todos desde `backend/`)
-- `test-pid-fixes-20260728.cjs` (47) · `test-allergy-remove-20260730.cjs` (5) · `test-end-call-20260731.cjs` (21) · `test-submit-order-validation-gate.cjs` (gate P0).
+- `test-pid-fixes-20260728.cjs` (47) · `test-allergy-remove-20260730.cjs` (5) · `test-end-call-20260731.cjs` (21) · `test-prompt-cache-20260731.cjs` (6) · `test-submit-order-validation-gate.cjs` (gate P0).
 
 ## Dato de prueba en Supabase
 - Cliente registrado de test: teléfono `634425921` (Samuel Tineo), `vozra_orders.customers`, con `restrictions.allergies` para probar el borrado de alergia en vivo.

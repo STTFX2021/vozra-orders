@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-07-31 (tarde) — Latencia/coste: el system prompt pasa a ser CACHEABLE (prefijo estable + cola dinámica)
+
+**Todo commiteado, pusheado y desplegado. HEAD = `c93f4db` = producción** (verificado en `/health`). Cadena del día: `1e4e435` → `bb6288a` → `888767c` → **`c93f4db`**.
+
+**Arranque de sesión (verificación previa, todo verde).** `node --check` de `marta-llm.service.js` y `elevenlabs-llm.routes.js` OK. Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21 · gate P0 OK. Había 3 tests de suplementos (F11) sin commitear en el working tree → commiteados en `888767c`.
+
+**Hallazgo (medido, no supuesto): el prompt caching de OpenAI NUNCA se estaba activando.** OpenAI cachea por **prefijo exacto** y solo a partir de **1024 tokens**. Medido con un script ad-hoc sobre `buildSystemPrompt()`: el prompt son ~45.000 chars (~11.260 tokens), pero el **prefijo estable era de 69 tokens**. Dos fugas: (a) `${perfilBloque}` estaba en la línea 3 del prompt (cambia según el cliente); (b) `${horarioLinea}` —que incluye **"Ahora son las HH:MM"**— estaba a ~3.500 tokens del inicio, con la carta entera (~9k tokens) DESPUÉS. Resultado: cada minuto (y cada cliente distinto) cambiaba el prefijo → los ~11k tokens se reprocesaban enteros en CADA turno, sin caché.
+
+**Fix (`c93f4db`), sin tocar una coma del contenido, solo el ORDEN:**
+1. `${perfilBloque}` y el bloque `# HORARIO DE COCINA` se mueven al **FINAL** del prompt. Bonus: por recencia, las reglas de cliente recurrente y de horario quedan más cerca del turno → mejor adherencia, que es justo lo que perseguíamos con las directivas.
+2. Añadido `prompt_cache_key: "vozra-pid-<slug>"` al payload de OpenAI (enruta todas las llamadas del tenant a la misma caché).
+3. Observabilidad: el log pasa de `[LLM] openai 900ms` a `[LLM] openai 900ms | in=11400 cached=11136 out=48`. **Así se verifica la caché en los logs de Railway sin adivinar.**
+
+**Resultado medido:** prefijo estable **69 → 11.206 tokens** (99,5% del prompt). Con acierto de caché, en `gpt-4.1-mini` el input cacheado cuesta **~75% menos** y baja el tiempo hasta el primer token — que es exactamente el hueco de latencia que ElevenLabs rellena con los "Entiendo…/Mmm…".
+
+**Test nuevo `test-prompt-cache-20260731.cjs` (6/6):** blinda el invariante. Falla si alguien vuelve a colar contenido dinámico antes de la carta (comprueba prefijo común >1024 tokens y >90% del prompt, hora en la cola, carta antes de la hora, bloque de perfil presente y al final, y que no se perdió ninguna sección al reordenar).
+
+**Higiene:** limpiado el lock huérfano `.git/objects/pack/pack-ae758…pack` que hacía fallar `geometric-repack` en cada commit; `git gc --prune=now` + `git fsck` limpios. Ya no aparece el warning.
+
+**PENDIENTE de verificar en vivo (no confirmado):** en la próxima llamada real, mirar en logs de Railway la línea `[LLM] openai … cached=…`. Debe salir `cached≈11000` a partir del 2º turno. Si sale `cached=0` en todos los turnos, la caché no está entrando (revisar que no se haya reintroducido algo dinámico arriba).
+
+---
+
 ## 2026-07-31 — Colgar al despedirse (end_call), borrar alergia con herramienta dedicada, y BUG CRÍTICO de backtick
 
 **Todo commiteado, pusheado y desplegado. HEAD = `1e4e435` = producción.** Cadena de commits del día: `4d44956` → `002a590` → `1e4e435`.

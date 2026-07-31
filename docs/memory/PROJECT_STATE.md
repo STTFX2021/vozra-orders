@@ -18,9 +18,9 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Supabase:** proyecto `vozra` (`igdbkndadrrljbycfekh`, eu-west-2), schema `vozra_orders` (orders, customers, call_logs, demo_callbacks, providers, usage_monthly, incidents). También existe `vozra_control` (control plane, uso Roomy/multi-tenant).
 
 ## 3. ESTADO DE DESPLIEGUE
-- **Commit desplegado en producción = HEAD = `1e4e435`.** `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
-- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, y colgar al despedirse.
-- Cadena reciente: `…171dadb` → `95f6aa9`/`0b3e177`/`1eec823` → `06ba512` → `4d44956` → `002a590` → **`1e4e435`** (HEAD).
+- **Commit desplegado en producción = HEAD = `c93f4db`** (verificado en `/health` 31-07 12:42Z). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
+- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, colgar al despedirse y **prompt cacheable**.
+- Cadena reciente: `…06ba512` → `4d44956` → `002a590` → `1e4e435` → `bb6288a` → `888767c` → **`c93f4db`** (HEAD).
 - ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo; `node --check` fallaba). Arreglado en `002a590`. **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
 - **Para desplegar:** commit → `git push origin main` (desde `backend/`) → Railway auto-despliega → llamada de prueba.
 
@@ -30,9 +30,13 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - El colgado (`end_call`) NO es una tool del cerebro: se emite como `tool_call` en el stream desde `elevenlabs-llm.routes.js` (ver §5).
 - Gate P0 fail-closed: `validateOrder` bloquea efectos si la validación falla (`test-submit-order-validation-gate.cjs`).
 - Deterministas ya en código (no dependen de que el LLM recuerde): precarga de perfil por teléfono, prevalidación de zona, `stripConsentIfRegistered`, `registeredCustomerDirective`, `realCustomerName`, `resolvePerPizzaQuantities`, `upsellAlreadyOffered`, dedup de dispatch por firma.
-- **Latencia:** system prompt = **42.685 chars ≈ 10.671 tokens por turno**. Causa: `${buildMenuText()}` (L400) embebe la carta completa (79 platos con descripción+alérgenos) en cada turno. Palancas seguras no aplicadas: prompt caching de OpenAI (el system prompt es idéntico cada turno) y/o adelgazar la carta. Requieren test + OK.
+- **Latencia / caché de prompt (31-07, desplegado):** el system prompt son ~45.000 chars ≈ **11.260 tokens por turno** (lo domina `${buildMenuText()}`, la carta completa). Está deliberadamente estructurado como **PREFIJO ESTABLE + COLA DINÁMICA**: todo lo que cambia (el bloque `# HORARIO DE COCINA` con "Ahora son las HH:MM" y el `# CLIENTE RECURRENTE`) va **al FINAL**. Motivo: OpenAI cachea por prefijo EXACTO y solo desde 1024 tokens; antes el prefijo estable eran **69 tokens** (la hora estaba a 3.500 tokens del inicio, con la carta detrás) → la caché no entraba nunca. Ahora el prefijo estable son **11.206 tokens**. Se envía `prompt_cache_key: "vozra-pid-<slug>"`. Blindado por `test-prompt-cache-20260731.cjs`.
+  - ⚠️ **NO metas contenido dinámico (hora, perfil, estado) por encima de la carta.** Rompe la caché entera y el test lo cazará.
+  - Verificación en logs de Railway: `[LLM] openai 900ms | in=11400 cached=11136 out=48`. `cached≈11000` desde el 2º turno = caché OK; `cached=0` siempre = algo la rompió.
+  - Palanca restante sin aplicar: **adelgazar la carta** (requiere test + OK del owner).
 
 ## 5. Fixes aplicados (detalle en SESSION_LOG)
+- **31-07 tarde (desplegado, `c93f4db`):** **prompt cacheable** — cola dinámica (horario + perfil recurrente) movida al final del system prompt, `prompt_cache_key` en el payload de OpenAI y log `in=/cached=/out=` para verificar la caché en Railway. Prefijo estable 69 → 11.206 tokens. Test `test-prompt-cache-20260731.cjs` (6). Además: higiene de `.git` (lock huérfano de `geometric-repack` limpiado con `git gc --prune=now`).
 - **31-07 (desplegado):** (a) tool determinista **`eliminar_alergia_guardada`** — borra la alergia de Supabase y de la sesión en el acto y deja de mencionarla en el mismo turno; (b) **colgar al despedirse** — al despachar se arma `session.farewellArmed`; en el turno siguiente, si `isFarewell()`, el backend (`elevenlabs-llm.routes.js`) da una despedida corta y emite `tool_call end_call` en el SSE (ElevenLabs cuelga), lo que además elimina el doble "queda confirmado"; (c) **fix crítico** del backtick roto en el prompt. Tests `test-allergy-remove-20260730.cjs` (5) + `test-end-call-20260731.cjs` (21).
 - **30-07 (desplegado):** raíz del "pide datos que ya tiene" = callId inestable → re-derivación por historial (`phoneFromHistory`, `loadProfileCached` 120s); anti-repetición saludo/dirección/alergia (`yaDicho`); `removed_allergies` en submit_order; `restrictions` jsonb en `customers`; `call_logs` (`upsertCallLog`); mitad-y-mitad (precio de la más cara); "una por pizza" (`resolvePerPizzaQuantities`); suplementos de extras (`computeQuote` → `suplementos`/`aviso_suplementos`). Cabecera `X-ElevenLabs-Conversation-Id={{system__conversation_id}}` publicada.
 - **28-07 (desplegado):** alergia sin "Oye" + lógica retirable/intrínseco (decisión: quitar topping y seguir, NO bloqueo); upsell exactamente una vez (determinista); `save_profile_consent=false` forzado en cliente registrado; fuera tiempos de entrega inventados. Nuevo `allergen-ontology.service.js`. `test-pid-fixes-20260728.cjs` (47 verdes actualmente).
@@ -56,7 +60,7 @@ Se **anota** la alergia (kitchenNote) y se **asesora** al cliente. Si el alérge
 - **Auditoría formal 2026-07-17** en `docs/` (D:), riesgo top S6 (invariantes en prompt vs código); ya atacado por `stripConsentIfRegistered` y por los deterministas del 28-07.
 
 ## 9. Próximo paso
-Ver `NEXT_SESSION.md`. Resumen: (1) confirmar en logs de Railway si el `callId` es estable (`conv_...`) para refactorizar los parches de historial a flags de sesión limpios; (2) verificar en llamada real que el `end_call` cuelga (system tool "End Call" activo en Sarah); (3) latencia (prompt caching / adelgazar carta). Nada pendiente de commit/push.
+Ver `NEXT_SESSION.md`. Resumen: **una sola llamada de prueba resuelve los tres pendientes a la vez** — en sus logs de Railway se lee (1) si el `callId` ya es `conv_...` (estable) para poder refactorizar los parches de historial a flags de sesión limpios, (2) si `cached≈11000` (la caché de prompt entra), y en la propia llamada (3) si Sarah CUELGA al despedirse. Nada pendiente de commit/push.
 
 ## 10. Archivos clave / IDs / URLs
 Ver `KEY_FACTS.md`.

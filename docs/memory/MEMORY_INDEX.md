@@ -4,7 +4,7 @@
 
 **Última actualización:** 2026-07-31
 **Owner:** sam (STTFX2021 / sttfx2021@gmail.com)
-**HEAD = producción:** `1e4e435` (todo desplegado, nada pendiente de push)
+**HEAD = producción:** `c93f4db` (todo desplegado, nada pendiente de push)
 
 > **TODO Vozra PID está aquí, en `backend/docs/memory/`.** El snapshot completo y actual vive en `PROJECT_STATE.md` (un solo fichero con todo). Este es el sitio único: los chats van y vienen, esta carpeta permanece (y se versiona en git).
 
