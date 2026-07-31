@@ -156,7 +156,10 @@ async function placeOutboundCall(toNumber) {
   );
 
   if (!result.ok || result.data?.success === false) {
-    const providerMessage = result.data?.detail || result.data?.message || `ElevenLabs HTTP ${result.status}`;
+    // OJO: ElevenLabs devuelve `detail` como OBJETO (o array, en errores de validación).
+    // Con String() salía "[object Object]" y se perdía el motivo real del fallo.
+    const raw = result.data?.detail ?? result.data?.message ?? `ElevenLabs HTTP ${result.status}`;
+    const providerMessage = typeof raw === "string" ? raw : JSON.stringify(raw);
     const error = new Error(String(providerMessage).slice(0, 300));
     error.providerStatus = result.status;
     throw error;
