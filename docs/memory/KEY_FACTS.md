@@ -2,7 +2,7 @@
 
 > IDs, URLs y rutas. **NUNCA secretos** (tokens, API keys, contraseñas). Solo referencias a dónde viven.
 
-**Última actualización:** 2026-07-28
+**Última actualización:** 2026-07-31
 
 ---
 
@@ -48,9 +48,20 @@
 ## Modelos
 - LLM producción: OpenAI `gpt-4.1-mini` (vía Custom LLM, model id `vozra-marta-orders`). Ojo: comentarios del código dicen "gpt-4o-mini" (contradicción documental, no de código).
 
-## Mapa parche→commit (nomenclatura del otro chat)
-- 0012 = `12d9cc7` · 0013 = `74e4243` (saludo con calle) · 0014 = `64511ab` (latencia) · **0015 = `2bc9448` (stripConsentIfRegistered) = DESPLEGADO en prod**.
-- Commits locales posteriores SIN pushear: `095d68c` (gate P0) · `b97948f` (refinado Sarah) · `982950a` (memoria) · `45e36c4` (no alergias no declaradas) · `171dadb` (cantidades + revisión alérgenos) = HEAD local.
+## Mapa de commits
+- **HEAD = producción = `1e4e435`** (colgar al despedirse + fin doble despedida). Todo sincronizado con `origin/main`.
+- Cadena reciente desplegada: `2bc9448` (stripConsentIfRegistered) → … → `06ba512` → `4d44956` (tool eliminar_alergia + backtick roto) → `002a590` (fix backtick crítico) → `1e4e435` (end_call).
+- ⚠️ `4d44956` estuvo desplegado ROTO (backtick en el prompt). Arreglado en `002a590`.
+
+## Herramientas del cerebro (7) y colgado
+- `submit_order`, `calcular_total`, `buscar_cliente`, `validar_direccion`, `consultar_pedido`, `registrar_incidencia`, `eliminar_alergia_guardada`.
+- **Colgar = `end_call`**: system tool de ElevenLabs (NO del cerebro). El backend lo emite como `tool_call` en el SSE (`sendStreamResponseWithEndCall` en `elevenlabs-llm.routes.js`). Requiere que "End Call" esté activo en el agente Sarah.
+
+## Ficheros de test (todos desde `backend/`)
+- `test-pid-fixes-20260728.cjs` (47) · `test-allergy-remove-20260730.cjs` (5) · `test-end-call-20260731.cjs` (21) · `test-submit-order-validation-gate.cjs` (gate P0).
+
+## Dato de prueba en Supabase
+- Cliente registrado de test: teléfono `634425921` (Samuel Tineo), `vozra_orders.customers`, con `restrictions.allergies` para probar el borrado de alergia en vivo.
 
 ## Auditoría formal
 - Fecha 2026-07-17, en `docs/` del repo (D:). Riesgo top = **S6** (invariantes críticos en prompt en vez de en código). Contenido íntegro NO leído aún.

@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-07-31 — Colgar al despedirse (end_call), borrar alergia con herramienta dedicada, y BUG CRÍTICO de backtick
+
+**Todo commiteado, pusheado y desplegado. HEAD = `1e4e435` = producción.** Cadena de commits del día: `4d44956` → `002a590` → `1e4e435`.
+
+**1) BUG CRÍTICO encontrado y arreglado (`002a590`).** El lote de suplementos del 30-07 metió, dentro del prompt (que es un template literal delimitado por backticks), la línea con `` `aviso_suplementos` `` y `` `suplementos` `` entre backticks. **Eso cerraba la cadena a la mitad y tiraba abajo el módulo entero** → `node --check` daba `SyntaxError: Unexpected identifier 'aviso_suplementos'`. El commit `4d44956` se desplegó ROTO (el backend no arrancaba); por eso "seguía fallando" pese a desplegar. Fix: backticks → comillas simples. Regla nueva: **nunca usar backticks dentro del prompt** (es un template literal). Verificado que no queda ningún otro backtick suelto en el prompt.
+
+**2) Borrar alergia con herramienta determinista (`4d44956`).** El `removed_allergies` de submit_order solo actuaba al final y la alergia guardada se re-inyectaba cada turno desde la sesión → seguía avisando de langostinos aunque el cliente dijera "quítala". Solución limpia: nueva tool **`eliminar_alergia_guardada`** (`ALLERGY_REMOVE_TOOL`) que, en cuanto el cliente dice "ya no soy alérgico / bórrala", el CÓDIGO (`computeRemoveAllergy`) borra la alergia de Supabase (`upsertCustomer removeAllergies`) e invalida `_profileCache`, y en el bucle la quita YA de `registeredRestrictions.allergies` + inyecta directiva "ALERGIA ELIMINADA, no la menciones". Deja de avisar en el mismo turno. Test `test-allergy-remove-20260730.cjs` (5/5). **WIN confirmado en llamada real**: reconoce a Samuel, confirma calle sin cantar número, no re-pide datos, no menciona alergia.
+
+**3) Colgar al despedirse (`1e4e435`).** Pedido del owner: tras confirmar y despedirse, el cliente se despide → agente dice adiós y CUELGA. En Custom LLM colgar lo hace ElevenLabs con su system tool `end_call`; nuestro backend debe emitir el `tool_call` en el stream. Implementado **determinista** en `elevenlabs-llm.routes.js`: al despachar se arma `session.farewellArmed=true`; en el turno siguiente, si `isFarewell(userText)` (detector que ignora "añade/quita/espera…"), el backend NO llama al LLM, da UNA despedida corta con el nombre y llama `sendStreamResponseWithEndCall` → emite `delta.tool_calls=[{name:"end_call", arguments:{reason}}]` + `finish_reason:"tool_calls"`. Eso además mata el doble "queda confirmado" (ese turno ya no pasa por el LLM). Test `test-end-call-20260731.cjs` (21/21). **Requisito ElevenLabs:** el system tool "End Call" debe estar activo en Sarah (viene por defecto en agentes de dashboard) — pendiente de confirmar en la llamada de prueba.
+
+**Estado tests:** `test-pid-fixes-20260728.cjs` 47/47, `test-allergy-remove` 5/5, `test-end-call` 21/21.
+
+**Pendiente (raíz aún abierta):** confirmar en logs de Railway que el `callId` llega estable (`conv_...`, no `el-...`). Si es estable, se pueden refactorizar los parches de historial (`phoneFromHistory`, anti-repeat `yaDicho`) a flags de sesión limpios. Si NO es estable, rematar la cabecera `X-ElevenLabs-Conversation-Id={{system__conversation_id}}` en ElevenLabs.
+
+**Nota git:** cada commit tira `error: failed to perform geometric repack ... pack ... File exists` (lock huérfano en `.git/objects/pack/`). No rompe nada (commit/push OK). Limpiar con `git gc --prune=now` cuando no haya trabajo a medias.
+
+---
+
+## 2026-07-30 — Suplementos de extras: calcular_total los expone + prompt obliga a avisar
+
+Llamada real: al añadir "más burrata / crema de berenjena" Sarah NO avisó del sobrecoste (la burrata cuesta 6€ y sí estaba en el total, pero no lo dijo). Fix determinista:
+- `computeQuote` (calcular_total) ahora devuelve `suplementos` [{plato, extra, importe_eur}] y `aviso_suplementos` (frase lista) extraídos del breakdown de `estimateTotal`. Así el importe está EXPLÍCITO en la respuesta de la tool, no enterrado.
+- Prompt: al añadir un extra → responder breve ("Hecho, te lo anoto") sin re-leer todo, y si calcular_total trae `aviso_suplementos`, DECIR el importe de cada suplemento antes de confirmar.
+- Tests F11. Sandbox OK.
+- Nota: el matching exacto del modificador (p.ej. "más burrata ahumada" → Burratina 6€ vs "Ingrediente extra" 1,50€) es un tema aparte de precisión NLP; aquí se resuelve SURFACING del suplemento que sea.
+
+**Estado ElevenLabs:** cabecera `X-ElevenLabs-Conversation-Id` = `{{system__conversation_id}}` añadida y publicada; Backup LLM revertido a Disabled (había un cambio colado a Custom). Pendiente confirmar en logs que el callId ya es estable (`conv_...`) para luego refactorizar los parches (phoneFromHistory/anti-repeat regex) a flags de sesión limpios.
+
+---
+
 ## 2026-07-30 — Anti-repetición (saludo/dirección/alergia) + borrar alergia del perfil
 
 **WIN confirmado en llamada real:** cliente registrado hace el pedido entero y va a cocina SIN que le pidan nombre ni dirección; "una por pizza" con 4 pizzas → 4 bebidas. El muro está roto.

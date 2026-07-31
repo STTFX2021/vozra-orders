@@ -2,59 +2,48 @@
 
 > Solo Vozra PID. Roomy Food está en `../roomy-food` con su propia memoria.
 
-**Escrito el:** 2026-07-28
+**Escrito el:** 2026-07-31
+**HEAD = producción:** `1e4e435` (commiteado, pusheado, desplegado en Railway).
 
-## Próximo paso: COMMIT + PUSH + DEPLOY + LLAMADA DE PRUEBA
-Fixes del 28-07 aplicados en `main` (working tree), **verdes en tests, SIN commit/push/deploy.**
+## Cómo arrancar (léelo en este orden)
+1. `MEMORY_INDEX.md` → este archivo → `PROJECT_STATE.md` → `KEY_FACTS.md`.
+2. Todo el trabajo reciente está DESPLEGADO. No hay nada pendiente de commit/push.
+3. Regla de oro del owner (sam): **arreglamos LÓGICA, no parches.** Autorización = código determinista, no confiar en que el LLM "recuerde". Responder siempre en español, directo y accionable.
+4. **Git root está en `backend/.git`.** Todo `git` se corre desde `…\vozra-orders\backend`, NO desde la carpeta padre (da "not a git repository").
 
-1. **Commit** (incluye los 2 ficheros nuevos sin trackear):
-   `git add marta-llm.service.js allergen-ontology.service.js test-pid-fixes-20260728.cjs`
-   `git commit -m "fix(pid): alergia sin Oye + retirable/intrinseco + upsell unico + consent forzado + sin ETA inventada"`
-2. **Railway (bloqueante real):** `origin/main` = `2bc9448`; `main` local está +5 (con el commit de hoy, +6) SIN pushear. Confirmar el commit desplegado. Si Railway sirve `origin/main`, en producción NO hay ningún fix desde el 20-07 → `git push` y desplegar.
-3. **Llamada de prueba obligatoria** tras deploy, dos escenarios:
-   - RECOGER, teléfono nuevo: no "cliente" (pregunta "¿a nombre de quién?"), no menciona dirección, no dice "voy a buscar tu perfil", sin muletillas inglesas ni puntos suspensivos.
-   - Alergia: "soy alérgico al marisco, ponme una Abruzzo" → debe avisar de los langostinos y ofrecer quitarlos (topping), SIN empezar con "Oye". Upsell: ofrecer bebida una vez; si el cliente la añade, NO volver a ofrecer postre. NO inventar hora de entrega.
-4. Supabase: el perfil nuevo NO guarda nombre genérico.
+## Estado actual (todo verde y en producción)
+Cliente registrado hace el pedido completo SIN que le repregunten nombre/teléfono/dirección; reconoce por nombre y confirma la calle sin cantar el número; alergia se anota pero NUNCA bloquea; borrar alergia funciona en el acto (tool `eliminar_alergia_guardada`); suplementos de extras se avisan; colgar al despedirse implementado (`end_call`). Tests: `test-pid-fixes-20260728.cjs` 47/47 · `test-allergy-remove-20260730.cjs` 5/5 · `test-end-call-20260731.cjs` 21/21.
 
-## Ontología de alérgenos (montada, vacía)
-`backend/allergen-ontology.service.js`, `ONTOLOGY = {}`. Cuando el restaurante dé la info por plato (qué alérgeno es topping retirable vs intrínseco), rellenar el mapa con el formato del ejemplo comentado. En cuanto tenga datos, la carta que ve Sarah los muestra y deja de deducir. Interino: deduce de la descripción.
+## PENDIENTE #1 (raíz aún abierta, prioridad alta): ¿el callId es estable?
+Todo lo demás cuelga de esto. Hay que **mirar los logs de Railway** una línea `[EL] turn | callId=…`:
+- Si es **`conv_...`** → estable. Entonces se puede REFACTORIZAR la deuda: quitar los parches de re-derivación por historial (`phoneFromHistory`, anti-repeat `yaDicho` regex en `marta-llm.service.js`) y pasarlos a **flags de sesión limpios** (`greeted`, `allergyMentioned`, `addressConfirmed`, `upsellOffered`, `farewellArmed`). Menos frágil, menos tokens.
+- Si sigue **`el-...`** → la cabecera `X-ElevenLabs-Conversation-Id = {{system__conversation_id}}` no está llegando. Rematar en el panel de ElevenLabs (Custom LLM → Request headers → tipo "Variable" → `system__conversation_id`) y re-publicar. Ojo: al publicar, verificar que **Backup LLM sigue en "Disabled"** (se ha colado a Custom otras veces y mete fillers en inglés + latencia).
 
-⚠️ Los tests automáticos (18 nuevos + 20+6+10+5) **no ejecutan** el LLM. Prueban que la regla y el código determinista existen. Que Sarah OBEDEZCA se valida solo en llamada real.
+## PENDIENTE #2 (verificación de la llamada de prueba del end_call)
+Confirmar en llamada real que Sarah CUELGA al despedirse. Si no cuelga:
+- Revisar que el system tool **"End Call"** esté activo en Sarah (ElevenLabs → agente Sarah → Tools). Viene por defecto en agentes de dashboard.
+- Si habla la despedida pero no cuelga, o cuelga sin hablar: mover la despedida al parámetro `message` de `end_call` (ajuste de 1 línea en `sendStreamResponseWithEndCall`, `elevenlabs-llm.routes.js`).
 
-## Roomy B2 en stash
-El trabajo de B2 quedó en `git stash` ("wip-b2") sobre `work/roomy-b2-domain-tenant-registry-20260719`. Para retomarlo: checkout a esa rama + `git stash pop`. Queda pendiente arreglar el test mock (llama sin ctx) y commitear.
+## PENDIENTE #3 (latencia)
+El owner notó que al activar Backup LLM sube la latencia (por eso está Disabled). Aparte, el system prompt son ~10.671 tokens/turno porque embebe la carta entera (`buildMenuText()` en `marta-llm.service.js` ~L400). Palancas seguras sin aplicar: **prompt caching de OpenAI** (el system prompt es idéntico cada turno) y/o adelgazar la carta. Requieren test + OK del owner.
 
-### Pista fuerte de la última sesión (simulador, 2026-07-19)
-En `node simulator.js` se vio este comportamiento anómalo:
+## Deuda técnica conocida (no urgente)
+- Tests cubren contrato del prompt y código determinista, NO ejecutan el LLM en vivo → que Sarah OBEDEZCA se valida en llamada real.
+- `validateOrder` es gate P0 fail-closed (OK), pero mono-tenant `la-locanda` hardcodeado en varios sitios.
+- `/kitchen/ack` sin auth extra; PII en logs y en `orders_fallback/`. Monitor de ACK en memoria (se pierde al reiniciar).
+- `simulator.js` usa el motor legacy `processTurn`, NO el cerebro → no refleja producción. No copiar de ahí.
+- Warning `geometric-repack ... File exists` en cada commit: lock huérfano en `.git`. Limpiar con `git gc --prune=now`.
+- Higiene .git: los `.env` tienen mensajes de "vestauth/inject env" al correr node — es una lib de terceros en el entorno del owner, no del proyecto.
 
+## Comandos útiles (desde `…\vozra-orders\backend`)
 ```
-Tú: una pizza, pero no estoy seguro de cuál.
-🤖 Marta: ¿Algo más o con eso te vale?
-Tú: el que?
-🤖 Marta: ¿Algo más o con eso te vale?
-Tú: como?
-🤖 Marta: ¿Algo más o con eso te vale?
+node --check marta-llm.service.js
+node --check elevenlabs-llm.routes.js
+node test-pid-fixes-20260728.cjs
+node test-allergy-remove-20260730.cjs
+node test-end-call-20260731.cjs
+git add <ficheros> && git commit -m "..." && git push origin main   # Railway auto-despliega
 ```
 
-**Diagnóstico:** el simulador NO usa el cerebro LLM — usa el **motor legacy** `order-slot-filler.service.js` (`processTurn`). Por eso repite la misma frase y no entiende preguntas. Es un bucle del parser por reglas.
-
-**Dos vías posibles, a decidir con el usuario:**
-1. Si el fallo que quiere afinar es **este bucle del simulador** → el arreglo real es que el simulador use `generateMartaReply` (el cerebro), o directamente retirar el simulador legacy. Ojo: el motor legacy es deuda técnica ya identificada en B0 y NO se usa en producción.
-2. Si el fallo es **en llamadas reales** (ElevenLabs) → entonces sí afecta al cerebro LLM y hay que ver el transcript concreto.
-
-**Importante:** en producción, PID usa `generateMartaReply` (LLM), no `processTurn`. El comportamiento del simulador **no** refleja lo que oye un cliente real.
-
-## Estado de PID
-Operativo en producción. Últimos fixes (orden teléfono-primero, sin puntos suspensivos, zona de reparto, pago, promos, incidencias) aplicados en `main`.
-
-## ⚠️ Aviso de despliegue (por B2 de Roomy)
-La rama de Roomy B2 introduce fail-closed: el servidor exigirá `SERVICE_DOMAIN` y `TENANT_SLUG`. **Eso NO está en `main`** todavía. Si algún día se mergea, hay que añadir esas variables en Railway ANTES o el servicio no arrancará.
-
-## Deuda conocida (de la auditoría/B0)
-- Tests cubren el motor legacy, no el cerebro real (B1 de Roomy ya añadió cobertura del camino real).
-- `validateOrder` no bloquea el dispatch → pendiente (B3).
-- `/kitchen/ack` sin auth; LLM abierto si falta secret; PII en logs.
-- Monitor de ACK en memoria.
-
-## Cómo empezar
-MEMORY_INDEX → este archivo → PROJECT_STATE. Preguntar al usuario: "¿Cuál es el fallo de PID que quieres afinar? ¿Lo viste en el simulador o en una llamada real?".
+## Datos de prueba en Supabase
+Cliente registrado de test: teléfono **`634425921`** (Samuel Tineo), `restrictions.allergies` se usa para probar el borrado de alergia en vivo. Schema `vozra_orders`, tabla `customers`.

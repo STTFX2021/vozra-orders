@@ -2,7 +2,7 @@
 
 > **Este es el sitio único con todo Vozra PID.** Solo PID (pizzería La Locanda). Roomy Food vive aparte en `../roomy-food` con su propia memoria. El histórico cronológico está en `SESSION_LOG.md`; este fichero es SIEMPRE el presente.
 
-**Última actualización:** 2026-07-28
+**Última actualización:** 2026-07-31
 **Owner:** sam (STTFX2021 / sttfx2021@gmail.com)
 
 ---
@@ -17,21 +17,25 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Voz/ElevenLabs:** agente "Sarah — pizzeria la locanda". Custom LLM → backend (model id `vozra-marta-orders`, Bearer `ELEVENLABS_CUSTOM_LLM_SECRET`). **Backup LLM = Disabled** (causaba fillers en inglés). Speed 1.03, Speculative turn OFF, solo Español. **Voz activa: voice_id `dNjJKg63Fr5AXwIdkATa`** (decisión owner 28-07; se fija en el panel de ElevenLabs, no por código).
 - **Supabase:** proyecto `vozra` (`igdbkndadrrljbycfekh`, eu-west-2), schema `vozra_orders` (orders, customers, call_logs, demo_callbacks, providers, usage_monthly, incidents). También existe `vozra_control` (control plane, uso Roomy/multi-tenant).
 
-## 3. ⚠️ ESTADO DE DESPLIEGUE (crítico)
-- **Commit desplegado en producción: `2bc9448`** (activo desde 26-jul, "cliente registrado NUNCA oye la pregunta…").
-- **`origin/main` = `2bc9448`.** El `main` **local está 5 commits por delante SIN pushear** (`095d68c`, `b97948f`, `982950a`, `45e36c4`, `171dadb`), +1 más sin commitear (los fixes del 28-07) → hasta **+6 sin desplegar**.
-- **Consecuencia:** en producción NO están `realCustomerName`, el bloqueo de alergias no solicitadas, las cantidades derivadas ni nada del 28-07. Muchos "bugs" reportados ya están resueltos en local pero nunca subidos.
-- **Para poner al día producción:** commit → `git push origin main` → Railway auto-despliega → **llamada de prueba**. (Railway tuvo incidencia de builds el 28-jul; puede retrasar.)
+## 3. ESTADO DE DESPLIEGUE
+- **Commit desplegado en producción = HEAD = `1e4e435`.** `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
+- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, y colgar al despedirse.
+- Cadena reciente: `…171dadb` → `95f6aa9`/`0b3e177`/`1eec823` → `06ba512` → `4d44956` → `002a590` → **`1e4e435`** (HEAD).
+- ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo; `node --check` fallaba). Arreglado en `002a590`. **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
+- **Para desplegar:** commit → `git push origin main` (desde `backend/`) → Railway auto-despliega → llamada de prueba.
 
 ## 4. El cerebro (`marta-llm.service.js`)
 - Entrada: `generateMartaReply(callId, incomingMessages, callerPhone)`. Historial formato OpenAI.
-- Tools (6): `submit_order`, `calcular_total`, `buscar_cliente`, `validar_direccion`, `consultar_pedido`, `registrar_incidencia`.
+- Tools (7): `submit_order`, `calcular_total`, `buscar_cliente`, `validar_direccion`, `consultar_pedido`, `registrar_incidencia`, **`eliminar_alergia_guardada`**.
+- El colgado (`end_call`) NO es una tool del cerebro: se emite como `tool_call` en el stream desde `elevenlabs-llm.routes.js` (ver §5).
 - Gate P0 fail-closed: `validateOrder` bloquea efectos si la validación falla (`test-submit-order-validation-gate.cjs`).
 - Deterministas ya en código (no dependen de que el LLM recuerde): precarga de perfil por teléfono, prevalidación de zona, `stripConsentIfRegistered`, `registeredCustomerDirective`, `realCustomerName`, `resolvePerPizzaQuantities`, `upsellAlreadyOffered`, dedup de dispatch por firma.
 - **Latencia:** system prompt = **42.685 chars ≈ 10.671 tokens por turno**. Causa: `${buildMenuText()}` (L400) embebe la carta completa (79 platos con descripción+alérgenos) en cada turno. Palancas seguras no aplicadas: prompt caching de OpenAI (el system prompt es idéntico cada turno) y/o adelgazar la carta. Requieren test + OK.
 
 ## 5. Fixes aplicados (detalle en SESSION_LOG)
-- **28-07 (en local, SIN commit):** alergia sin "Oye" + lógica retirable/intrínseco (decisión: quitar topping y seguir, NO bloqueo); upsell exactamente una vez (determinista); `save_profile_consent=false` forzado en cliente registrado; fuera tiempos de entrega inventados (no hay fuente de ETA). Nuevo `allergen-ontology.service.js`. Nuevo `test-pid-fixes-20260728.cjs` (18 verdes).
+- **31-07 (desplegado):** (a) tool determinista **`eliminar_alergia_guardada`** — borra la alergia de Supabase y de la sesión en el acto y deja de mencionarla en el mismo turno; (b) **colgar al despedirse** — al despachar se arma `session.farewellArmed`; en el turno siguiente, si `isFarewell()`, el backend (`elevenlabs-llm.routes.js`) da una despedida corta y emite `tool_call end_call` en el SSE (ElevenLabs cuelga), lo que además elimina el doble "queda confirmado"; (c) **fix crítico** del backtick roto en el prompt. Tests `test-allergy-remove-20260730.cjs` (5) + `test-end-call-20260731.cjs` (21).
+- **30-07 (desplegado):** raíz del "pide datos que ya tiene" = callId inestable → re-derivación por historial (`phoneFromHistory`, `loadProfileCached` 120s); anti-repetición saludo/dirección/alergia (`yaDicho`); `removed_allergies` en submit_order; `restrictions` jsonb en `customers`; `call_logs` (`upsertCallLog`); mitad-y-mitad (precio de la más cara); "una por pizza" (`resolvePerPizzaQuantities`); suplementos de extras (`computeQuote` → `suplementos`/`aviso_suplementos`). Cabecera `X-ElevenLabs-Conversation-Id={{system__conversation_id}}` publicada.
+- **28-07 (desplegado):** alergia sin "Oye" + lógica retirable/intrínseco (decisión: quitar topping y seguir, NO bloqueo); upsell exactamente una vez (determinista); `save_profile_consent=false` forzado en cliente registrado; fuera tiempos de entrega inventados. Nuevo `allergen-ontology.service.js`. `test-pid-fixes-20260728.cjs` (47 verdes actualmente).
 - **20-07:** nombres genéricos ("Cliente") filtrados por `realCustomerName`; dirección prohibida en RECOGER.
 - **18-07 y antes:** orden teléfono-primero, puntos suspensivos eliminados, desambiguación de platos, candado de alérgenos, zona de reparto (8 km), pago efectivo, promociones (vacío), incidencias.
 
@@ -52,7 +56,7 @@ Se **anota** la alergia (kitchenNote) y se **asesora** al cliente. Si el alérge
 - **Auditoría formal 2026-07-17** en `docs/` (D:), riesgo top S6 (invariantes en prompt vs código); ya atacado por `stripConsentIfRegistered` y por los deterministas del 28-07.
 
 ## 9. Próximo paso
-Ver `NEXT_SESSION.md`: commit (funcional + docs separados) → push → deploy → llamada de prueba. Autorización de push pendiente del owner.
+Ver `NEXT_SESSION.md`. Resumen: (1) confirmar en logs de Railway si el `callId` es estable (`conv_...`) para refactorizar los parches de historial a flags de sesión limpios; (2) verificar en llamada real que el `end_call` cuelga (system tool "End Call" activo en Sarah); (3) latencia (prompt caching / adelgazar carta). Nada pendiente de commit/push.
 
 ## 10. Archivos clave / IDs / URLs
 Ver `KEY_FACTS.md`.
