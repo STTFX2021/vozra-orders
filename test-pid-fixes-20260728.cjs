@@ -22,7 +22,8 @@ const {
   resolveDeliveryAddress,
   resolvePerPizzaQuantities,
   phoneFromHistory,
-  SUBMIT_ORDER_TOOL
+  SUBMIT_ORDER_TOOL,
+  computeQuote
 } = require("./marta-llm.service.js");
 const { estimateTotal, validateOrder } = require("./order-validator.service.js");
 const { getOrCreateOrderSession } = require("./order-call-session.store.js");
@@ -264,6 +265,23 @@ test("F10 customer_name NO es obligatorio (cliente registrado no falla)", () => 
 });
 test("F10 submit_order acepta removed_allergies (borrar alergia guardada)", () => {
   assert.ok(SUBMIT_ORDER_TOOL.function.parameters.properties.removed_allergies, "falta removed_allergies");
+});
+
+// ── SUPLEMENTOS: calcular_total los expone para que Sarah los diga ───────────
+test("F11 calcular_total expone los suplementos de un extra con precio", () => {
+  const q = computeQuote({ items: [
+    { menu_item_id: "pizza_margherita", quantity: 1, modifiers: [{ type: "extra", value: "burrata" }] }
+  ]});
+  assert.ok(Array.isArray(q.suplementos) && q.suplementos.length >= 1, "no expone suplementos");
+  assert.ok(q.suplementos.some(s => s.importe_eur > 0), "el suplemento no tiene importe");
+  assert.ok(/AVISA al cliente/i.test(q.aviso_suplementos || ""), "falta el aviso de suplementos");
+});
+test("F11 sin extras de pago no hay aviso de suplementos", () => {
+  const q = computeQuote({ items: [{ menu_item_id: "pizza_margherita", quantity: 1 }] });
+  assert.ok(!q.suplementos, "no debería haber suplementos");
+});
+test("F11 el prompt obliga a avisar del suplemento", () => {
+  assert.ok(/aviso_suplementos|DEBES decirle el importe|del importe de cada suplemento/i.test(buildSystemPrompt()));
 });
 
 console.log("══ RESUMEN ═══════════════════════════════════════");
