@@ -20,7 +20,7 @@
 const express  = require("express");
 const { processTurn, buildKitchenTicket } = require("./order-slot-filler.service.js");
 const { generateMartaReply, sanitizeReply } = require("./marta-llm.service.js");
-const { getOrCreateOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
+const { getOrCreateOrderSession, getOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
 const { validateOrder }   = require("./order-validator.service.js");
 const { buildTicket }     = require("./kitchen-ticket-builder.service.js");
 const { dispatchOrder }   = require("./dispatch-adapter.service.js");
@@ -92,6 +92,48 @@ function sendStreamResponse(res, content, id, model = "vozra-marta-orders") {
   writeChunk(res, id, model, {}, "stop");
   res.write("data: [DONE]\n\n");
   res.end();
+}
+
+/**
+ * Igual que sendStreamResponse pero, tras el texto, emite un tool_call al
+ * system tool `end_call` de ElevenLabs para que CUELGUE la llamada.
+ * ElevenLabs habla el `content`, ve el tool_call `end_call` y termina la llamada.
+ * Requisito: el system tool "End Call" debe estar activo en el agente (viene
+ * por defecto en agentes creados desde el dashboard).
+ */
+function sendStreamResponseWithEndCall(res, content, id, model = "vozra-marta-orders", reason = "El cliente se ha despedido y el pedido ya está confirmado.") {
+  startSSE(res);
+  writeChunk(res, id, model, { role: "assistant" });
+  writeChunk(res, id, model, { content: String(content || "").trim() });
+  writeChunk(res, id, model, {
+    tool_calls: [{
+      index: 0,
+      id: `call_end_${Date.now()}`,
+      type: "function",
+      function: { name: "end_call", arguments: JSON.stringify({ reason: String(reason || "").slice(0, 200) }) }
+    }]
+  });
+  writeChunk(res, id, model, {}, "tool_calls");
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
+/**
+ * ¿El cliente se está despidiendo? Detector determinista.
+ * Solo se consulta cuando el pedido YA está confirmado (flag de sesión), así que
+ * un "gracias" o "hasta luego" en ese punto significa fin de llamada con seguridad.
+ * NO dispara si el cliente sigue pidiendo/cambiando algo (añade, quita, espera…).
+ */
+function isFarewell(text) {
+  const t = String(text || "").toLowerCase().trim();
+  if (!t) return false;
+  // Si sigue operando sobre el pedido, NO es una despedida.
+  if (/\b(a[ñn]ad|agrega|quita|pon|ponme|cambia|cambi|espera|otra|otro|tambi[eé]n|adem[aá]s|mejor|quiero|ponle|s[uú]mame|a[ñn][aá]deme)\b/.test(t)) return false;
+  // Frases de cierre claras.
+  if (/(hasta luego|hasta pronto|hasta la próxima|adi[oó]s|chao|ciao|nada m[aá]s|eso es todo|es todo por|ya est[aá]|as[íi] est[aá] bien|perfecto gracias|vale gracias|de acuerdo gracias|no,? gracias|listo gracias)/.test(t)) return true;
+  // "gracias" a secas (o "muchas gracias") como cierre, si no está pidiendo nada más.
+  if (/(^|\s)(muchas |much[ií]simas )?gracias(\s|\.|!|$)/.test(t)) return true;
+  return false;
 }
 
 // ─── CALL ID EXTRACTOR ────────────────────────────────────────────────────────
@@ -231,6 +273,22 @@ router.post("/v1/chat/completions", async (req, res) => {
     );
   }
 
+  // ── CIERRE DE LLAMADA (determinista) ─────────────────────────────────────
+  // Si el pedido YA se confirmó en esta llamada (flag armado al despachar) y el
+  // cliente se despide, no gastamos LLM ni repetimos la confirmación: damos UNA
+  // despedida corta y emitimos el tool_call `end_call` para que ElevenLabs cuelgue.
+  try {
+    const s0 = getOrderSession(callId);
+    if (s0 && s0.farewellArmed && isFarewell(userText)) {
+      console.log(`[EL] cierre por despedida | callId=${callId} → end_call`);
+      const nombre = (s0.registeredName || s0.customerName || "").trim().split(/\s+/)[0];
+      const despedida = nombre
+        ? `¡Un placer, ${nombre}! Gracias por tu pedido, ¡hasta pronto!`
+        : "¡Gracias por tu pedido, un placer! ¡Hasta pronto!";
+      return sendStreamResponseWithEndCall(res, despedida, id, model);
+    }
+  } catch (_) {}
+
   // ── CEREBRO LLM (OpenAI) ─────────────────────────────────────────────────
   // Marta entiende lenguaje natural vía gpt-4o-mini y, al confirmar el cliente,
   // dispara el pedido a cocina dentro de generateMartaReply.
@@ -244,6 +302,12 @@ router.post("/v1/chat/completions", async (req, res) => {
   const { reply, dispatched, action } = await generateMartaReply(callId, userTurns, callerPhone);
     const spoken = sanitizeReply(reply); // segunda pasada: nada sucio llega al TTS
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(spoken).slice(0,60)}"`);
+
+    // Pedido confirmado y despachado → ARMAR el cierre: en el próximo turno, si el
+    // cliente se despide, colgamos (end_call). Se mutará la sesión por referencia.
+    if (dispatched === true) {
+      try { getOrCreateOrderSession(callId).farewellArmed = true; } catch (_) {}
+    }
 
     // Registro de la conversación en Supabase (call_logs). Fire-and-forget: NO bloquea
     // la respuesta de voz. Se upserta por conversation_id con el transcript acumulado
@@ -361,5 +425,9 @@ router.get("/debug/telegram", async (req, res) => {
     return res.json({ ok: false, info, error: e.message });
   }
 });
+
+// Exponer helpers deterministas para tests (el export sigue siendo el router).
+router._isFarewell = isFarewell;
+router._sendStreamResponseWithEndCall = sendStreamResponseWithEndCall;
 
 module.exports = router;
