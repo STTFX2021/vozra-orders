@@ -29,6 +29,7 @@
  *  DEFAULT_COUNTRY_CODE            (opcional, por defecto 34)
  */
 const express = require("express");
+const https = require("https");
 const router = express.Router();
 
 const { placeOutboundCall, turnstileSecret } = require("./demo-callback.routes.js");
@@ -64,6 +65,58 @@ function allowedTarget(e164) {
   const list = raw.split(",").map(s => s.trim()).filter(Boolean);
   return { allowed: list.includes(e164), enforced: true };
 }
+
+/**
+ * Pregunta a ElevenLabs por la clave que tiene ESTE servidor (la de Railway).
+ * Sirve para distinguir "la key no tiene permisos de Conversational AI" de
+ * "la key de Railway no es la que has editado". Nunca devuelve la clave.
+ */
+function probeElevenLabs(path) {
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: "api.elevenlabs.io",
+      path,
+      method: "GET",
+      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY || "" }
+    }, (r) => {
+      let d = "";
+      r.on("data", c => { d += c; });
+      r.on("end", () => {
+        let motivo = null;
+        try { const j = JSON.parse(d); motivo = (j.detail && (j.detail.message || j.detail)) || j.message || null; } catch (_) {}
+        resolve({ status: r.statusCode, ok: r.statusCode >= 200 && r.statusCode < 300, motivo: motivo ? String(motivo).slice(0, 200) : null });
+      });
+    });
+    req.on("error", e => resolve({ status: 0, ok: false, motivo: e.message }));
+    req.setTimeout(10000, () => req.destroy(new Error("timeout")));
+    req.end();
+  });
+}
+
+router.get("/admin/test-call/probe", async (req, res) => {
+  if (!authorize(req, res)) return;
+  if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ ok: false, error: "sin_api_key" });
+
+  const [usuario, convai] = await Promise.all([
+    probeElevenLabs("/v1/user"),                       // ¿la clave es válida?
+    probeElevenLabs("/v1/convai/agents?page_size=1")   // ¿tiene convai_read?
+  ]);
+  const huella = require("crypto").createHash("sha256")
+    .update(process.env.ELEVENLABS_API_KEY).digest("hex").slice(0, 8);
+
+  res.json({
+    ok: convai.ok,
+    clave_valida: usuario.ok,
+    permiso_convai_read: convai.ok,
+    huella_clave: huella,          // para comparar con la del panel SIN exponerla
+    detalle: { usuario, convai },
+    pista: convai.ok
+      ? "La clave de Railway ya puede usar Conversational AI."
+      : (usuario.ok
+          ? "La clave es válida pero NO tiene permisos de Conversational AI: o has editado otra clave distinta, o el cambio no se guardó."
+          : "La clave de Railway no es válida en ElevenLabs.")
+  });
+});
 
 router.get("/admin/test-call/diag", (req, res) => {
   if (!authorize(req, res)) return;
