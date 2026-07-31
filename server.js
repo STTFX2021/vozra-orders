@@ -36,12 +36,14 @@ const whatsappRoutes    = require("./whatsapp-twilio.routes.js");
 const printRoutes       = require("./print.routes.js");
 const telegramAckRoutes = require("./telegram-ack.routes.js");
 const demoCallbackRoutes = require("./demo-callback.routes.js");
+const adminTestCallRoutes = require("./admin-test-call.routes.js");
 
 app.use("/", elevenLabsRoutes);
 app.use("/", whatsappRoutes);
 app.use("/", printRoutes);
 app.use("/", telegramAckRoutes);
 app.use("/", demoCallbackRoutes);
+app.use("/", adminTestCallRoutes);
 
 // ACK de cocina: las alertas de "sin confirmar" se envían al canal de cocina (visibles).
 try { telegramAckRoutes.wireKitchenAlerts(); } catch (e) { console.error("[server] wireKitchenAlerts:", e.message); }
