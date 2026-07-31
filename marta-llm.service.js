@@ -236,7 +236,6 @@ Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCl
 
   return `# IDENTIDAD
 Eres ${asistente}, la asistente telefónica de pedidos de ${nombre}, en ${ciudad}. Atiendes llamadas para tomar pedidos de comida para recoger o a domicilio. Hablas como una camarera veterana que conoce la casa: cercana, profesional y resolutiva.
-${perfilBloque}
 
 # MISIÓN
 Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a cocina. Orden de prioridad obligatorio: seguridad → exactitud → confirmación → eficiencia.
@@ -320,11 +319,6 @@ ${(() => {
 - Colisiones conocidas de la carta (no exhaustivas — aplica el mismo criterio a cualquier otra que detectes): "carbonara" (pasta / pizza blanca), "parmigiana" (entrante / pizza), "vegetariana", "italiana" y otros nombres cortos que se repitan entre categorías.
 - Esta pregunta de aclaración es la ÚNICA excepción al ANTI-BUCLE, y SOLO cuando el nombre viene a secas. Hazla UNA sola vez; si el cliente no aclara, toma la opción más pedida/razonable y sigue.
 - Si el nombre coincide con UN SOLO plato, NO preguntes: añádelo directo.
-
-# HORARIO DE COCINA
-${horarioLinea}
-- Si la cocina está cerrada, avisa antes de cerrar el pedido y ofrece la próxima apertura disponible.
-- No prometas que estará listo a una hora incompatible con el horario.
 
 # FLUJO DEL PEDIDO
 1. Saluda. Lo PRIMERO que necesitas —ANTES de tomar platos— es saber si es para RECOGER (pasa el cliente a por él) o A DOMICILIO (se lo llevamos). Interpreta lo que el cliente ya te diga:
@@ -429,7 +423,13 @@ ${menu.gfNote ? "Sin gluten: " + menu.gfNote + " Suplemento de base sin gluten: 
 ${buildMenuText()}
 
 # EN CASO DE PROBLEMA TÉCNICO
-Si algo falla y no puedes continuar, discúlpate brevemente y pide que llamen directamente al local para completar el pedido.`;
+Si algo falla y no puedes continuar, discúlpate brevemente y pide que llamen directamente al local para completar el pedido.
+
+# HORARIO DE COCINA
+${horarioLinea}
+- Si la cocina está cerrada, avisa antes de cerrar el pedido y ofrece la próxima apertura disponible.
+- No prometas que estará listo a una hora incompatible con el horario.
+${perfilBloque}`;
 }
 
 // ─── HERRAMIENTA submit_order ───────────────────────────────────────────────
@@ -632,7 +632,14 @@ function callOpenAI(payload) {
       res.on("end", () => {
         try {
           const json = JSON.parse(data);
-          if (res.statusCode >= 200 && res.statusCode < 300) { console.log(`[LLM] openai ${Date.now()-_t0}ms`); resolve(json); }
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            // Observabilidad de caché de prompt: in=tokens de entrada,
+            // cached=cuántos vinieron de caché (deberían ser ~11k desde el 2º turno).
+            const u = json && json.usage;
+            const cached = u && u.prompt_tokens_details ? (u.prompt_tokens_details.cached_tokens || 0) : 0;
+            console.log(`[LLM] openai ${Date.now()-_t0}ms` + (u ? ` | in=${u.prompt_tokens} cached=${cached} out=${u.completion_tokens}` : ""));
+            resolve(json);
+          }
           else reject(new Error("OpenAI HTTP " + res.statusCode + ": " + data.slice(0, 300)));
         } catch (e) { reject(new Error("OpenAI parse error: " + e.message)); }
       });
@@ -1289,6 +1296,11 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       model: "gpt-4.1-mini",
       temperature: 0.4,
       max_tokens: 220,
+      // Enruta todas las llamadas de este tenant a la misma caché de prefijo.
+      // El system prompt es idéntico salvo su cola dinámica (horario + perfil),
+      // que va AL FINAL a propósito: así los ~11k tokens de reglas + carta
+      // entran cacheados (input más barato y menos latencia de primer token).
+      prompt_cache_key: "vozra-pid-" + (provider.slug || "la-locanda"),
       messages,
       tools,
       tool_choice: "auto"
