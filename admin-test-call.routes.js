@@ -31,7 +31,8 @@
 const express = require("express");
 const router = express.Router();
 
-const { placeOutboundCall } = require("./demo-callback.routes.js");
+const { placeOutboundCall, turnstileSecret } = require("./demo-callback.routes.js");
+const { isProduction } = require("./whatsapp-twilio.routes.js");
 const { toE164 } = require("./customer-notify.service.js");
 
 const REQUIRED_VARS = ["ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_AGENT_PHONE_NUMBER_ID"];
@@ -75,7 +76,15 @@ router.get("/admin/test-call/diag", (req, res) => {
     vars,
     faltan,
     allowlist_activa: Boolean(String(process.env.TEST_CALL_ALLOWED_NUMBERS || "").trim()),
-    pista: faltan.length ? "Pon esas variables en Railway → Variables y redespliega." : "Todo listo: POST /admin/test-call"
+    pista: faltan.length ? "Pon esas variables en Railway → Variables y redespliega." : "Todo listo: POST /admin/test-call",
+    // Panel de seguridad: solo booleanos, nunca valores.
+    seguridad: {
+      es_produccion: isProduction(),
+      twilio_firma_obligatoria: isProduction() && Boolean(process.env.TWILIO_AUTH_TOKEN),
+      twilio_skip_signature_puesta: process.env.TWILIO_SKIP_SIGNATURE === "true",
+      turnstile_configurado: Boolean(turnstileSecret()),
+      turnstile_nombre_canonico: Boolean(process.env.TURNSTILE_SECRET)
+    }
   });
 });
 

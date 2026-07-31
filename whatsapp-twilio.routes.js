@@ -213,19 +213,44 @@ function twimlResponse(messageText) {
 </Response>`;
 }
 
+/** ¿Estamos corriendo en Railway (producción)? Mismo criterio que elevenlabs-llm.routes.js. */
+function isProduction() {
+  return Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_GIT_COMMIT_SHA);
+}
+
 /**
  * Verifica la firma de Twilio para asegurar que el webhook es legítimo.
- * En producción activar siempre. En dev puede desactivarse con TWILIO_SKIP_SIGNATURE=true.
+ *
+ * FAIL-CLOSED EN PRODUCCIÓN (31-07). Antes había dos vías de escape que dejaban
+ * el webhook abierto a cualquiera que supiera la URL:
+ *   1) `TWILIO_SKIP_SIGNATURE=true` — pensado para dev, pero estaba puesto en Railway.
+ *   2) `if (!authToken) return true` — sin token, abierto (fail-OPEN).
+ * En Railway ambas se ignoran: sin firma válida, no se pasa. En local siguen
+ * funcionando para poder desarrollar sin Twilio.
  */
 function verifyTwilioSignature(req) {
-  if (process.env.TWILIO_SKIP_SIGNATURE === "true") return true;
+  const prod = isProduction();
+
+  if (process.env.TWILIO_SKIP_SIGNATURE === "true") {
+    if (!prod) return true;
+    console.error("[SEC] TWILIO_SKIP_SIGNATURE está a true en producción: lo IGNORO y valido la firma igualmente. Quítala de Railway.");
+  }
 
   const authToken = process.env.TWILIO_AUTH_TOKEN || "";
-  if (!authToken) return true; // sin token → abierto solo para dev
+  if (!authToken) {
+    if (prod) {
+      console.error("[SEC] TWILIO_AUTH_TOKEN no configurado en producción → rechazo el webhook");
+      return false;
+    }
+    return true; // dev local
+  }
 
   const crypto    = require("crypto");
   const signature = req.headers["x-twilio-signature"] || "";
-  const url       = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  // OJO: detrás del proxy de Railway, req.protocol devuelve "http" aunque Twilio
+  // haya firmado la URL pública "https". Sin esto la firma NUNCA cuadraría.
+  const proto     = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim();
+  const url       = `${proto}://${req.get("host")}${req.originalUrl}`;
 
   // Twilio firma: HMAC-SHA1 de (url + sorted params)
   const params    = req.body || {};
@@ -236,7 +261,10 @@ function verifyTwilioSignature(req) {
     .update(url + paramStr)
     .digest("base64");
 
-  return signature === expected;
+  // Comparación en tiempo constante (evita filtrar la firma byte a byte).
+  const a = Buffer.from(String(signature));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // ─── WEBHOOK PRINCIPAL ───────────────────────────────────────────────────────
@@ -385,3 +413,5 @@ router.get("/whatsapp/health", (req, res) => {
 });
 
 module.exports = router;
+module.exports.verifyTwilioSignature = verifyTwilioSignature;
+module.exports.isProduction = isProduction;

@@ -88,8 +88,23 @@ async function fetchJson(url, options, timeoutMs = 12000) {
   }
 }
 
+/**
+ * Secreto de Turnstile. Acepta varios nombres porque el panel de Cloudflare los
+ * llama "Secret key" / "Site key" y es fácil copiarlos con ese nombre literal a
+ * Railway (2026-07-31: así estaban, con espacio → `process.env` no los leía y la
+ * demo devolvía 503 en silencio). Sigue siendo FAIL-CLOSED: sin secreto, no pasa.
+ * Nombre canónico y recomendado: TURNSTILE_SECRET.
+ */
+function turnstileSecret() {
+  return process.env.TURNSTILE_SECRET
+      || process.env.TURNSTILE_SECRET_KEY
+      || process.env.CLOUDFLARE_TURNSTILE_SECRET
+      || process.env["Secret key"]
+      || "";
+}
+
 async function verifyTurnstileToken(token, remoteIp) {
-  const secret = process.env.TURNSTILE_SECRET || "";
+  const secret = turnstileSecret();
   if (!secret) throw new Error("TURNSTILE_SECRET no configurado");
 
   const result = await fetchJson(
@@ -293,3 +308,4 @@ module.exports.normalizeCountry = normalizeCountry;
 module.exports.demoCors = demoCors;
 module.exports.verifyTurnstileToken = verifyTurnstileToken;
 module.exports.placeOutboundCall = placeOutboundCall;
+module.exports.turnstileSecret = turnstileSecret;
