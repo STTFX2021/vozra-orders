@@ -189,12 +189,45 @@ function renderMenu(menu) {
   return "Consulta la carta de la casa.";
 }
 
-// Filtra nombres placeholder que el modelo a veces cuela ("Cliente", "Customer"):
-// nunca deben usarse como nombre real ni guardarse en el perfil.
+// Filtra nombres placeholder que el modelo a veces cuela ("Cliente", "Customer")
+// y basura que se colara en el perfil por un STT malo. Caso real 01-08-2026: el
+// perfil del 679391554 tenía el nombre "el", y Sarah saludó con "Aquí estás, el.".
+// Regla: un nombre de persona tiene al menos 2 letras y no es un artículo/pronombre.
+const _NOMBRES_NO_VALIDOS = /^(cliente|customer|client|usuario|user|el|la|lo|los|las|un|una|si|no|se|me|te|mi|tu|su|de|del|que|eh|ah|mmm|hola|buenas)$/i;
 function realCustomerName(n) {
   const s = n == null ? "" : String(n).trim();
-  if (!s || /^(cliente|customer|client|usuario|user)$/i.test(s)) return null;
+  if (!s) return null;
+  // Sin tildes para comparar: "sí" y "si" son la misma palabra basura.
+  const sinTildes = s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (_NOMBRES_NO_VALIDOS.test(sinTildes)) return null;
+  if (s.replace(/[^\p{L}]/gu, "").length < 2) return null; // "a", "J.", "-", números sueltos
   return s;
+}
+
+/**
+ * ¿El cliente ha CORREGIDO su nombre durante la llamada? Devuelve el nombre nuevo.
+ *
+ * Caso real (01-08-2026): el perfil traía "Antonio"; el cliente dijo dos veces
+ * "mi nombre es Capullo Cabezón" y Sarah siguió llamándole Antonio, porque la
+ * directiva de cliente registrado se reinyecta cada turno con el nombre de la BD
+ * y pisa lo que el cliente acaba de decir. Lo que dice el cliente EN VIVO manda
+ * sobre lo guardado: se detecta en código, no se deja a criterio del modelo.
+ */
+function nombreCorregidoEnLlamada(incomingMessages) {
+  // SIN flag 'i' a propósito: el nombre capturado DEBE empezar por mayúscula real
+  // (\p{Lu}), que es lo que lo distingue de las palabras de relleno de la frase.
+  // Por eso los disparadores llevan la mayúscula inicial explícita ([Mm]e llamo…).
+  const rx = /(?:[MmSs]e\s+llamo|[Mm]i\s+nombre\s+es|[Aa]\s+nombre\s+de|[CcÁá]?[áa]?mbiame\s+el\s+nombre|[Aa]p[úu]ntalo\s+a\s+nombre\s+de)[^\p{Lu}]{0,40}?([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})/u;
+  let encontrado = null;
+  for (const m of (incomingMessages || [])) {
+    if (!m || m.role !== "user" || !m.content) continue;
+    const hit = rx.exec(String(m.content));
+    if (hit && hit[1]) {
+      const limpio = realCustomerName(hit[1].trim());
+      if (limpio) encontrado = limpio;   // nos quedamos con la ÚLTIMA corrección
+    }
+  }
+  return encontrado;
 }
 
 function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null) {
@@ -886,6 +919,33 @@ async function computeRemoveAllergy(args, conversationMessages) {
   return { ok: true, eliminadas: alergias, perfil_actualizado: !!(db && db.ok) };
 }
 
+/**
+ * PERSISTE en Supabase el nombre que el cliente ha corregido de viva voz.
+ *
+ * Requisito del owner (01-08-2026): "cuando el cliente modifique algo, Sarah
+ * tiene que adaptarse y modificarlo también". No basta con usar el nombre nuevo
+ * durante la llamada: si no se guarda, en la siguiente vuelve a saludarle mal.
+ * Caso real: el perfil del 679391554 tenía el nombre "el"; el cliente lo corrigió
+ * dos veces y la BD siguió igual.
+ *
+ * Va fire-and-forget: si la BD falla, la llamada NO se interrumpe.
+ */
+async function persistirNombreCorregido(nombre, conversationMessages, callerPhone) {
+  const limpio = realCustomerName(nombre);
+  if (!limpio) return { ok: false, motivo: "nombre_no_valido" };
+  const tel = callerPhone || phoneFromHistory(conversationMessages);
+  if (!tel) return { ok: false, motivo: "sin_telefono" };
+  try {
+    const db = await upsertCustomer({ phone: tel, providerSlug: "la-locanda", name: limpio, consent: true });
+    try { _profileCache.delete(tel); } catch (_) {}   // recargar perfil con el nombre nuevo
+    console.log("[PERFIL] nombre corregido y guardado | tel=***" + String(tel).slice(-3));
+    return { ok: !!(db && db.ok) };
+  } catch (e) {
+    console.error("[PERFIL] no se pudo guardar el nombre corregido | " + e.message);
+    return { ok: false, motivo: "error_bd" };
+  }
+}
+
 async function toolOutput(tc, conversationMessages = []) {
   const name = tc && tc.function && tc.function.name;
   let a = {};
@@ -1365,6 +1425,30 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
   //  2) si el cliente ya confirmó, se ENVÍA el pedido en vez de volver a preguntar;
   //  3) si el turno anterior ya hacía esa misma pregunta, se prohíbe repetirla.
   const _yaAvisoSuplemento = suplementoYaAvisado(incomingMessages);
+
+  // LO QUE DICE EL CLIENTE EN VIVO MANDA SOBRE LO GUARDADO. Si ha corregido su
+  // nombre, se pisa el de la BD en la sesión (para que la directiva de cliente
+  // registrado deje de reinyectar el viejo) y se ordena usar el nuevo.
+  const _nombreCorregido = nombreCorregidoEnLlamada(incomingMessages);
+  if (_nombreCorregido) {
+    let _yaGuardado = false;
+    try {
+      const s = getOrCreateOrderSession(callId);
+      if (s) {
+        _yaGuardado = s.nombrePersistido === _nombreCorregido;
+        s.registeredName = _nombreCorregido;
+        s.nombrePersistido = _nombreCorregido;
+      }
+    } catch (_) {}
+    // Persistir en Supabase (una sola vez por nombre, sin bloquear la voz).
+    if (!_yaGuardado) {
+      persistirNombreCorregido(_nombreCorregido, incomingMessages, callerPhone).catch(() => {});
+    }
+    messages.push({ role: "system", content:
+      "EL CLIENTE HA CORREGIDO SU NOMBRE en esta llamada: ahora se llama \"" + _nombreCorregido + "\". " +
+      "Usa SOLO ese nombre a partir de ahora (al dirigirte a él y en la comanda) e IGNORA cualquier nombre guardado anterior. " +
+      "NO le vuelvas a llamar por el nombre antiguo ni le pidas que lo repita: ya te lo ha dicho." });
+  }
   if (confirmacionPendienteDeEnviar(incomingMessages)) {
     messages.push({ role: "system", content:
       "EL CLIENTE YA HA CONFIRMADO el pedido en su último mensaje. Está AUTORIZADO: llama a submit_order AHORA con el pedido tal cual está. " +
@@ -1448,7 +1532,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           out.suplementos_ya_avisados = true;
         }
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
-          clienteRegistrado = out.nombre || "el cliente";
+          // Si el cliente ya corrigió su nombre en esta llamada, ese manda sobre el de la BD.
+          clienteRegistrado = _nombreCorregido || realCustomerName(out.nombre) || "el cliente";
+          if (_nombreCorregido) out.nombre = _nombreCorregido;
           clienteDireccion = out.direccion || null;
           try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; s.registeredRestrictions = { allergies: out.alergias_guardadas || [], preferences: out.preferencias_guardadas || [] }; } catch (_) {}
         }
@@ -1521,5 +1607,9 @@ module.exports = {
   esPreguntaDeConfirmacion,
   esAfirmacionSimple,
   repitePreguntaAnterior,
-  confirmacionPendienteDeEnviar
+  confirmacionPendienteDeEnviar,
+  // El cliente manda sobre lo guardado
+  realCustomerName,
+  nombreCorregidoEnLlamada,
+  persistirNombreCorregido
 };
