@@ -218,13 +218,32 @@ function nombreCorregidoEnLlamada(incomingMessages) {
   // (\p{Lu}), que es lo que lo distingue de las palabras de relleno de la frase.
   // Por eso los disparadores llevan la mayúscula inicial explícita ([Mm]e llamo…).
   const rx = /(?:[MmSs]e\s+llamo|[Mm]i\s+nombre\s+es|[Aa]\s+nombre\s+de|[CcÁá]?[áa]?mbiame\s+el\s+nombre|[Aa]p[úu]ntalo\s+a\s+nombre\s+de)[^\p{Lu}]{0,40}?([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})/u;
+  // Caso 2: Sarah PIDE el nombre ("¿a nombre de quién lo pongo?") y el cliente
+  // responde con él a secas ("Antonio Roldán"). También cuenta como dato dado y
+  // hay que guardarlo: si no, se lo volveríamos a preguntar en la próxima llamada.
+  const rxPregunta = /(a\s+nombre\s+de\s+qui[ée]n|c[óo]mo\s+te\s+llamas|tu\s+nombre|me\s+dices\s+.{0,10}nombre|qui[ée]n\s+lo\s+pongo)/i;
+  const rxSolo = /^[^\p{Lu}]{0,20}([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})\s*[.!]?\s*$/u;
+
+  const ms = (incomingMessages || []).filter(m => m && m.content);
   let encontrado = null;
-  for (const m of (incomingMessages || [])) {
-    if (!m || m.role !== "user" || !m.content) continue;
-    const hit = rx.exec(String(m.content));
+  for (let i = 0; i < ms.length; i++) {
+    const m = ms[i];
+    if (m.role !== "user") continue;
+    const texto = String(m.content);
+
+    const hit = rx.exec(texto);
     if (hit && hit[1]) {
       const limpio = realCustomerName(hit[1].trim());
-      if (limpio) encontrado = limpio;   // nos quedamos con la ÚLTIMA corrección
+      if (limpio) { encontrado = limpio; continue; }   // nos quedamos con la ÚLTIMA
+    }
+    // ¿El turno anterior del asistente le estaba pidiendo el nombre?
+    const previo = ms[i - 1];
+    if (previo && previo.role === "assistant" && rxPregunta.test(String(previo.content))) {
+      const solo = rxSolo.exec(texto.trim());
+      if (solo && solo[1]) {
+        const limpio = realCustomerName(solo[1].trim());
+        if (limpio) encontrado = limpio;
+      }
     }
   }
   return encontrado;
@@ -1323,6 +1342,66 @@ function confirmacionPendienteDeEnviar(incomingMessages) {
   return false;
 }
 
+// ─── COMPLETITUD DEL PERFIL (regla del owner, 2026-08-01) ───────────────────
+// "Siempre se revisa la base de datos para comprobar si tiene todos los datos
+//  antes de continuar con el pedido. Si detecta que le falta algo, lo pregunta
+//  antes de tomar la orden de comida. Si es la primera vez, se le pregunta al
+//  final si quiere que guardemos sus datos. Si ya está registrado, no se hace
+//  nada: se continúa con el flujo normal."
+//
+// Motivo (llamada conv_5501kyyd…): el perfil no tenía nombre y Sarah respondió
+// "tengo tu nombre guardado" y luego "no puedo decir tu nombre por teléfono".
+// Afirmó tener un dato que no tenía y se inventó una política de privacidad.
+
+/** ¿Qué tipo de entrega ha quedado claro en la conversación? */
+function tipoDeEntrega(incomingMessages) {
+  const t = (incomingMessages || [])
+    .filter(m => m && m.content).map(m => _normalizaFrase(m.content)).join(" ");
+  const doms = /(a\s+domicilio|domicilio|me\s+lo\s+llev|te\s+lo\s+llevo|reparto|delivery|a\s+casa)/.test(t);
+  const rec  = /(recoger|recojo|paso\s+a\s+por|lo\s+recojo|en\s+el\s+local|paso\s+a\s+buscar)/.test(t);
+  if (doms && !rec) return "domicilio";
+  if (rec && !doms) return "recoger";
+  return doms ? "domicilio" : null;
+}
+
+/**
+ * Estado del perfil: qué tenemos de verdad y qué falta. Puro y testeable.
+ * `faltan` solo incluye datos REALMENTE necesarios para este pedido.
+ */
+function estadoDelPerfil({ registrado, nombre, direccion, telefono, tipoEntrega }) {
+  const faltan = [];
+  if (!telefono) faltan.push("teléfono");
+  if (!realCustomerName(nombre)) faltan.push("nombre");
+  if (tipoEntrega === "domicilio" && !direccion) faltan.push("dirección");
+  return { registrado: !!registrado, faltan, completo: faltan.length === 0 };
+}
+
+/**
+ * La orden que se le da al modelo según el estado del perfil. Devuelve "" cuando
+ * el cliente está registrado y completo: ahí no se toca nada, flujo normal.
+ */
+function directivaDatosDelCliente(estado) {
+  const HONESTIDAD =
+    "REGLA INNEGOCIABLE: NUNCA afirmes tener un dato que no tienes, y NUNCA te excuses diciendo que " +
+    "no puedes decirlo \"por privacidad\" o \"por teléfono\" (eso es mentira y no existe tal norma). " +
+    "Si no tienes un dato, lo PIDES con naturalidad. Si el cliente pregunta qué datos tienes, dile la verdad.";
+
+  if (!estado.registrado) {
+    return "CLIENTE NUEVO (no está en la base de datos). " + HONESTIDAD + "\n" +
+      "1) ANTES de tomar los platos necesitas: teléfono, nombre" +
+      (estado.faltan.includes("dirección") ? " y dirección de entrega" : "") + ". Pídelos de uno en uno, con naturalidad.\n" +
+      "2) AL FINAL, después de confirmar el pedido, pregúntale UNA vez si quiere que guardemos sus datos " +
+      "para la próxima (save_profile_consent=true solo si dice que sí).";
+  }
+
+  if (estado.completo) return ""; // registrado y completo → nada, flujo normal
+
+  return "CLIENTE REGISTRADO pero su ficha está INCOMPLETA. Le FALTA: " + estado.faltan.join(", ") + ". " + HONESTIDAD + "\n" +
+    "1) PIDE ese dato (solo ese) ANTES de empezar a tomar los platos. Ejemplo para el nombre: \"¿A nombre de quién lo pongo?\".\n" +
+    "2) NO le pidas los datos que SÍ tienes.\n" +
+    "3) NO le preguntes si guardar sus datos: ya está registrado. Cuando te dé el dato que falta, se guarda solo.";
+}
+
 function registeredCustomerDirective(nombre, direccion) {
   // BUG REAL 01-08-2026 ("Aquí estás, el."): con el nombre a null, el fallback
   // "el cliente" se partía por el espacio y dejaba primerNombre="el", y la propia
@@ -1368,12 +1447,16 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     // No dependemos de que la sesión (callId) sobreviva: si el cliente dio su teléfono
     // en cualquier momento y tiene perfil, siempre lo reconocemos. Así "ya te conoce,
     // no vuelve a pedir datos" se cumple aunque el callId cambie entre turnos.
-    if (!s0.registeredName) {
+    // OJO: la condición mira registeredFound, NO registeredName. Un perfil puede
+    // existir SIN nombre (caso real del 679391554) y con la condición vieja se
+    // recargaba en cada turno y nunca se sabía que ya estaba registrado.
+    if (!s0.registeredFound) {
       const tel = phoneFromHistory(incomingMessages);
       if (tel) {
         const prof = await loadProfileCached(tel);
         if (prof) {
-          s0.registeredName = prof.name || "el cliente";
+          s0.registeredName = realCustomerName(prof.name); // null si no hay nombre válido
+          s0.registeredFound = true;                       // el perfil EXISTE aunque falten datos
           s0.registeredAddress = prof.address ? (prof.address.raw || prof.address) : null;
           s0.registeredRestrictions = prof.restrictions || null; // { allergies, preferences }
           s0.registeredPreloaded = true;
@@ -1463,6 +1546,21 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       "Usa SOLO ese nombre a partir de ahora (al dirigirte a él y en la comanda) e IGNORA cualquier nombre guardado anterior. " +
       "NO le vuelvas a llamar por el nombre antiguo ni le pidas que lo repita: ya te lo ha dicho." });
   }
+  // ── GATE DE DATOS DEL CLIENTE (se comprueba la BD ANTES de tomar la comanda) ──
+  try {
+    const sD = getOrCreateOrderSession(callId);
+    const telD = callerPhone || phoneFromHistory(incomingMessages);
+    const estado = estadoDelPerfil({
+      registrado: !!(sD && sD.registeredFound),
+      nombre: _nombreCorregido || (sD && sD.registeredName),
+      direccion: sD && sD.registeredAddress,
+      telefono: telD,
+      tipoEntrega: tipoDeEntrega(incomingMessages)
+    });
+    const directiva = directivaDatosDelCliente(estado);
+    if (directiva) messages.push({ role: "system", content: directiva });
+  } catch (_) {}
+
   if (confirmacionPendienteDeEnviar(incomingMessages)) {
     messages.push({ role: "system", content:
       "EL CLIENTE YA HA CONFIRMADO el pedido en su último mensaje. Está AUTORIZADO: llama a submit_order AHORA con el pedido tal cual está. " +
@@ -1633,5 +1731,9 @@ module.exports = {
   // El cliente manda sobre lo guardado
   realCustomerName,
   nombreCorregidoEnLlamada,
-  persistirNombreCorregido
+  persistirNombreCorregido,
+  // Completitud del perfil (se comprueba la BD antes de tomar la comanda)
+  estadoDelPerfil,
+  directivaDatosDelCliente,
+  tipoDeEntrega
 };
