@@ -71,7 +71,7 @@ function allowedTarget(e164) {
  * Sirve para distinguir "la key no tiene permisos de Conversational AI" de
  * "la key de Railway no es la que has editado". Nunca devuelve la clave.
  */
-function probeElevenLabs(path) {
+function probeElevenLabs(path, devolverCuerpo) {
   return new Promise((resolve) => {
     const req = https.request({
       hostname: "api.elevenlabs.io",
@@ -82,9 +82,18 @@ function probeElevenLabs(path) {
       let d = "";
       r.on("data", c => { d += c; });
       r.on("end", () => {
-        let motivo = null;
-        try { const j = JSON.parse(d); motivo = (j.detail && (j.detail.message || j.detail)) || j.message || null; } catch (_) {}
-        resolve({ status: r.statusCode, ok: r.statusCode >= 200 && r.statusCode < 300, motivo: motivo ? String(motivo).slice(0, 200) : null });
+        let motivo = null, cuerpo = null;
+        try {
+          const j = JSON.parse(d);
+          motivo = (j.detail && (j.detail.message || j.detail)) || j.message || null;
+          if (devolverCuerpo) cuerpo = j;
+        } catch (_) {}
+        resolve({
+          status: r.statusCode,
+          ok: r.statusCode >= 200 && r.statusCode < 300,
+          motivo: motivo ? String(motivo).slice(0, 200) : null,
+          ...(devolverCuerpo ? { cuerpo } : {})
+        });
       });
     });
     req.on("error", e => resolve({ status: 0, ok: false, motivo: e.message }));
@@ -97,24 +106,44 @@ router.get("/admin/test-call/probe", async (req, res) => {
   if (!authorize(req, res)) return;
   if (!process.env.ELEVENLABS_API_KEY) return res.status(503).json({ ok: false, error: "sin_api_key" });
 
-  const [usuario, convai] = await Promise.all([
-    probeElevenLabs("/v1/user"),                       // ¿la clave es válida?
-    probeElevenLabs("/v1/convai/agents?page_size=1")   // ¿tiene convai_read?
+  const [usuario, convai, numeros] = await Promise.all([
+    probeElevenLabs("/v1/user"),                        // ¿la clave es válida?
+    probeElevenLabs("/v1/convai/agents?page_size=1"),   // ¿tiene convai_read?
+    probeElevenLabs("/v1/convai/phone-numbers", true)   // los IDs reales de los números
   ]);
+
+  // ELEVENLABS_AGENT_PHONE_NUMBER_ID debe ser el ID de ElevenLabs, NO el "+34…".
+  // Confundirlo da: "Document with id +19014228104 not found".
+  const lista = Array.isArray(numeros.cuerpo) ? numeros.cuerpo : (numeros.cuerpo?.phone_numbers || []);
+  const disponibles = lista.map(n => ({
+    id: n.phone_number_id || n.id,
+    numero: n.phone_number,
+    etiqueta: n.label || n.provider || null,
+    agente_asignado: n.assigned_agent?.agent_name || n.assigned_agent?.agent_id || null
+  }));
+  const puesto = process.env.ELEVENLABS_AGENT_PHONE_NUMBER_ID || "";
+  const idCorrecto = disponibles.some(n => n.id === puesto);
   const huella = require("crypto").createHash("sha256")
     .update(process.env.ELEVENLABS_API_KEY).digest("hex").slice(0, 8);
 
   res.json({
-    ok: convai.ok,
+    ok: convai.ok && idCorrecto,
     clave_valida: usuario.ok,
     permiso_convai_read: convai.ok,
     huella_clave: huella,          // para comparar con la del panel SIN exponerla
-    detalle: { usuario, convai },
-    pista: convai.ok
-      ? "La clave de Railway ya puede usar Conversational AI."
-      : (usuario.ok
-          ? "La clave es válida pero NO tiene permisos de Conversational AI: o has editado otra clave distinta, o el cambio no se guardó."
-          : "La clave de Railway no es válida en ElevenLabs.")
+    phone_number_id_valido: idCorrecto,
+    phone_number_id_puesto: puesto,
+    numeros_disponibles: disponibles,
+    detalle: { usuario, convai, numeros: { status: numeros.status, motivo: numeros.motivo } },
+    pista: !usuario.ok
+      ? "La clave de Railway no es válida en ElevenLabs."
+      : !convai.ok
+        ? "La clave es válida pero NO tiene permisos de Conversational AI: o has editado otra clave distinta, o el cambio no se guardó."
+        : idCorrecto
+          ? "Todo correcto: clave con permisos y phone_number_id válido."
+          : (disponibles.length
+              ? "ELEVENLABS_AGENT_PHONE_NUMBER_ID es incorrecto. Pon en Railway el 'id' de 'numeros_disponibles' (NO el número de teléfono)."
+              : "No hay ningún número importado en ElevenLabs → Phone Numbers. Hay que conectar el número de Twilio ahí primero.")
   });
 });
 
