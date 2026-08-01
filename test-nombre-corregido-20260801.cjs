@@ -19,7 +19,8 @@ const assert = require("assert");
 const {
   realCustomerName,
   nombreCorregidoEnLlamada,
-  persistirNombreCorregido
+  persistirNombreCorregido,
+  registeredCustomerDirective
 } = require("./marta-llm.service.js");
 
 let pass = 0, fail = 0;
@@ -86,6 +87,34 @@ test("no persiste un nombre inválido en la base de datos", async () => {
   const r = await persistirNombreCorregido("el", [U("mi telefono es 679391554")], null);
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.motivo, "nombre_no_valido");
+});
+
+test("BUG 'Aquí estás, el.': sin nombre, la directiva NO fabrica uno", () => {
+  // El perfil del 679391554 tiene name=null. El fallback "el cliente" se partía
+  // por el espacio y dejaba primerNombre="el", y la directiva ordenaba saludarle así.
+  const d = registeredCustomerDirective(null, "Avenida de los Frutales, número 14");
+  assert.ok(!/Aquí estás, el\.|estás, el\b/.test(d), "sigue ordenando saludar con 'el'");
+  assert.ok(!/"el cliente"|llámale cliente/i.test(d), "usa un genérico como nombre");
+  assert.ok(/NOMBRE NO CONSTA/.test(d), "no avisa de que falta el nombre");
+  assert.ok(/nombre de quién/i.test(d), "no manda preguntar el nombre");
+});
+
+test("sin nombre sigue protegiendo los datos que SÍ tiene", () => {
+  const d = registeredCustomerDirective(null, "Avenida de los Frutales, número 14");
+  assert.ok(/NUNCA le pidas el teléfono/.test(d), "podría repedir el teléfono");
+  assert.ok(/Avenida de los Frutales/.test(d), "pierde la calle para confirmarla");
+  assert.ok(!/número 14/.test(d), "canta el número de la dirección (privacidad)");
+});
+
+test("con nombre válido la directiva sigue igual que antes", () => {
+  const d = registeredCustomerDirective("Samuel Tineo", "Calle Alpandeire número 3");
+  assert.ok(/Aquí est|Aqu\\u00ed est/.test(d), "ya no reconoce por el nombre");
+  assert.ok(/Samuel/.test(d), "no usa el nombre");
+});
+
+test("un nombre basura en BD se trata como si no hubiera nombre", () => {
+  const d = registeredCustomerDirective("el", "Avenida de los Frutales, número 14");
+  assert.ok(/NOMBRE NO CONSTA/.test(d), "acepta 'el' como nombre del cliente");
 });
 
 test("sin teléfono no se puede persistir (y no revienta)", async () => {

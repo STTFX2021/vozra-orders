@@ -1324,7 +1324,21 @@ function confirmacionPendienteDeEnviar(incomingMessages) {
 }
 
 function registeredCustomerDirective(nombre, direccion) {
-  const primerNombre = String(nombre || "el cliente").split(" ")[0];
+  // BUG REAL 01-08-2026 ("Aquí estás, el."): con el nombre a null, el fallback
+  // "el cliente" se partía por el espacio y dejaba primerNombre="el", y la propia
+  // directiva ordenaba saludar con ese "nombre". Si no hay nombre válido NO se
+  // inventa ninguno: se ordena pedirlo.
+  const nombreValido = realCustomerName(nombre);
+  const primerNombre = nombreValido ? String(nombreValido).split(" ")[0] : null;
+  if (!primerNombre) {
+    const calleSN = streetOnly(direccion);
+    return "CLIENTE YA REGISTRADO en esta llamada (teléfono y dirección guardados), pero su NOMBRE NO CONSTA. REGLAS OBLIGATORIAS:\n" +
+      "1) NUNCA le pidas el teléfono ni la dirección: YA los tienes.\n" +
+      "2) NO te inventes un nombre y NO le llames \"cliente\", \"el\", \"señor\" ni nada parecido. Si necesitas el nombre para la comanda, pídeselo UNA vez con naturalidad (\"¿A nombre de quién lo pongo?\").\n" +
+      "3) NO le preguntes si guardar sus datos: ya está registrado. Al enviar usa save_profile_consent=false.\n" +
+      "4) Si es a DOMICILIO, confirma la dirección diciendo SOLO el nombre de la calle" + (calleSN ? " (\"" + calleSN + "\")" : "") + ": \"¿Te lo llevo a " + (calleSN || "la calle de siempre") + ", la de siempre?\". NUNCA el número, el piso ni el portal.\n" +
+      "5) Si es para RECOGER, NO menciones ninguna dirección.";
+  }
   const calle = streetOnly(direccion); // SOLO la primera l\u00ednea (nombre de v\u00eda), sin n\u00famero/piso
   return `CLIENTE YA REGISTRADO en esta llamada: se llama ${primerNombre}; su tel\u00e9fono, nombre y direcci\u00f3n YA est\u00e1n guardados. REGLAS OBLIGATORIAS durante TODA la llamada:\n` +
     `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
@@ -1518,7 +1532,8 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
     // 2) Otras tools (calcular_total, buscar_cliente) → responder y volver a llamar
     if (calls.length) {
-      let clienteRegistrado = null; // nombre si buscar_cliente devolvió encontrado=true
+      let clienteRegistrado = null;  // nombre VÁLIDO, o null si el perfil no tiene
+      let clienteEncontrado = false; // el perfil existe (aunque no tenga nombre)
       let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
       let alergiasEliminadas = null; // alergias que el cliente ha borrado en este turno
       const toolMsgs = await Promise.all(calls.map(async tc => {
@@ -1533,7 +1548,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         }
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           // Si el cliente ya corrigió su nombre en esta llamada, ese manda sobre el de la BD.
-          clienteRegistrado = _nombreCorregido || realCustomerName(out.nombre) || "el cliente";
+          clienteEncontrado = true;
+          // null si no hay nombre válido: NUNCA "el cliente" (se partía en "el").
+          clienteRegistrado = _nombreCorregido || realCustomerName(out.nombre) || null;
           if (_nombreCorregido) out.nombre = _nombreCorregido;
           clienteDireccion = out.direccion || null;
           try { const s = getOrCreateOrderSession(callId); s.registeredName = clienteRegistrado; s.registeredAddress = clienteDireccion; s.registeredRestrictions = { allergies: out.alergias_guardadas || [], preferences: out.preferencias_guardadas || [] }; } catch (_) {}
@@ -1558,13 +1575,18 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       // INVARIANTE EN CÓDIGO (recencia máxima): si el cliente ya está registrado, el
       // modelo NO debe repedir datos ni preguntar por guardar. Reglas enterradas en
       // el system prompt las ignora gpt-4.1-mini; inyectadas aquí, al final, las cumple.
-      if (clienteRegistrado) {
+      // El perfil puede existir SIN nombre: entonces protegemos igual (no repedir
+      // teléfono/dirección) pero NO se ordena saludar por un nombre inexistente.
+      if (clienteEncontrado) {
         // Además del saludo, esta orden queda persistida en sesión (arriba) y se
         // reinyecta en cada turno. Aquí, en el turno del saludo, forzamos el saludo:
         messages.push({
           role: "system",
           content: registeredCustomerDirective(clienteRegistrado, clienteDireccion) +
-            "\nReconócele por su nombre ('Aquí estás, [nombre].') sin pedir teléfono ni nombre. Espera a saber el tipo: en domicilio confirma diciendo SOLO el nombre de la calle ('¿Te lo llevo a [calle], la de siempre?'), nunca el número ni el piso; en recogida no menciones ninguna dirección."
+            (clienteRegistrado
+              ? "\nReconócele por su nombre ('Aquí estás, [nombre].') sin pedir teléfono ni nombre."
+              : "\nNO tienes su nombre: NO lo inventes ni uses un genérico. Salúdale sin nombre y, si lo necesitas para la comanda, pregúntale '¿a nombre de quién lo pongo?' UNA vez.") +
+            " Espera a saber el tipo: en domicilio confirma diciendo SOLO el nombre de la calle ('¿Te lo llevo a [calle], la de siempre?'), nunca el número ni el piso; en recogida no menciones ninguna dirección."
         });
       }
       continue;
