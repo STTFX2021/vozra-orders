@@ -159,6 +159,62 @@ router.get("/admin/test-call/probe", async (req, res) => {
   });
 });
 
+/**
+ * Autopsia de una llamada: config del agente + transcripción de la conversación.
+ * Responde a "sonó pero dijo que tenía problemas técnicos": ese texto es la frase
+ * de emergencia del prompt, así que el fallo está en la conexión ElevenLabs→backend.
+ *   GET /admin/test-call/autopsia?conv=conv_xxxx
+ */
+router.get("/admin/test-call/autopsia", async (req, res) => {
+  if (!authorize(req, res)) return;
+  const conv = String(req.query.conv || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const agentId = process.env.ELEVENLABS_AGENT_ID || "";
+
+  const [agente, conversacion] = await Promise.all([
+    agentId ? probeElevenLabs("/v1/convai/agents/" + agentId, true) : Promise.resolve({ ok: false, motivo: "sin ELEVENLABS_AGENT_ID" }),
+    conv ? probeElevenLabs("/v1/convai/conversations/" + conv, true) : Promise.resolve({ ok: false, motivo: "falta ?conv=" })
+  ]);
+
+  // Config del LLM del agente: ¿apunta a NUESTRO backend o a un modelo nativo?
+  const pl = agente.cuerpo?.conversation_config?.agent?.prompt || {};
+  const urlBackend = pl.custom_llm?.url || null;
+  const esperada = "https://vozra-orders-production.up.railway.app";
+  const llm = {
+    modelo: pl.llm || null,
+    es_custom_llm: Boolean(pl.custom_llm),
+    url_custom_llm: urlBackend,
+    apunta_a_nuestro_backend: Boolean(urlBackend && urlBackend.includes("vozra-orders-production")),
+    tiene_api_key_configurada: Boolean(pl.custom_llm?.api_key),
+    backup_llm: pl.backup_llm_config ?? null,
+    herramientas: (pl.tools || pl.tool_ids || []).map(t => (typeof t === "string" ? t : t.name || t.type)),
+    primer_mensaje: (agente.cuerpo?.conversation_config?.agent?.first_message || "").slice(0, 120)
+  };
+
+  const c = conversacion.cuerpo || {};
+  const turnos = (c.transcript || []).map(t => ({
+    quien: t.role,
+    texto: String(t.message || "").slice(0, 200)
+  }));
+
+  res.json({
+    agente: { id: agentId, nombre: agente.cuerpo?.name || null, llm, status_api: agente.status },
+    llamada: {
+      id: conv || null,
+      estado: c.status || null,
+      motivo_fin: c.metadata?.termination_reason || null,
+      segundos: c.metadata?.call_duration_secs ?? null,
+      turnos
+    },
+    pista: !llm.es_custom_llm
+      ? "El agente NO está usando Custom LLM: no pasa por nuestro backend. Configúralo en el panel."
+      : !llm.apunta_a_nuestro_backend
+        ? ("El Custom LLM apunta a " + (urlBackend || "(vacío)") + " y debería apuntar a " + esperada + "/v1/chat/completions")
+        : !llm.tiene_api_key_configurada
+          ? "El Custom LLM no tiene Bearer configurado: nuestro backend le devolverá 401."
+          : "La configuración del agente parece correcta; mira 'motivo_fin' y los turnos."
+  });
+});
+
 router.get("/admin/test-call/diag", (req, res) => {
   if (!authorize(req, res)) return;
   const vars = {};
