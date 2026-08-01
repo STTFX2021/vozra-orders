@@ -1190,6 +1190,79 @@ function upsellAlreadyOffered(incomingMessages) {
   return asistente.some(m => rx.test(String(m.content)));
 }
 
+// ─── ANTI-BUCLE (determinista, 2026-08-01) ──────────────────────────────────
+// Caso real que lo motiva (conv_5501kyya…): Sarah avisó del suplemento, el cliente
+// dijo "sí, por favor", y volvió a avisar y a preguntar lo mismo DOS veces más.
+// La culpa no era del modelo: `calcular_total` devuelve `aviso_suplementos` con la
+// orden "AVISA al cliente… ANTES de confirmar" en CADA llamada, así que en cada
+// turno se le reordenaba avisar. Se arregla en código, no pidiéndole que recuerde.
+
+/** ¿Ya se avisó del suplemento en algún turno anterior? (mismo criterio que el upsell) */
+function suplementoYaAvisado(incomingMessages) {
+  const asistente = (incomingMessages || []).filter(m => m && m.role === "assistant" && m.content);
+  return asistente.some(m => /suplement/i.test(String(m.content)));
+}
+
+/** Normaliza una frase para poder compararla: sin tildes, signos ni relleno. */
+function _normalizaFrase(t) {
+  return String(t || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** ¿El texto es una pregunta de CONFIRMACIÓN del pedido (no una pregunta cualquiera)? */
+function esPreguntaDeConfirmacion(texto) {
+  const t = _normalizaFrase(texto);
+  return /(te lo confirmo|confirmo asi|lo confirmo asi|te la pongo asi|te lo pongo asi|quieres que te la ponga|quieres que te lo ponga|confirmamos el pedido|lo envio a cocina|lo mando a cocina|esta todo correcto|es correcto)/.test(t);
+}
+
+/** ¿El cliente ha dicho que sí, sin matices ni peticiones nuevas? */
+function esAfirmacionSimple(texto) {
+  const t = _normalizaFrase(texto);
+  if (!t) return false;
+  if (t.split(" ").length > 6) return false;                 // frase larga = probablemente pide algo
+  if (/\b(pero|espera|cambia|quita|anade|añade|otra|otro|tambien|mejor|no)\b/.test(t)) return false;
+  return /\b(si|vale|correcto|perfecto|claro|exacto|eso es|adelante|dale|confirmo|confirma)\b/.test(t);
+}
+
+/**
+ * Detecta el bucle: el asistente repite (casi) la misma pregunta que ya hizo.
+ * Compara los dos últimos turnos del asistente por solapamiento de palabras.
+ */
+function repitePreguntaAnterior(incomingMessages) {
+  const asis = (incomingMessages || [])
+    .filter(m => m && m.role === "assistant" && m.content)
+    .slice(-2)
+    .map(m => _normalizaFrase(m.content));
+  if (asis.length < 2) return false;
+  const [a, b] = asis;
+  if (!a || !b) return false;
+  const pa = new Set(a.split(" ").filter(w => w.length > 3));
+  const pb = new Set(b.split(" ").filter(w => w.length > 3));
+  if (pa.size < 3 || pb.size < 3) return false;
+  let comunes = 0;
+  for (const w of pa) if (pb.has(w)) comunes++;
+  return comunes / Math.min(pa.size, pb.size) >= 0.7;
+}
+
+/**
+ * ¿El cliente acaba de confirmar una pregunta de confirmación? Entonces el pedido
+ * está AUTORIZADO: hay que enviarlo, no volver a preguntar.
+ */
+function confirmacionPendienteDeEnviar(incomingMessages) {
+  const ms = (incomingMessages || []).filter(m => m && m.content);
+  const ultimo = ms[ms.length - 1];
+  if (!ultimo || ultimo.role !== "user") return false;
+  if (!esAfirmacionSimple(ultimo.content)) return false;
+  for (let i = ms.length - 2; i >= 0 && i >= ms.length - 4; i--) {
+    if (ms[i].role === "assistant") return esPreguntaDeConfirmacion(ms[i].content);
+  }
+  return false;
+}
+
 function registeredCustomerDirective(nombre, direccion) {
   const primerNombre = String(nombre || "el cliente").split(" ")[0];
   const calle = streetOnly(direccion); // SOLO la primera l\u00ednea (nombre de v\u00eda), sin n\u00famero/piso
@@ -1286,6 +1359,24 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       }
     }
   } catch (_) {}
+  // ── ANTI-BUCLE (determinista) ─────────────────────────────────────────────
+  // Tres capas, todas calculadas del historial y no "confiadas" al modelo:
+  //  1) el suplemento se avisa UNA vez por llamada;
+  //  2) si el cliente ya confirmó, se ENVÍA el pedido en vez de volver a preguntar;
+  //  3) si el turno anterior ya hacía esa misma pregunta, se prohíbe repetirla.
+  const _yaAvisoSuplemento = suplementoYaAvisado(incomingMessages);
+  if (confirmacionPendienteDeEnviar(incomingMessages)) {
+    messages.push({ role: "system", content:
+      "EL CLIENTE YA HA CONFIRMADO el pedido en su último mensaje. Está AUTORIZADO: llama a submit_order AHORA con el pedido tal cual está. " +
+      "PROHIBIDO volver a preguntar si lo confirma, repetir el total, repetir el aviso de suplementos o pedir cualquier dato que ya tengas. " +
+      "Si de verdad falta un dato imprescindible, pide SOLO ese dato, nada más." });
+  }
+  if (repitePreguntaAnterior(incomingMessages)) {
+    messages.push({ role: "system", content:
+      "ANTI-BUCLE: en tu turno anterior ya dijiste prácticamente lo mismo. PROHIBIDO repetirlo otra vez. " +
+      "Da por buena la respuesta del cliente y AVANZA al siguiente paso del flujo (o envía el pedido si ya está todo)." });
+  }
+
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL, ALLERGY_REMOVE_TOOL];
 
   // Bucle de herramientas: permite encadenar validar_direccion / consultar_pedido /
@@ -1348,6 +1439,14 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       let alergiasEliminadas = null; // alergias que el cliente ha borrado en este turno
       const toolMsgs = await Promise.all(calls.map(async tc => {
         const out = await toolOutput(tc, incomingMessages);
+        // RAÍZ DEL BUCLE DE SUPLEMENTOS: `calcular_total` devuelve `aviso_suplementos`
+        // ("AVISA al cliente… ANTES de confirmar") en CADA llamada. Si ya se avisó en
+        // un turno anterior, se retira la orden: el importe queda en `suplementos`
+        // (para el desglose) pero deja de mandarle repetirlo. Una vez por llamada.
+        if (tc.function && tc.function.name === "calcular_total" && out && out.aviso_suplementos && _yaAvisoSuplemento) {
+          delete out.aviso_suplementos;
+          out.suplementos_ya_avisados = true;
+        }
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           clienteRegistrado = out.nombre || "el cliente";
           clienteDireccion = out.direccion || null;
@@ -1416,5 +1515,11 @@ module.exports = {
   phoneFromHistory,
   registeredCustomerDirective,
   computeRemoveAllergy,
-  ALLERGY_REMOVE_TOOL
+  ALLERGY_REMOVE_TOOL,
+  // Anti-bucle (deterministas, testeables por separado)
+  suplementoYaAvisado,
+  esPreguntaDeConfirmacion,
+  esAfirmacionSimple,
+  repitePreguntaAnterior,
+  confirmacionPendienteDeEnviar
 };
