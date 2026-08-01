@@ -37,13 +37,27 @@ const U = c => ({ role: "user", content: c });
 console.log("══ Datos del cliente: revisar, pedir, guardar ════");
 
 // ── 1. Registrado y completo → NO se hace nada ──────────────────────────────
-test("registrado y completo: flujo normal, sin directiva", () => {
+test("registrado y completo: no se le pide NINGÚN dato", () => {
   const e = estadoDelPerfil({
     registrado: true, nombre: "Samuel Tineo", direccion: "Calle Alpandeire 3",
     telefono: "634425921", tipoEntrega: "domicilio"
   });
   assert.strictEqual(e.completo, true);
-  assert.strictEqual(directivaDatosDelCliente(e), "", "molesta a un cliente que ya está completo");
+  const d = directivaDatosDelCliente(e);
+  // Único texto admitido: el freno de la dirección guardada (nace del bug de
+  // conv_2001kyz8, donde un perfil COMPLETO igualmente la preguntó dos veces).
+  assert.ok(!/FALTA|CLIENTE NUEVO|ANTES de tomar los platos/.test(d),
+    "le pide datos a un cliente que ya está completo");
+  assert.ok(/PROHIBIDO preguntarla abierta/.test(d),
+    "sin este freno vuelve a preguntar la dirección que ya tiene");
+});
+
+test("registrado y completo PARA RECOGER: ni siquiera el freno de dirección", () => {
+  const e = estadoDelPerfil({
+    registrado: true, nombre: "Samuel Tineo", direccion: null,
+    telefono: "634425921", tipoEntrega: "recoger"
+  });
+  assert.strictEqual(directivaDatosDelCliente(e), "", "mete ruido en una recogida");
 });
 
 test("registrado, para RECOGER: la dirección no hace falta", () => {

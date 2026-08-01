@@ -79,7 +79,8 @@ test("una vez captado, el perfil ya NO está incompleto", () => {
     yaPedidos: vecesPedidoCadaDato(BUCLE_REAL)
   });
   assert.strictEqual(e.completo, true, "seguiría pidiendo el nombre");
-  assert.strictEqual(directivaDatosDelCliente(e), "", "seguiría insistiendo");
+  const d = directivaDatosDelCliente(e);
+  assert.ok(!/FALTA: nombre|nombre de quién/.test(d), "seguiría pidiendo el nombre");
 });
 
 // ── 2. El freno duro: nunca más de dos veces ────────────────────────────────

@@ -1280,6 +1280,29 @@ function upsellAlreadyOffered(incomingMessages) {
   return asistente.some(m => rx.test(String(m.content)));
 }
 
+/**
+ * Qué categorías YA lleva el pedido, leídas de lo que ha dicho el cliente.
+ *
+ * Caso real (conv_2001kyz8, turnos 11-12):
+ *   [user]  "Una prosciutto y una Coca-Cola."
+ *   [agent] "Perfecto, una Prosciutto y una Coca-Cola. ¿Te pongo algo de beber más?"
+ * Ofrecer bebida a quien acaba de pedir bebida. El upsell no miraba la comanda.
+ * Se resuelve en código: no se sugiere una categoría que ya está en el pedido.
+ */
+function categoriasYaPedidas(incomingMessages) {
+  const texto = (incomingMessages || [])
+    .filter(m => m && m.role === "user" && m.content)
+    .map(m => _normalizaFrase(m.content)).join(" ");
+  const rx = {
+    bebida:  /(coca\s*cola|cocacola|fanta|sprite|agua|cerveza|birra|refresco|nestea|aquarius|vino|limonada|zumo|tinto de verano|beber)/,
+    postre:  /(tiramis|postre|helado|brownie|tarta|panna\s*cotta|dulce)/,
+    entrante:/(entrante|entrantes|para picar|croqueta|patatas|nachos|bruschet|ensalada|berenjenas)/
+  };
+  const dentro = [];
+  for (const cat of Object.keys(rx)) if (rx[cat].test(texto)) dentro.push(cat);
+  return dentro;
+}
+
 // ─── ANTI-BUCLE (determinista, 2026-08-01) ──────────────────────────────────
 // Caso real que lo motiva (conv_5501kyya…): Sarah avisó del suplemento, el cliente
 // dijo "sí, por favor", y volvió a avisar y a preguntar lo mismo DOS veces más.
@@ -1395,8 +1418,9 @@ function estadoDelPerfil({ registrado, nombre, direccion, telefono, tipoEntrega,
 
   return {
     registrado: !!registrado,
-    faltan: pedibles,          // solo lo que AÚN se puede pedir
-    abandonados: bloqueados,   // se pidió 2 veces y no hubo manera: seguir sin ello
+    faltan: pedibles,               // solo lo que AÚN se puede pedir
+    abandonados: bloqueados,        // se pidió 2 veces y no hubo manera: seguir sin ello
+    tieneDireccion: !!direccion,    // si la hay, se CONFIRMA; nunca se pregunta abierta
     completo: pedibles.length === 0
   };
 }
@@ -1406,7 +1430,9 @@ function vecesPedidoCadaDato(incomingMessages) {
   const rx = {
     "nombre":    /(a\s+nombre\s+de\s+qui[ée]n|c[óo]mo\s+te\s+llamas|me\s+dices\s+(?:tu|su)\s+nombre|qui[ée]n\s+lo\s+pongo)/i,
     "teléfono":  /(tel[ée]fono\s+de\s+contacto|me\s+dices\s+un\s+tel[ée]fono|n[úu]mero\s+de\s+contacto)/i,
-    "dirección": /(a\s+qu[ée]\s+direcci[óo]n|d[óo]nde\s+te\s+lo\s+llev|me\s+dices\s+la\s+direcci[óo]n|direcci[óo]n\s+de\s+entrega)/i
+    // Cubre también "¿me confirmas la dirección?" — esa variante se coló en la
+    // llamada conv_2001kyz8 y provocó que la dirección se preguntara dos veces.
+    "dirección": /(a\s+qu[ée]\s+direcci[óo]n|d[óo]nde\s+te\s+lo\s+llev|me\s+(?:dices|confirmas|das|repites)\s+(?:la\s+)?direcci[óo]n|direcci[óo]n\s+de\s+entrega|cu[áa]l\s+es\s+(?:la|tu)\s+direcci[óo]n|te\s+lo\s+llevo\s+a)/i
   };
   const cuenta = {};
   for (const m of (incomingMessages || [])) {
@@ -1436,19 +1462,28 @@ function directivaDatosDelCliente(estado) {
       "para la próxima (save_profile_consent=true solo si dice que sí).";
   }
 
+  // La dirección guardada se CONFIRMA, no se pregunta. Sin esto el modelo hace las
+  // dos cosas: primero "¿me confirmas la dirección?" y luego "¿te lo llevo a X?"
+  // (llamada conv_2001kyz8, turnos 6 y 8).
+  const DIRECCION_GUARDADA = estado.tieneDireccion
+    ? "\nTIENES su dirección guardada. PROHIBIDO preguntarla abierta (\"¿a qué dirección?\", \"¿me confirmas la dirección?\"). " +
+      "Solo cabe CONFIRMARLA una vez con la fórmula \"¿Te lo llevo a [calle], la de siempre?\", diciendo únicamente el nombre de la calle. " +
+      "Si ya la has confirmado o el cliente ya te la ha dicho en esta llamada, NO vuelvas a sacar el tema."
+    : "";
+
   // Datos por los que ya se preguntó 2 veces sin éxito: PROHIBIDO insistir más.
   const NO_INSISTIR = (estado.abandonados && estado.abandonados.length)
     ? "\nYA has preguntado DOS veces por: " + estado.abandonados.join(", ") + " y no ha habido manera. " +
       "PROHIBIDO volver a preguntarlo. SIGUE con el pedido sin ese dato; si hace falta, lo resuelves al final."
     : "";
 
-  if (estado.completo) return NO_INSISTIR.trim(); // completo → nada (o solo el freno)
+  if (estado.completo) return (DIRECCION_GUARDADA + NO_INSISTIR).trim(); // solo los frenos
 
   return "CLIENTE REGISTRADO pero su ficha está INCOMPLETA. Le FALTA: " + estado.faltan.join(", ") + ". " + HONESTIDAD + "\n" +
     "1) PIDE ese dato (solo ese) UNA vez, ANTES de empezar a tomar los platos. Ejemplo para el nombre: \"¿A nombre de quién lo pongo?\".\n" +
     "2) Si el cliente YA te lo ha dicho en esta llamada, DALO POR BUENO tal cual lo haya dicho y NO se lo vuelvas a preguntar.\n" +
     "3) NO le pidas los datos que SÍ tienes.\n" +
-    "4) NO le preguntes si guardar sus datos: ya está registrado. Cuando te dé el dato que falta, se guarda solo." + NO_INSISTIR;
+    "4) NO le preguntes si guardar sus datos: ya está registrado. Cuando te dé el dato que falta, se guarda solo." + DIRECCION_GUARDADA + NO_INSISTIR;
 }
 
 function registeredCustomerDirective(nombre, direccion) {
@@ -1562,6 +1597,15 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       if (!_upsellSession.upsellOffered && upsellAlreadyOffered(incomingMessages)) _upsellSession.upsellOffered = true;
       if (_upsellSession.upsellOffered) {
         messages.push({ role: "system", content: "YA ofreciste el upselling UNA vez en esta llamada (upsellOffered=true). PROHIBIDO volver a ofrecer bebida, postre o entrante. Si el cliente no pide nada m\u00e1s, ve directo al resumen con el total dicho en voz alta. No sugieras nada m\u00e1s." });
+      } else {
+        // No sugerir lo que YA est\u00e1 en el pedido ("\u00bfalgo de beber?" tras pedir Coca-Cola).
+        const _yaEnPedido = categoriasYaPedidas(incomingMessages);
+        if (_yaEnPedido.length) {
+          messages.push({ role: "system", content:
+            "El pedido YA incluye: " + _yaEnPedido.join(", ") + ". PROHIBIDO ofrecer o preguntar por esa(s) categor\u00eda(s) " +
+            "(nada de \"\u00bfalgo de beber?\" si ya hay bebida). Si quieres sugerir algo, que sea de una categor\u00eda que NO est\u00e9 en el pedido; " +
+            "si no queda ninguna, no sugieras nada y ve al resumen." });
+        }
       }
     }
   } catch (_) {}
@@ -1786,5 +1830,6 @@ module.exports = {
   estadoDelPerfil,
   directivaDatosDelCliente,
   tipoDeEntrega,
-  vecesPedidoCadaDato
+  vecesPedidoCadaDato,
+  categoriasYaPedidas
 };
