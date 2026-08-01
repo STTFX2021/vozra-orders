@@ -222,7 +222,18 @@ function nombreCorregidoEnLlamada(incomingMessages) {
   // responde con él a secas ("Antonio Roldán"). También cuenta como dato dado y
   // hay que guardarlo: si no, se lo volveríamos a preguntar en la próxima llamada.
   const rxPregunta = /(a\s+nombre\s+de\s+qui[ée]n|c[óo]mo\s+te\s+llamas|tu\s+nombre|me\s+dices\s+.{0,10}nombre|qui[ée]n\s+lo\s+pongo)/i;
-  const rxSolo = /^[^\p{Lu}]{0,20}([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})\s*[.!]?\s*$/u;
+  // BUG REAL 01-08 (bucle "¿A nombre de quién lo pongo?" x3): esta captura exigía
+  // que TODAS las palabras empezaran por mayúscula. El STT devuelve "Jodido cabezón"
+  // (la segunda en minúscula) → no capturaba → el gate creía que faltaba el nombre
+  // y lo repedía en cada turno. Cuando Sarah acaba de PREGUNTAR el nombre, lo que
+  // responda el cliente ES su nombre: no se le exige ortografía.
+  // El `*` final del grupo de muletillas es importante: el cliente encadena varias
+  // ("Eh, pues Samuel Tineo"), no solo una.
+  // Flag 'i': el cliente empieza en mayúscula ("Eh, pues…").
+  // El corte tras cada muletilla es `(?![\p{L}])`, NO `\b`: en JavaScript `\b` es
+  // ASCII y no ve el límite tras una letra acentuada ("Sí," se quedaba sin cortar).
+  // Y es imprescindible: sin él, "Valentina" se partiría en "vale" + "ntina".
+  const rxSolo = /^[\s,.:;¡!¿?]*(?:(?:eh+|ah+|em+|pues|bueno|s[íi]|vale|mira|es|soy|me\s+llamo|mi\s+nombre\s+es|a\s+nombre\s+de)(?![\p{L}])[\s,.:;]*)*([\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*){0,3})\s*[.!?]*\s*$/iu;
 
   const ms = (incomingMessages || []).filter(m => m && m.content);
   let encontrado = null;
@@ -1368,12 +1379,43 @@ function tipoDeEntrega(incomingMessages) {
  * Estado del perfil: qué tenemos de verdad y qué falta. Puro y testeable.
  * `faltan` solo incluye datos REALMENTE necesarios para este pedido.
  */
-function estadoDelPerfil({ registrado, nombre, direccion, telefono, tipoEntrega }) {
+function estadoDelPerfil({ registrado, nombre, direccion, telefono, tipoEntrega, yaPedidos }) {
   const faltan = [];
   if (!telefono) faltan.push("teléfono");
   if (!realCustomerName(nombre)) faltan.push("nombre");
   if (tipoEntrega === "domicilio" && !direccion) faltan.push("dirección");
-  return { registrado: !!registrado, faltan, completo: faltan.length === 0 };
+
+  // LÍMITE DURO (01-08). Un dato que falta NUNCA puede bloquear la llamada.
+  // Si ya se ha pedido 2 veces y sigue sin captarse (STT malo, el cliente no
+  // contesta…), se deja de insistir y se sigue con el pedido. Sin esto, la
+  // directiva se reinyecta cada turno y produce el bucle "¿A nombre de quién?".
+  const insistidos = yaPedidos || {};
+  const bloqueados = faltan.filter(d => (insistidos[d] || 0) >= 2);
+  const pedibles   = faltan.filter(d => (insistidos[d] || 0) < 2);
+
+  return {
+    registrado: !!registrado,
+    faltan: pedibles,          // solo lo que AÚN se puede pedir
+    abandonados: bloqueados,   // se pidió 2 veces y no hubo manera: seguir sin ello
+    completo: pedibles.length === 0
+  };
+}
+
+/** Cuántas veces ha preguntado ya el asistente por cada dato (del historial). */
+function vecesPedidoCadaDato(incomingMessages) {
+  const rx = {
+    "nombre":    /(a\s+nombre\s+de\s+qui[ée]n|c[óo]mo\s+te\s+llamas|me\s+dices\s+(?:tu|su)\s+nombre|qui[ée]n\s+lo\s+pongo)/i,
+    "teléfono":  /(tel[ée]fono\s+de\s+contacto|me\s+dices\s+un\s+tel[ée]fono|n[úu]mero\s+de\s+contacto)/i,
+    "dirección": /(a\s+qu[ée]\s+direcci[óo]n|d[óo]nde\s+te\s+lo\s+llev|me\s+dices\s+la\s+direcci[óo]n|direcci[óo]n\s+de\s+entrega)/i
+  };
+  const cuenta = {};
+  for (const m of (incomingMessages || [])) {
+    if (!m || m.role !== "assistant" || !m.content) continue;
+    for (const dato of Object.keys(rx)) {
+      if (rx[dato].test(String(m.content))) cuenta[dato] = (cuenta[dato] || 0) + 1;
+    }
+  }
+  return cuenta;
 }
 
 /**
@@ -1394,12 +1436,19 @@ function directivaDatosDelCliente(estado) {
       "para la próxima (save_profile_consent=true solo si dice que sí).";
   }
 
-  if (estado.completo) return ""; // registrado y completo → nada, flujo normal
+  // Datos por los que ya se preguntó 2 veces sin éxito: PROHIBIDO insistir más.
+  const NO_INSISTIR = (estado.abandonados && estado.abandonados.length)
+    ? "\nYA has preguntado DOS veces por: " + estado.abandonados.join(", ") + " y no ha habido manera. " +
+      "PROHIBIDO volver a preguntarlo. SIGUE con el pedido sin ese dato; si hace falta, lo resuelves al final."
+    : "";
+
+  if (estado.completo) return NO_INSISTIR.trim(); // completo → nada (o solo el freno)
 
   return "CLIENTE REGISTRADO pero su ficha está INCOMPLETA. Le FALTA: " + estado.faltan.join(", ") + ". " + HONESTIDAD + "\n" +
-    "1) PIDE ese dato (solo ese) ANTES de empezar a tomar los platos. Ejemplo para el nombre: \"¿A nombre de quién lo pongo?\".\n" +
-    "2) NO le pidas los datos que SÍ tienes.\n" +
-    "3) NO le preguntes si guardar sus datos: ya está registrado. Cuando te dé el dato que falta, se guarda solo.";
+    "1) PIDE ese dato (solo ese) UNA vez, ANTES de empezar a tomar los platos. Ejemplo para el nombre: \"¿A nombre de quién lo pongo?\".\n" +
+    "2) Si el cliente YA te lo ha dicho en esta llamada, DALO POR BUENO tal cual lo haya dicho y NO se lo vuelvas a preguntar.\n" +
+    "3) NO le pidas los datos que SÍ tienes.\n" +
+    "4) NO le preguntes si guardar sus datos: ya está registrado. Cuando te dé el dato que falta, se guarda solo." + NO_INSISTIR;
 }
 
 function registeredCustomerDirective(nombre, direccion) {
@@ -1555,7 +1604,8 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       nombre: _nombreCorregido || (sD && sD.registeredName),
       direccion: sD && sD.registeredAddress,
       telefono: telD,
-      tipoEntrega: tipoDeEntrega(incomingMessages)
+      tipoEntrega: tipoDeEntrega(incomingMessages),
+      yaPedidos: vecesPedidoCadaDato(incomingMessages)   // freno anti-insistencia
     });
     const directiva = directivaDatosDelCliente(estado);
     if (directiva) messages.push({ role: "system", content: directiva });
@@ -1735,5 +1785,6 @@ module.exports = {
   // Completitud del perfil (se comprueba la BD antes de tomar la comanda)
   estadoDelPerfil,
   directivaDatosDelCliente,
-  tipoDeEntrega
+  tipoDeEntrega,
+  vecesPedidoCadaDato
 };
