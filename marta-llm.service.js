@@ -205,6 +205,26 @@ function realCustomerName(n) {
 }
 
 /**
+ * Cómo dirigirse al cliente de viva voz.
+ *
+ * "Samuel Tineo" → "Samuel"   (nombre formal: se puede usar el de pila)
+ * "Jodido cabezón" → completo (apodo / compuesto: acortarlo lo destroza)
+ *
+ * Criterio determinista: solo se acorta si TODAS las palabras empiezan por
+ * mayúscula, que es el patrón de "Nombre Apellido(s)". Con cualquier otra forma
+ * se devuelve el nombre entero. Nace de conv_6601kyz8, donde el cliente se
+ * llamaba "Jodido cabezón" y Sarah le llamaba "Jodido" — y así iba a cocina.
+ */
+function nombreParaSaludar(nombre) {
+  const s = String(nombre || "").trim();
+  if (!s) return null;
+  const palabras = s.split(/\s+/).filter(Boolean);
+  if (palabras.length < 2) return s;
+  const todasFormales = palabras.every(p => /^[\p{Lu}]/u.test(p));
+  return todasFormales ? palabras[0] : s;
+}
+
+/**
  * ¿El cliente ha CORREGIDO su nombre durante la llamada? Devuelve el nombre nuevo.
  *
  * Caso real (01-08-2026): el perfil traía "Antonio"; el cliente dijo dos veces
@@ -217,7 +237,9 @@ function nombreCorregidoEnLlamada(incomingMessages) {
   // SIN flag 'i' a propósito: el nombre capturado DEBE empezar por mayúscula real
   // (\p{Lu}), que es lo que lo distingue de las palabras de relleno de la frase.
   // Por eso los disparadores llevan la mayúscula inicial explícita ([Mm]e llamo…).
-  const rx = /(?:[MmSs]e\s+llamo|[Mm]i\s+nombre\s+es|[Aa]\s+nombre\s+de|[CcÁá]?[áa]?mbiame\s+el\s+nombre|[Aa]p[úu]ntalo\s+a\s+nombre\s+de)[^\p{Lu}]{0,40}?([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})/u;
+  // "mi nombre REAL es" / "mi nombre COMPLETO es": el cliente corrigiendo, que es
+  // justo cuando más hay que escuchar. Faltaban en conv_6601kyz8.
+  const rx = /(?:[MmSs]e\s+llamo|[Mm]i\s+nombre(?:\s+(?:real|completo|verdadero|entero))?\s+es|[Aa]\s+nombre\s+de|[CcÁá]?[áa]?mbiame\s+el\s+nombre|[Aa]p[úu]ntalo\s+a\s+nombre\s+de)[^\p{Lu}]{0,40}?([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})/u;
   // Caso 2: Sarah PIDE el nombre ("¿a nombre de quién lo pongo?") y el cliente
   // responde con él a secas ("Antonio Roldán"). También cuenta como dato dado y
   // hay que guardarlo: si no, se lo volveríamos a preguntar en la próxima llamada.
@@ -1362,6 +1384,19 @@ function repitePreguntaAnterior(incomingMessages) {
 }
 
 /**
+ * ¿El último turno del cliente viene vacío? (silencio, o audio no transcrito)
+ * ElevenLabs manda el turno igualmente y el modelo tiende a repetir lo último
+ * que dijo — que suele ser el resumen entero. Se detecta aquí para frenarlo.
+ */
+function turnoDeUsuarioVacio(incomingMessages) {
+  const ms = (incomingMessages || []);
+  const ultimo = ms[ms.length - 1];
+  if (!ultimo || ultimo.role !== "user") return false;
+  const t = String(ultimo.content || "").replace(/[\s.,;:!?¡¿"'`´\-–—…]/g, "");
+  return t.length === 0;
+}
+
+/**
  * ¿El cliente acaba de confirmar una pregunta de confirmación? Entonces el pedido
  * está AUTORIZADO: hay que enviarlo, no volver a preguntar.
  */
@@ -1492,7 +1527,12 @@ function registeredCustomerDirective(nombre, direccion) {
   // directiva ordenaba saludar con ese "nombre". Si no hay nombre válido NO se
   // inventa ninguno: se ordena pedirlo.
   const nombreValido = realCustomerName(nombre);
-  const primerNombre = nombreValido ? String(nombreValido).split(" ")[0] : null;
+  // BUG REAL 01-08 (conv_6601kyz8): con "Jodido cabezón" guardado, se saludaba
+  // y se mandaba a cocina "Jodido" a secas, porque aquí se cortaba por el primer
+  // espacio. Ese recorte solo vale para nombres formales tipo "Samuel Tineo";
+  // en un apodo o nombre compuesto destroza el dato. Regla: acortar SOLO si el
+  // nombre parece "Nombre Apellido" (todas las palabras en mayúscula inicial).
+  const primerNombre = nombreValido ? nombreParaSaludar(nombreValido) : null;
   if (!primerNombre) {
     const calleSN = streetOnly(direccion);
     return "CLIENTE YA REGISTRADO en esta llamada (teléfono y dirección guardados), pero su NOMBRE NO CONSTA. REGLAS OBLIGATORIAS:\n" +
@@ -1507,7 +1547,7 @@ function registeredCustomerDirective(nombre, direccion) {
     `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
     `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
     `3) RECON\u00d3CELE por su nombre al saludar: "Aqu\u00ed est\u00e1s, ${primerNombre}." (o equivalente natural). NO le llames "cliente".\n` +
-    `4) Usa el nombre "${primerNombre}" y la direcci\u00f3n guardada en la comanda.\n` +
+    `4) En la COMANDA y al confirmar el pedido usa su nombre COMPLETO, exactamente as\u00ed: "${nombreValido}". NUNCA lo acortes ni te quedes con una sola palabra.\n` +
     `5) Si el pedido es a DOMICILIO, confirma la direcci\u00f3n diciendo \u00daNICAMENTE el nombre de la calle (la primera l\u00ednea)${calle ? `, que es "${calle}"` : ""}: "\u00bfTe lo llevo a ${calle || "la calle de siempre"}, la de siempre?". NUNCA digas el n\u00famero, el piso, el portal ni el resto de la direcci\u00f3n. Si dice que s\u00ed, usa la direcci\u00f3n guardada completa internamente; si ha cambiado, p\u00eddele la nueva.\n` +
     `6) Si es para RECOGER, NO menciones ninguna direcci\u00f3n: la recogida es en el local.`;
 }
@@ -1665,6 +1705,15 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     messages.push({ role: "system", content:
       "ANTI-BUCLE: en tu turno anterior ya dijiste prácticamente lo mismo. PROHIBIDO repetirlo otra vez. " +
       "Da por buena la respuesta del cliente y AVANZA al siguiente paso del flujo (o envía el pedido si ya está todo)." });
+  }
+  // SILENCIO DEL CLIENTE. Caso real conv_6601kyz8 (turnos 14-16): el cliente no
+  // dijo nada, ElevenLabs mandó el turno igualmente y Sarah repitió el resumen
+  // ENTERO. El anti-bucle no lo cazó porque compara turnos del asistente y aquí
+  // había uno de usuario (vacío) en medio.
+  if (turnoDeUsuarioVacio(incomingMessages)) {
+    messages.push({ role: "system", content:
+      "EL CLIENTE NO HA DICHO NADA (silencio o audio no entendido). PROHIBIDO repetir el resumen, el total o la última pregunta larga. " +
+      "Responde SOLO con una frase corta para retomar (\"¿Sigues ahí?\" o \"¿Me lo confirmas?\"). Nada más." });
   }
 
   const tools = [SUBMIT_ORDER_TOOL, QUOTE_TOOL, LOOKUP_TOOL, ZONE_TOOL, ORDER_LOOKUP_TOOL, INCIDENT_TOOL, ALLERGY_REMOVE_TOOL];
@@ -1831,5 +1880,7 @@ module.exports = {
   directivaDatosDelCliente,
   tipoDeEntrega,
   vecesPedidoCadaDato,
-  categoriasYaPedidas
+  categoriasYaPedidas,
+  nombreParaSaludar,
+  turnoDeUsuarioVacio
 };
