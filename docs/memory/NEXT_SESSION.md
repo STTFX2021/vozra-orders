@@ -2,8 +2,28 @@
 
 > Solo Vozra PID. Roomy Food está en `../roomy-food` con su propia memoria.
 
-**Escrito el:** 2026-07-31 (tarde 2)
-**HEAD = producción:** `84f8e94` (commiteado, pusheado, desplegado en Railway — verificado en `/health`).
+**Escrito el:** 2026-08-02
+**HEAD = producción:** `3b55b6b` (commiteado, pusheado, desplegado en Railway).
+
+## ⚡ LO PRIMERO: una llamada de prueba y leerla con la autopsia
+
+```
+node -e "require('dotenv').config();const s=process.env.RAILWAY_LLM_SECRET;const https=require('https');const b=JSON.stringify({to:'+34634425921'});const r=https.request({hostname:'vozra-orders-production.up.railway.app',path:'/admin/test-call',method:'POST',headers:{Authorization:'Bearer '+s,'Content-Type':'application/json','Content-Length':Buffer.byteLength(b)}},x=>{let d='';x.on('data',c=>d+=c);x.on('end',()=>console.log(x.statusCode,d))});r.write(b);r.end()"
+```
+Y con el `conversation_id` que devuelve: `GET /admin/test-call/autopsia?conv=conv_…` da transcript, motivo de corte y config del agente. **Ya no hace falta pedir logs de Railway para diagnosticar una llamada.**
+
+> El Bearer sale de `RAILWAY_LLM_SECRET` en el `.env` local (lo puso el owner el 31-07; es el valor de `ELEVENLABS_CUSTOM_LLM_SECRET` de Railway, que NO coincide con el `ELEVENLABS_CUSTOM_LLM_SECRET` del `.env`).
+
+## Qué verificar en esa llamada (los 3 fixes del 02-08 sin confirmar en vivo)
+1. **Nombre compuesto entero.** Con el `679391554` (ficha: "Jodido cabezón") debe decirlo COMPLETO al saludar y al confirmar, y mandarlo completo a cocina. Antes iba "Jodido".
+2. **Silencio.** Si te callas tras el resumen, debe decir solo "¿Sigues ahí?" — nunca repetir el resumen entero.
+3. **Corrección de nombre.** Di "mi nombre real es X Y" y comprueba en Supabase que la ficha se actualiza (`select phone,name from vozra_orders.customers where phone='679391554'`).
+
+## Pendientes anteriores que siguen abiertos
+- **¿`callId` estable?** Mirar `[EL] turn | callId=…` en Railway: si es `conv_…`, se puede refactorizar la deuda (quitar `phoneFromHistory` / `yaDicho` y pasar a flags de sesión limpios).
+- **¿Cuelga al despedirse?** El agente Sarah solo tiene la tool `play_keypad_touch_tone`: **no aparece "End Call"**. Si no cuelga, activarlo en ElevenLabs → Sarah → Tools.
+- **Caché de prompt:** confirmar `cached≈11000` en el log `[LLM] openai … in= cached= out=`.
+- Limpieza en Railway: quitar `TWILIO_SKIP_SIGNATURE`, renombrar `Secret key` → `TURNSTILE_SECRET`.
 
 ## ⚡ EMPIEZA POR AQUÍ: UNA llamada de prueba cierra los tres pendientes
 

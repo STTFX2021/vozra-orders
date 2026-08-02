@@ -4,6 +4,45 @@
 
 ---
 
+## 2026-08-01/02 — Sesión de llamadas reales: bucles, datos del cliente y honestidad
+
+**Desplegado. HEAD = `3b55b6b` = producción.** Cadena: `e4351ab` → `d5ce84f` → `dc64dca` → `fd58000` → `673a998` → `24b0c56` → `51aa016` → `566e27b` → `067e3df` → `e4ebb71` → **`3b55b6b`**.
+
+**Se consiguió por fin la llamada saliente de prueba.** Tres cosas bloqueaban, ninguna del código: (1) la `ELEVENLABS_API_KEY` no tenía permisos de Conversational AI; (2) `ELEVENLABS_AGENT_PHONE_NUMBER_ID` tenía el NÚMERO (`+19014228104`) en vez del id (`phnum_0101kte1ev1vfh595fc3tnw2rgem`); (3) el agent id había cambiado (`agent_7801kte3e78te9ga2xc076bxsw9e`). Se montaron `/admin/test-call/probe` (pregunta a ElevenLabs si la clave y los ids valen, con huella de la clave sin exponerla) y `/admin/test-call/autopsia?conv=…` (config del agente + transcript + motivo de corte). **Con esas dos herramientas ya no hace falta pedirle logs al owner.**
+
+**Un incidente que conviene recordar: se acabó el saldo de OpenAI** (`429 credit_balance_exhausted`) y Sarah contestaba "tengo un problemilla técnico" a todo. Se detectó reproduciendo el turno contra el backend. El owner metió 5 € (≈150-200 llamadas de prueba con la caché de prompt).
+
+### El patrón que explica CASI TODOS los fallos del día
+Cada bucle venía de **una directiva reinyectada en cada turno sin memoria de si ya se había cumplido, y sin tope**. Se repitió cuatro veces:
+1. `calcular_total` devolvía `aviso_suplementos` ("AVISA al cliente ANTES de confirmar") en CADA llamada → Sarah avisaba del suplemento una y otra vez aunque el cliente ya hubiera dicho "sí" dos veces (`conv_5501kyya`). Fix: si ya se avisó, el backend **borra** ese campo del tool-result.
+2. La directiva de cliente registrado reinyectaba el nombre de la BD y **pisaba** la corrección que el cliente acababa de decir (`conv_5601kyyb`, "Capullo Cabezón" x2 ignorado).
+3. El **gate de datos** (nuevo ese día) repetía "pide el nombre antes de tomar los platos" en cada turno porque la captura no reconocía el nombre → bucle "¿A nombre de quién lo pongo?" x3.
+4. La dirección, preguntada dos veces (`conv_2001kyz8`) porque el contador no cubría la variante "¿me confirmas la dirección?".
+
+**REGLA GRABADA: ninguna directiva inyectada puede repetirse sin contador y sin límite.** Está implementada (`vecesPedidoCadaDato`, tope de 2) y cubierta por tests.
+
+### Lo implementado (todo determinista, todo con test sobre transcripts reales)
+- **Anti-bucle** (`test-antibucle-20260801`, 12): aviso de suplemento una sola vez; la confirmación del cliente dispara `submit_order` en vez de otra pregunta (con matiz protegido: "sí, pero añade una Coca-Cola" NO autoriza); y freno si el turno anterior se parece ≥70%.
+- **El cliente manda sobre la BD** (`test-nombre-corregido-20260801`, 13): al corregir el nombre se usa YA y se **persiste en Supabase** al instante (verificado: `679391554` pasó de `name:null` a `"Jodido cabezón"`).
+- **Gate de datos del cliente** (`test-datos-cliente-20260801`, 12) — regla literal del owner: se revisa la BD ANTES de la comanda; si falta algo se pide **solo eso** y antes de tomar platos; consentimiento **solo a cliente nuevo y al final**; registrado y completo → **no se hace nada**. Más una **regla de honestidad innegociable**: prohibido afirmar tener un dato que no se tiene y prohibido excusarse en una "política de privacidad" inventada (Sarah llegó a decir "no puedo decirte tu nombre por teléfono" teniendo `name:null`).
+- **Perfiles nuevos sin bucle** (`test-perfil-nuevo-20260801`, 9): cuando Sarah pregunta el nombre, **lo que responda el cliente ES su nombre** — sin exigir mayúsculas ni ortografía. Costó tres pasadas: `"Jodido cabezón"` (exigía mayúscula en todas), `"Eh, pues Samuel Tineo"` (solo admitía una muletilla), `"Sí, Pedro"` (`\b` de JS es ASCII y no ve el corte tras la `í` → se usa `(?![\p{L}])`). Ojo con el `\b`: sin el lookahead, "Valentina" se partía en "vale"+"ntina".
+- **Redundancias** (`test-redundancias-20260801`, 9): la dirección guardada se **confirma**, nunca se pregunta abierta; y el upsell dejó de ofrecer categorías que ya están en el pedido (`categoriasYaPedidas`) — ofrecía bebida a quien acababa de pedir Coca-Cola.
+- **Nombre compuesto y silencio** (`test-nombre-compuesto-20260802`, 12): `nombreParaSaludar()` solo acorta al nombre de pila si TODAS las palabras van en mayúscula ("Samuel Tineo"→"Samuel"); un apodo o compuesto va **entero**, y **la comanda lleva siempre el nombre completo** (antes iba "Jodido" a cocina). Detector ampliado a "mi nombre real/completo/verdadero es". Y `turnoDeUsuarioVacio()`: si el cliente calla, PROHIBIDO repetir el resumen — solo "¿Sigues ahí?".
+
+### Bugs de código propios encontrados de paso
+- **`"Aquí estás, el."`**: no era el STT ni la BD. `String(nombre || "el cliente").split(" ")[0]` → con `name:null` daba **"el"**, y la directiva ordenaba saludar así. Había TRES sitios fabricando ese `"el cliente"`.
+- `if (!s0.registeredName)` hacía que un perfil **sin nombre** se recargara en cada turno y nunca constara como registrado → ahora `registeredFound`.
+- El error de ElevenLabs llegaba como `[object Object]` (su `detail` es objeto) y ocultó dos vueltas de diagnóstico.
+
+### Estado de los tests
+47 · 9 · 12 · 9 · 12 · 13 · 21 · 6 · 5 · gate P0, todos verdes.
+⚠️ `test-allergy-remove` golpea Supabase de verdad: lanzado en paralelo con 9 procesos marca 3/5 por timeout de red. **En solitario da 5/5** — no es regresión.
+
+### Deuda vista en la BD (no tocada)
+9 clientes, **4 sin nombre**; `order_count` a **0 en todos** aunque Samuel tiene 43 pedidos (columna muerta); `orders.phone` sin FK a `customers.phone` (el mismo cliente está partido en `634425921`/`634425821`/`64425921`); `call_logs` sin enlace al cliente. No bloquea el piloto; sí bloquea el argumento comercial de "conoce a tus clientes".
+
+---
+
 ## 2026-07-31 (tarde 2) — Llamada saliente de prueba + cerrados dos agujeros de seguridad reales
 
 **Desplegado. HEAD = `84f8e94` = producción** (verificado en `/health` y `/whatsapp/health`). Cadena: `c93f4db` → `1844f06` → `bf2e5be` → `84f8e94`.
