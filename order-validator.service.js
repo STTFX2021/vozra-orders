@@ -16,6 +16,7 @@
 
 const fs   = require("fs");
 const path = require("path");
+const { classifyAllergen } = require("./allergen-ontology.service.js");
 
 // ─── TAXONOMY LOADERS ────────────────────────────────────────────────────────
 
@@ -70,8 +71,12 @@ function validateRequiredSlots(order) {
     errors.push({ code: "MISSING_ITEMS", message: "El pedido no tiene ningún producto." });
   }
 
-  if (!order.orderType) {
-    errors.push({ code: "MISSING_ORDER_TYPE", message: "Falta el tipo de pedido (recogida / domicilio)." });
+  if (!order.orderType || !["pickup", "delivery"].includes(order.orderType)) {
+    errors.push({
+      code: order.orderType ? "INVALID_ORDER_TYPE" : "MISSING_ORDER_TYPE",
+      requiredAction: "resolve_order_type",
+      message: "Falta resolver el tipo de pedido (recogida / domicilio)."
+    });
   }
 
   if (!order.customerName || order.customerName.trim().length < 2) {
@@ -115,96 +120,169 @@ function validatePhone(phone) {
  * Detecta también restricciones dietéticas.
  * Retorna { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk }
  */
+function allergenMatchesMenuCode(allergen, menuCode) {
+  const code = norm(allergen && allergen.code);
+  const menu = norm(menuCode);
+  if (!code || !menu) return false;
+  if (code === menu || norm(allergen.label) === menu) return true;
+  if ((allergen.aliases || []).some(alias => norm(alias) === menu)) return true;
+  const equivalents = {
+    crustaceans: ["crustacean", "shellfish"],
+    molluscs: ["mollusc", "shellfish"],
+    eggs: ["egg"],
+    milk: ["milk", "dairy"],
+    nuts: ["nuts"],
+    peanuts: ["peanut", "peanuts"],
+    sulphites: ["sulphite", "sulphites", "sulfite", "sulfites"]
+  };
+  return (equivalents[code] || []).includes(menu);
+}
+
+function allergenComponent(menuItem, allergen, classification) {
+  const description = norm(menuItem && menuItem.description);
+  const aliases = (allergen.aliases || [])
+    .map(alias => norm(alias))
+    .filter(alias => alias.length >= 4 && description.includes(alias))
+    .sort((a, b) => b.length - a.length);
+  return aliases[0] || (classification && classification.component) || norm(allergen.label);
+}
+
+function modifierRemovesAllergen(item, allergen, component) {
+  const candidates = new Set([
+    norm(component),
+    norm(allergen.code),
+    norm(allergen.label),
+    ...(allergen.aliases || []).map(alias => norm(alias))
+  ].filter(Boolean));
+  return (item.modifiers || []).some(mod => {
+    if (!mod || norm(mod.type) !== "remove") return false;
+    const value = norm(mod.value);
+    if (!value) return false;
+    for (const candidate of candidates) {
+      if (candidate.length >= 3 && (value.includes(candidate) || candidate.includes(value))) return true;
+    }
+    return false;
+  });
+}
+
+function detectDeclaredAllergies(conversationMessages) {
+  const allergyTax = loadAllergyTaxonomy();
+  const userText = (conversationMessages || [])
+    .filter(message => message && message.role === "user" && message.content)
+    .map(message => norm(message.content))
+    .join(" ");
+  if (!/(alerg|intoler|celiac|no puedo comer|no puedo tomar|me sienta mal)/.test(userText)) return [];
+  const found = [];
+  for (const allergen of [...(allergyTax.highRiskAllergens || []), ...(allergyTax.standardAllergens || [])]) {
+    const alias = (allergen.aliases || []).map(a => norm(a)).find(a => a.length >= 3 && userText.includes(a));
+    if (alias && !found.includes(alias)) found.push(alias);
+  }
+  return found;
+}
+
 function crossCheckAllergens(order) {
   const allergyTax = loadAllergyTaxonomy();
-  const menuTax    = loadMenuTaxonomy();
-  const modsTax    = loadModifiersTaxonomy();
-
+  const menuTax = loadMenuTaxonomy();
+  const modsTax = loadModifiersTaxonomy();
   const result = {
-    allergenConflicts: [],   // alérgenos declarados que aparecen en items
-    dietaryFlags:      [],   // restricciones dietéticas detectadas
+    allergenConflicts: [],
+    dietaryFlags: [],
     requiresKitchenReview: false,
-    allergyRisk: false
+    allergyRisk: false,
+    requiredAction: null
   };
-
   if (!order.allergies || order.allergies.length === 0) return result;
 
-  // Reunir todos los alérgenos de todos los items del pedido
-  const itemAllergenCodes = new Set();
-  for (const item of order.items) {
-    // Pizza mitad y mitad: sumar los alérgenos de LAS DOS mitades (id sintético no está en la carta).
-    const lookupIds = (item.halfAndHalf && item.halfAndHalf.a && item.halfAndHalf.b)
-      ? [item.halfAndHalf.a.id, item.halfAndHalf.b.id]
-      : [item.id];
-    const menuItems = lookupIds.map(id => menuTax.items.find(i => i.id === id)).filter(Boolean);
-    if (!menuItems.length) continue;
+  const definitions = [
+    ...(allergyTax.highRiskAllergens || []).map(a => ({ ...a, highRisk: true })),
+    ...(allergyTax.standardAllergens || []).map(a => ({ ...a, highRisk: false }))
+  ];
 
-    // Alérgenos base del item (o de ambas mitades)
-    for (const menuItem of menuItems) {
-      for (const a of (menuItem.knownAllergens || [])) itemAllergenCodes.add(norm(a));
-      for (const a of (menuItem.traceAllergens || [])) itemAllergenCodes.add(norm(a));
-    }
-
-    // Alérgenos añadidos por modificadores
-    for (const mod of (item.modifiers || [])) {
-      const modDef = (modsTax.modifiers || []).find(m => m.id === mod.modifierId || norm(m.displayName) === norm(mod.value));
-      if (modDef) {
-        for (const a of (modDef.addedAllergens || [])) itemAllergenCodes.add(norm(a));
-      }
-    }
-  }
-
-  // Cross-check: alérgeno declarado vs items
   for (const declaredLabel of order.allergies) {
     const declaredNorm = norm(declaredLabel);
+    const allergen = definitions.find(def =>
+      (def.aliases || []).some(alias => {
+        const a = norm(alias);
+        return a === declaredNorm || declaredNorm.includes(a) || a.includes(declaredNorm);
+      })
+    );
 
-    // Buscar en highRiskAllergens
-    for (const allergen of allergyTax.highRiskAllergens) {
-      const matches = allergen.aliases.some(a => norm(a) === declaredNorm || declaredNorm.includes(norm(a)));
-      if (matches) {
-        result.requiresKitchenReview = true;
-        result.allergyRisk = true;
+    if (allergen) {
+      result.requiresKitchenReview = true;
+      result.allergyRisk = result.allergyRisk || allergen.highRisk;
+      let present = false;
 
-        // Buscar si el código del alérgeno aparece en algún item
-        const inItems = itemAllergenCodes.has(norm(allergen.code)) ||
-          itemAllergenCodes.has(norm(allergen.label));
+      for (const item of (order.items || [])) {
+        const lookupIds = (item.halfAndHalf && item.halfAndHalf.a && item.halfAndHalf.b)
+          ? [item.halfAndHalf.a.id, item.halfAndHalf.b.id]
+          : [item.id];
+        for (const itemId of lookupIds) {
+          const menuItem = (menuTax.items || []).find(candidate => candidate.id === itemId);
+          if (!menuItem) continue;
+          const sources = [];
+          for (const code of (menuItem.knownAllergens || [])) sources.push({ code, kind: "ingredient", component: null });
+          for (const code of (menuItem.traceAllergens || [])) {
+            if (!sources.some(source => norm(source.code) === norm(code))) sources.push({ code, kind: "trace", component: null });
+          }
+          for (const mod of (item.modifiers || [])) {
+            const modDef = (modsTax.modifiers || []).find(def =>
+              def.id === mod.modifierId || norm(def.displayName) === norm(mod.value) ||
+              (def.nlpKeywords || []).some(keyword => norm(keyword) === norm(mod.value))
+            );
+            for (const code of ((modDef && modDef.addedAllergens) || [])) {
+              sources.push({ code, kind: "modifier", component: mod.value });
+            }
+          }
+          const matchedSource = sources.find(source => allergenMatchesMenuCode(allergen, source.code));
+          if (!matchedSource) continue;
 
+          present = true;
+          const ontology = classifyAllergen(menuItem, norm(matchedSource.code));
+          const classification = matchedSource.kind === "ingredient"
+            ? ontology
+            : { known: true, removable: matchedSource.kind === "modifier", component: matchedSource.component || "trazas" };
+          const component = matchedSource.component || allergenComponent(menuItem, allergen, classification);
+          const removed = !!classification.removable && modifierRemovesAllergen(item, allergen, component);
+          const status = removed ? "resolved" : (classification.removable ? "pending" : "not_removable");
+          const conflict = {
+            conflictId: `${item.id || itemId}:${itemId}:${norm(allergen.code)}`,
+            itemId: item.id || itemId,
+            sourceItemId: itemId,
+            itemName: item.displayName || menuItem.displayName,
+            allergenCode: allergen.code,
+            allergenLabel: allergen.label,
+            declaredAs: declaredLabel,
+            highRisk: !!allergen.highRisk,
+            presentInItems: true,
+            severity: "CONFLICT",
+            source: matchedSource.kind,
+            classification: classification.removable ? "removable" : "intrinsic",
+            component,
+            status,
+            resolution: removed ? "removed" : null,
+            requiredAction: status === "pending" ? "resolve_allergen_conflict" : null
+          };
+          result.allergenConflicts.push(conflict);
+        }
+      }
+
+      if (!present) {
         result.allergenConflicts.push({
           allergenCode: allergen.code,
           allergenLabel: allergen.label,
           declaredAs: declaredLabel,
-          highRisk: true,
-          presentInItems: inItems,
-          severity: inItems ? "CONFLICT" : "DECLARED"
+          highRisk: !!allergen.highRisk,
+          presentInItems: false,
+          severity: "DECLARED",
+          status: "clear",
+          resolution: null,
+          requiredAction: null
         });
-        break;
       }
     }
 
-    // Buscar en standardAllergens
-    for (const allergen of allergyTax.standardAllergens) {
-      const matches = allergen.aliases.some(a => norm(a) === declaredNorm || declaredNorm.includes(norm(a)));
-      if (matches) {
-        result.requiresKitchenReview = true;
-        const inItems = itemAllergenCodes.has(norm(allergen.code)) ||
-          itemAllergenCodes.has(norm(allergen.label));
-
-        result.allergenConflicts.push({
-          allergenCode: allergen.code,
-          allergenLabel: allergen.label,
-          declaredAs: declaredLabel,
-          highRisk: false,
-          presentInItems: inItems,
-          severity: inItems ? "CONFLICT" : "DECLARED"
-        });
-        break;
-      }
-    }
-
-    // Restricciones dietéticas
     for (const diet of (allergyTax.dietaryRestrictions || [])) {
-      const matches = diet.aliases.some(a => norm(a) === declaredNorm || declaredNorm.includes(norm(a)));
-      if (matches) {
+      if ((diet.aliases || []).some(alias => declaredNorm.includes(norm(alias)))) {
         result.dietaryFlags.push({ code: diet.code, label: diet.label, declaredAs: declaredLabel });
         result.requiresKitchenReview = true;
         break;
@@ -212,9 +290,11 @@ function crossCheckAllergens(order) {
     }
   }
 
+  if (result.allergenConflicts.some(conflict => conflict.status === "pending")) {
+    result.requiredAction = "resolve_allergen_conflict";
+  }
   return result;
 }
-
 // ─── PRICE ESTIMATION ────────────────────────────────────────────────────────
 
 /**
@@ -293,23 +373,27 @@ function estimateTotal(order) {
  */
 function validateItems(order) {
   const menuTax = loadMenuTaxonomy();
+  const errors = [];
   const warnings = [];
 
   for (const item of (order.items || [])) {
     const menuItem = menuTax.items.find(i => i.id === item.id);
     if (!menuItem) {
-      warnings.push({ code: "ITEM_NOT_IN_MENU", message: `Item '${item.id}' no encontrado en el menú.`, itemId: item.id });
+      errors.push({ code: "ITEM_NOT_IN_MENU", requiredAction: "resolve_invalid_product", message: `Item '${item.id}' no encontrado en el menú.`, itemId: item.id });
       continue;
     }
     if (!menuItem.isAvailable) {
-      warnings.push({ code: "ITEM_UNAVAILABLE", message: `'${item.displayName}' no está disponible actualmente.`, itemId: item.id });
+      errors.push({ code: "ITEM_UNAVAILABLE", requiredAction: "resolve_invalid_product", message: `'${item.displayName}' no está disponible actualmente.`, itemId: item.id });
+    }
+    if (menuItem.price == null || !Number.isFinite(Number(menuItem.price))) {
+      errors.push({ code: "ITEM_PRICE_MISSING", requiredAction: "resolve_invalid_product", message: `'${item.displayName}' no tiene un precio operativo válido.`, itemId: item.id });
     }
     if (item.quantity > 10) {
       warnings.push({ code: "HIGH_QUANTITY", message: `Cantidad inusualmente alta: ${item.quantity}x '${item.displayName}'.`, itemId: item.id });
     }
   }
 
-  return warnings;
+  return { errors, warnings };
 }
 
 // ─── MAIN VALIDATOR ───────────────────────────────────────────────────────────
@@ -343,23 +427,31 @@ function validateOrder(order) {
   warnings.push(...phoneWarnings);
 
   // 3. Items
-  const itemWarnings = validateItems(order);
-  warnings.push(...itemWarnings);
+  const itemIntegrity = validateItems(order);
+  errors.push(...itemIntegrity.errors);
+  warnings.push(...itemIntegrity.warnings);
 
   // 4. Alérgenos cross-check
-  const { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk } = crossCheckAllergens(order);
+  const { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk, requiredAction } = crossCheckAllergens(order);
 
-  // Vozra PID SOLO TOMA PEDIDOS: una alergia declarada NUNCA bloquea ni retiene el
-  // pedido. Se ANOTA (aviso no bloqueante + flag requiresKitchenReview + kitchenNote)
-  // y la cocina la ve en el ticket. Antes esto empujaba un error ALLERGEN_REVIEW_REQUIRED
-  // que fallaba la validación y retenía el pedido — eliminado a propósito.
+  // Los conflictos retirables pendientes son estado operativo, no una sugerencia
+  // para el modelo. Bloquean confirmación y dispatch hasta que el modificador de
+  // retirada aparezca en el pedido. La evaluación es pura e idempotente.
+  const pendingAllergenConflicts = allergenConflicts.filter(conflict => conflict.status === "pending");
+  if (pendingAllergenConflicts.length) {
+    errors.push({
+      code: "ALLERGEN_CONFLICT_PENDING",
+      message: "Hay un ingrediente alergénico retirable pendiente de resolver.",
+      requiredAction: "resolve_allergen_conflict",
+      conflictIds: pendingAllergenConflicts.map(conflict => conflict.conflictId)
+    });
+  }
   if (requiresKitchenReview && allergenConflicts.length) {
     warnings.push({
       code: "ALLERGEN_NOTED",
-      message: "Alergia declarada anotada para cocina. NO bloquea el pedido (PID solo toma pedidos)."
+      message: "Alergia declarada anotada para cocina."
     });
   }
-
   // 5. Precio estimado
   const { estimatedTotal, breakdown, currency } = estimateTotal(order);
 
@@ -403,6 +495,7 @@ function validateOrder(order) {
     errors,
     warnings,
     allergenConflicts,
+    requiredAction,
     dietaryFlags,
     flags,
     estimatedTotal,
@@ -418,6 +511,7 @@ module.exports = {
   validateRequiredSlots,
   validatePhone,
   crossCheckAllergens,
+  detectDeclaredAllergies,
   estimateTotal,
   validateItems
 };

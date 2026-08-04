@@ -14,8 +14,12 @@ const fs    = require("fs");
 const path  = require("path");
 const https = require("https");
 
-const { getOrCreateOrderSession, updateOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
-const { validateOrder, estimateTotal } = require("./order-validator.service.js");
+const {
+  getOrCreateOrderSession, updateOrderSession, ORDER_STATUS,
+  applyDraftSnapshot, recordValidation, recordQuote, acceptSurcharges,
+  recordSummary, recordConfirmation
+} = require("./order-call-session.store.js");
+const { validateOrder, validateItems, estimateTotal, crossCheckAllergens, detectDeclaredAllergies } = require("./order-validator.service.js");
 const { dispatchOrder } = require("./dispatch-adapter.service.js");
 const { startKitchenWatch } = require("./kitchen-ack-monitor.service.js");
 const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
@@ -153,15 +157,17 @@ function getMenuItemByName(name) {
   const n = norm(name);
   if (!n) return null;
   const menu = loadMenu();
-  let hit = menu.items.find(i => norm(i.displayName) === n);
-  if (hit) return hit;
-  hit = menu.items.find(i => (i.nlpKeywords || []).some(kw => norm(kw) === n));
-  if (hit) return hit;
+  let hits = menu.items.filter(i => norm(i.displayName) === n);
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) return null;
+  hits = menu.items.filter(i => (i.nlpKeywords || []).some(kw => norm(kw) === n));
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) return null;
   // Substring solo con nombres razonablemente largos: evita que "te" (pronombre)
   // resuelva a "Té e infusiones" o que fragmentos de 2-3 letras casen con platos.
   if (n.length >= 4) {
-    hit = menu.items.find(i => norm(i.displayName).includes(n) || n.includes(norm(i.displayName)));
-    if (hit) return hit;
+    hits = menu.items.filter(i => norm(i.displayName).includes(n) || n.includes(norm(i.displayName)));
+    if (hits.length === 1) return hits[0];
   }
   return null;
 }
@@ -282,6 +288,10 @@ function nombreCorregidoEnLlamada(incomingMessages) {
   return encontrado;
 }
 
+function freeReplacementAuthorized(provider = getProvider("la-locanda")) {
+  return !!(provider && provider.compensacion && provider.compensacion.reposicion_gratis === true);
+}
+
 function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null) {
   const menu = provider.menu || loadMenu();
   const config = provider.config || {};
@@ -303,6 +313,31 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
   const horarioLinea = ks
     ? `Hoy es ${ks.weekday}. Turnos de cocina: ${turnos}. Ahora son las ${ks.nowHHMM}. La cocina está ${estadoCocina}.${proxApertura}`
     : "Horario no disponible: no prometas una hora exacta y ofrece comprobarla.";
+
+  // POLÍTICA DE COMPENSACIÓN (decisión del owner 02-08). Configurable por local:
+  // config.compensacion = { reposicion_gratis, descuento_pct, descuento_autorizado }.
+  // Nace del caso real de un cliente con la pizza destrozada al que Sarah respondió
+  // "el pedido nuevo NO es gratuito" — porque el prompt solo decía "no prometas nada".
+  const comp = Object.assign(
+    { reposicion_gratis: false, descuento_pct: 10, descuento_autorizado: false },
+    config.compensacion || {}
+  );
+  const compensacionBloque = `# PEDIDO MAL SERVIDO (frío, roto, incompleto o equivocado)
+Si el cliente se queja de un pedido YA ENTREGADO que llegó mal, esto NO es una queja que solo se anota: es algo que TÚ puedes resolver ahora.
+1. Discúlpate de verdad y sin excusas. Nada de "lo lamento" a secas y seguir a lo tuyo; reconoce el fallo ("Lo siento, eso no puede pasar").
+2. NO le hagas repetir lo que ya te ha contado ni le pidas datos que ya tienes.
+${comp.reposicion_gratis ? `3. OFRÉCELE REPONER EL PEDIDO **SIN COSTE**: el mismo pedido otra vez, gratis. Dilo claro y sin que te lo pida: "Te lo repetimos ahora mismo sin coste". PROHIBIDO decirle que tiene que pagarlo. En submit_order pon en notes "REPOSICIÓN GRATUITA POR INCIDENCIA".` : `3. NO puedes ofrecer reposición gratuita: deriva al encargado.`}
+${comp.descuento_pct ? (comp.descuento_autorizado
+  ? `4. Si prefiere no repetir el pedido ahora, ofrécele un ${comp.descuento_pct}% de descuento en su próximo pedido y déjalo anotado.`
+  : `4. Un descuento del ${comp.descuento_pct}% en el próximo pedido lo tiene que aprobar el local: NO lo prometas como seguro. Puedes decir que se lo propones al encargado.`) : ""}
+5. Llama SIEMPRE a registrar_incidencia con escalar=true. En submit_order rellena el campo incidencia: {motivo:"lo que ha contado el cliente", quiere_reembolso:true/false}. Con eso el ticket sale a cocina con una ALERTA y el teléfono del cliente para que el local le llame.
+6. SI LO QUE QUIERE ES QUE LE DEVUELVAN EL DINERO, no le digas que no y no te escondas detrás de las normas. Dile, con esta idea y con tus palabras:
+   · que tú gestionas los pedidos y quien confirma la devolución es el encargado;
+   · que **no se preocupe, que su dinero lo va a tener**;
+   · que el encargado le va a llamar en un momento para confirmárselo Y para que le cuente qué ha pasado;
+   · que os interesa a vosotros saberlo, porque así no le vuelve a pasar ni a él ni a nadie.
+   Dilo con calma y sin prisa por colgar: el cliente tiene que quedarse tranquilo sabiendo que le van a llamar.
+7. Si el cliente está enfadado, no le lleves la contraria ni te justifiques. Primero resuelves, luego anotas.`;
 
   // Bloque de cliente recurrente: solo aparece si hay perfil guardado CON consentimiento.
   const nombreCli = realCustomerName(profile && profile.name);
@@ -466,14 +501,14 @@ ${(() => {
 - CANDADO DE ACTIVACIÓN (léelo primero): TODA esta sección se activa ÚNICA y EXCLUSIVAMENTE si el cliente ha DECLARADO por su cuenta una alergia, intolerancia, celiaquía o restricción en ESTA llamada (p. ej. "soy alérgico a algo", "soy celíaco", "no puedo tomar lactosa", "sin gluten"). Si NO ha declarado ninguna, aplica estas cuatro prohibiciones: NO preguntes si tiene alergias; NO menciones alergias en el resumen; NO ofrezcas base sin gluten; NO adviertas sobre alérgenos de forma proactiva. Tampoco menciones que un plato "lleva nata, queso o gluten" ni recites ingredientes proactivamente. Pedir una pizza con extra de queso, beicon u orégano NO es declarar una alergia: anótalo y sigue, sin advertencias. Soltar una alerta de alérgenos que nadie ha pedido confunde al cliente y es un ERROR.
 - Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro.
 - SINÓNIMOS que debes reconocer: "sin TACC", "TACC" o "apto celíacos" = SIN GLUTEN (celiaquía); "sin lácteos" = sin lactosa. Trátalos como la alergia/intolerancia correspondiente y aplícales la misma política de seguridad.
-- REGLA MADRE (Vozra PID SOLO TOMA PEDIDOS): NUNCA bloquees, rechaces ni retengas un pedido por una alergia, y NUNCA lo mandes a "revisión" para no tomarlo. Ante una alergia tu trabajo es SOLO: (1) anotarla en el ticket, y (2) como mucho, ayudar con UNA sugerencia. La decisión es del cliente: si quiere el plato igual, se lo tomas y lo anotas.
+- REGLA MADRE: el código cruza pedido y alergias. Si calcular_total devuelve requiredAction="resolve_allergen_conflict", resuelve ese ingrediente antes del resumen; no confirmes ni envíes hasta que desaparezca la acción pendiente.
 - CÓMO AVISAR (CRÍTICO): NUNCA empieces el aviso con "Oye" ni con ninguna muletilla, y NUNCA le repitas como si fuera un descubrimiento algo que el cliente ACABA de declarar. Ve directa y con naturalidad. CRUZA la alergia contra los platos pedidos. Si un plato contiene ese alérgeno:
-  · RETIRABLE (la CARTA OPERATIVA lo marca "(se puede quitar)": un topping como langostinos, jamón, queso añadido o frutos secos por encima) → ofrécele quitarlo: "La Abruzzo lleva langostinos; si quieres te la preparo sin ellos, ¿te la pongo así?". Si acepta, añade "sin [ingrediente]" y sigue; si prefiere dejarlo tal cual, se lo tomas igual y lo anotas.
+  · RETIRABLE (la CARTA OPERATIVA lo marca "(se puede quitar)") → ofrece quitar el ingrediente. Si acepta, añade el modificador "sin [ingrediente]" una sola vez. Si no, cambia o retira el plato antes del resumen.
   · INTRÍNSECO (no marcado: el alérgeno va en la masa, la base o la salsa) → dile con naturalidad que ese plato lo lleva y, si quieres, RECOMIÉNDALE otro plato equivalente sin ese alérgeno. Pero si el cliente prefiere ESE mismo plato, SE LO TOMAS y anotas la alergia. NUNCA se lo niegues.
   · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
   · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE. Si NO lo marca, es INTRÍNSECO. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
 - Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno] (platos: [afectados])". Menciónala también en el resumen final para que el cliente sepa que queda anotada.
-- Tú solo ANOTAS la alergia y, si acaso, SUGIERES. NO afirmes que un plato es 100% seguro por tu cuenta; pero TAMPOCO bloquees ni retengas el pedido: la cocina ve la nota de alergia en el ticket y actúa.
+- NO afirmes que un plato es 100% seguro. Tras resolver cualquier requiredAction pendiente, conserva la alergia y la modificación en la comanda para cocina.
 
 # PEDIDOS DE GRUPO
 Si el pedido es para ${provider.groupOrderThreshold || 7} personas o más, confírmalo con especial cuidado y avisa de que puede requerir algo más de tiempo de preparación.
@@ -493,12 +528,23 @@ Si el cliente NO quiere pedir sino preguntar por un pedido que ya hizo (estado, 
 5. NUNCA prometas reembolsos, compensaciones ni tiempos exactos. Tú registras y trasladas.
 6. Si la herramienta devuelve avisado_el_personal=false y registrada=false, sé HONESTA: dile que no has podido dejar constancia y que llame en unos minutos; no afirmes que ya está gestionado.
 
-# OTRAS CONSULTAS (ni pedido ni incidencia)
-- Este teléfono es exclusivo para PEDIDOS y consultas sobre pedidos. Para cualquier otra cosa (proveedores, colaboraciones, facturación, empleo, prensa), dilo con amabilidad y pide que lo gestionen por los canales del restaurante o que llamen en horario de oficina preguntando por el encargado. No inventes extensiones, correos ni departamentos que no conoces.
+# QUIERE HABLAR CON EL ENCARGADO O EL MÁNAGER (aunque no haya pedido de por medio)
+NUNCA le sueltes "este teléfono es solo para pedidos" y le dejes tirado: ha llamado al restaurante y es un cliente del restaurante.
+1. Dile con naturalidad que tú gestionas los pedidos, pero que **el encargado le llama enseguida**. No le mandes llamar a otro sitio ni le des largas con "en horario de oficina".
+2. Pídele SOLO lo que te falte para que puedan llamarle: un teléfono y su nombre. Si ya le has reconocido por el teléfono, NO se los vuelvas a pedir.
+3. Pregúntale de qué se trata, para que el encargado le llame ya sabiendo el tema. Si no quiere contarlo, no insistas.
+4. Llama a registrar_incidencia con reason="otra_incidencia" y escalar=true, poniendo en detail el motivo y sus datos. Así salta el aviso al local con su teléfono.
+5. Cierra tranquilizando: "Le paso el aviso ahora mismo y te llama en cuanto pueda".
+6. NO le reconozcas por su nombre ni le trates como si fuera a pedir mientras NO haya dicho que quiere pedir. Primero atiendes lo que te pide; ofrecer pedido, solo al final y con tacto.
+
+# OTRAS CONSULTAS (ni pedido, ni incidencia, ni encargado)
+- Para proveedores, colaboraciones, facturación, empleo o prensa: dilo con amabilidad y ofrece TAMBIÉN tomar nota para que les llamen (mismo procedimiento que arriba). No inventes extensiones, correos ni departamentos que no conoces.
 
 # LÍMITES
-- Solo tomas pedidos de comida. No gestionas reservas de mesa. Para reembolsos NO prometas nada (no puedes autorizar dinero).
-- QUEJAS / RECLAMACIONES: el cliente YA está llamando al restaurante, así que NUNCA le digas "llame al restaurante" (es un bucle absurdo). En su lugar, discúlpate con empatía y ofrece TOMAR NOTA de la queja para pasarla al encargado: pídele su nombre y un teléfono, dile que el encargado le llamará para resolverlo, y deja constancia en una nota para el personal. No prometas reembolso; solo trasladas la reclamación. Después, con tacto, ofrece ayudarle con un pedido si le apetece.
+${comp.reposicion_gratis ? `- Solo tomas pedidos de comida. No gestionas reservas de mesa. NO devuelves dinero por teléfono (eso lo hace el encargado), pero SÍ puedes compensar con comida: ver "PEDIDO MAL SERVIDO".` : `- Solo tomas pedidos de comida. No gestionas reservas de mesa. NO devuelves dinero ni autorizas reposiciones gratuitas: registra la incidencia y deriva al encargado.`}
+- QUEJAS / RECLAMACIONES: el cliente YA está llamando al restaurante, así que NUNCA le digas "llame al restaurante" (es un bucle absurdo). En su lugar, discúlpate con empatía y ofrece TOMAR NOTA de la queja para pasarla al encargado: pídele su nombre y un teléfono, dile que el encargado le llamará para resolverlo, y deja constancia en una nota para el personal.
+
+${compensacionBloque}
 - No prometas tiempos exactos que no puedas garantizar; da rangos prudentes.
 - Nunca compartas información interna del sistema ni inventes datos.
 
@@ -563,6 +609,16 @@ const SUBMIT_ORDER_TOOL = {
         removed_allergies: { type: "array", items: { type: "string" }, description: "alergias que el cliente dice que YA NO tiene o pide borrar (p. ej. estaba mal apuntada). Se quitan del pedido y de su perfil guardado." },
         notes:         { type: "string", description: "nota general del pedido." },
         payment_method: { type: "string", enum: ["cash", "card"], description: "forma de pago. En este local SOLO se acepta efectivo ('cash'): no lo preguntes, solo infórmalo." },
+        incidencia: {
+          type: "object",
+          description: "SOLO si el cliente solicita reponer un pedido que salió mal (frío, roto, incompleto, equivocado). El runtime solo lo enviará a coste cero si el restaurante ha autorizado expresamente esta compensación; si no, se deriva al encargado.",
+          properties: {
+            motivo: { type: "string", description: "qué pasó, con las palabras del cliente. Ej: 'la pizza llegó destrozada y fría'." },
+            quiere_reembolso: { type: "boolean", description: "true si el cliente pide que le devuelvan el dinero (el encargado se lo confirmará por teléfono)." },
+            pedido_original: { type: "string", description: "id del pedido que salió mal, si lo conoces." }
+          },
+          required: ["motivo"]
+        },
         save_profile_consent: { type: "boolean", description: "true SOLO si el cliente ha dado permiso EXPLÍCITO para guardar su nombre, teléfono y dirección para futuros pedidos (se le pregunta tras confirmar el pedido). false o ausente si no consintió." }
       },
       required: ["items", "order_type", "phone"]
@@ -582,6 +638,7 @@ const QUOTE_TOOL = {
       type: "object",
       properties: {
         items: SUBMIT_ORDER_TOOL.function.parameters.properties.items,
+        allergies: SUBMIT_ORDER_TOOL.function.parameters.properties.allergies,
         order_type: { type: "string", enum: ["pickup", "delivery"] }
       },
       required: ["items"]
@@ -790,14 +847,14 @@ function hasPerPizzaQuantityIntent(conversationMessages) {
 
   const patterns = [
     // "pizza" y "piso" (el transcriptor confunde a menudo pizza→piso).
-    /\buna(?:\s+[a-z-]+){0,4}\s+(?:para\s+cada|por)\s+(?:pizza|piso)s?\b/,
+    /\buna\b[^.!?]{0,60}\b(?:para\s+cada|por\s+cada|por)\s+(?:pizza|piso)s?\b/,
     /\btantas?\s+como\s+pizzas?\b/,
     /\buna\s+bebida\s+para\s+cada\s+una\b/
   ];
   return userTurns.some(turn => patterns.some(pattern => pattern.test(turn)));
 }
 
-function resolvePerPizzaQuantities(args, conversationMessages) {
+function resolvePerPizzaQuantities(args, conversationMessages, existingDraftItems = []) {
   if (!args || !Array.isArray(args.items) || !hasPerPizzaQuantityIntent(conversationMessages)) return args;
 
   let pizzaQuantity = 0;
@@ -817,6 +874,13 @@ function resolvePerPizzaQuantities(args, conversationMessages) {
     }
   });
 
+  // Cuando el turno solo contiene la bebida derivada, la autoridad es el
+  // borrador estructurado persistido, no una cantidad inventada por el modelo.
+  if (pizzaQuantity < 1) {
+    pizzaQuantity = (existingDraftItems || []).reduce((total, item) =>
+      total + (String(item.category || "").startsWith("pizza_") ? Math.max(1, parseInt(item.quantity, 10) || 1) : 0), 0);
+  }
+
   if (pizzaQuantity < 1 || beverageIndexes.length !== 1) return args;
   const items = args.items.map((item, index) =>
     index === beverageIndexes[0] ? { ...item, quantity: pizzaQuantity } : item
@@ -824,31 +888,103 @@ function resolvePerPizzaQuantities(args, conversationMessages) {
   return { ...args, items };
 }
 
-function computeQuote(args, conversationMessages = []) {
-  args = resolvePerPizzaQuantities(args, conversationMessages);
-  const items = ((args && args.items) || []).map(mapToolItem);
+function surchargeLines(breakdown) {
+  const result = [];
+  for (const b of (breakdown || [])) for (const m of (b.modifiers || [])) {
+    if (m && m.price > 0) result.push({ plato: b.label, extra: m.label, importe_eur: m.price });
+  }
+  return result;
+}
+
+function deterministicQuote(items, args = {}) {
   const { estimatedTotal, breakdown, currency } = estimateTotal({ items });
-  const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
-
-  // Promociones: motor configurable. Hoy `promotions: []` → no-op, total intacto.
   let promo = { discounts: [], totalDiscount: 0, newTotal: estimatedTotal, labels: [] };
-  try {
-    promo = applyPromotions(items, { orderType: args && args.order_type, baseTotal: estimatedTotal }, "la-locanda");
-  } catch (e) { console.error("[PROMO] error | " + e.message); }
+  try { promo = applyPromotions(items, { orderType: args.order_type, baseTotal: estimatedTotal }, "la-locanda"); }
+  catch (e) { console.error("[PROMO] error | " + e.message); }
+  return {
+    total: promo.totalDiscount > 0 ? promo.newTotal : estimatedTotal,
+    baseTotal: estimatedTotal,
+    breakdown,
+    currency: currency || "EUR",
+    surcharges: surchargeLines(breakdown),
+    promo
+  };
+}
 
-  // Suplementos con precio (extras/toppings de pago), explícitos para que Sarah los
-  // diga en voz alta y no se los salte. El importe ya está incluido en total_eur.
-  const suplementos = [];
-  for (const b of (breakdown || [])) {
-    for (const m of (b.modifiers || [])) {
-      if (m && m.price > 0) suplementos.push({ plato: b.label, extra: m.label, importe_eur: m.price });
-    }
+function isInformationalProductQuery(messages) {
+  const last = [...(messages || [])].reverse().find(message => message && message.role === "user" && message.content);
+  if (!last) return false;
+  const text = String(last.content).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const asks = /(?:que lleva|ingredientes|como es|cuanto cuesta|que precio|informacion|alergen)/.test(text);
+  const mutates = /(?:ponme|quiero|anade|añade|agrega|incluye|dame|me pones|para pedir)/.test(text);
+  return asks && !mutates;
+}
+
+function computeQuote(args, conversationMessages = [], callId = null) {
+  const prior = callId ? getOrCreateOrderSession(callId) : null;
+  args = resolvePerPizzaQuantities(args, conversationMessages, prior && prior.draftItems);
+  const items = ((args && args.items) || []).map(mapToolItem);
+  const session = prior;
+  const saved = (session && session.registeredRestrictions && session.registeredRestrictions.allergies) || [];
+  const explicit = Array.isArray(args && args.allergies) ? args.allergies : [];
+  const detected = detectDeclaredAllergies(conversationMessages);
+  const seen = new Set();
+  const allergies = [...saved, ...explicit, ...detected]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .filter(value => { const key = value.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; });
+  const authority = crossCheckAllergens({ items, allergies });
+  const informationalOnly = isInformationalProductQuery(conversationMessages);
+  const orderTypeValid = args && ["pickup", "delivery"].includes(args.order_type);
+
+  let productIntegrity = validateItems({ items });
+  const quoteValidation = {
+    ok: productIntegrity.errors.length === 0 && authority.requiredAction !== "resolve_allergen_conflict" && orderTypeValid,
+    errors: [...productIntegrity.errors], requiredAction: authority.requiredAction
+  };
+  if (authority.requiredAction) quoteValidation.errors.push({ code: "ALLERGEN_CONFLICT_PENDING", requiredAction: authority.requiredAction });
+  if (!orderTypeValid) quoteValidation.errors.push({ code: args && args.order_type ? "INVALID_ORDER_TYPE" : "MISSING_ORDER_TYPE", requiredAction: "resolve_order_type" });
+
+  if (session && !informationalOnly) {
+    applyDraftSnapshot(callId, {
+      items, orderType: args.order_type || null,
+      address: args.address ? { raw: args.address } : session.address,
+      allergies, paymentMethod: args.payment_method || session.paymentMethod
+    });
+    recordValidation(callId, quoteValidation);
+    updateOrderSession(callId, { allergenConflicts: authority.allergenConflicts, requiredAction: authority.requiredAction });
+  }
+
+  // Sin total no hay resumen autorizado. El modelo recibe la acción requerida,
+  // pero el estado y el bloqueo los decide el código.
+  if (!quoteValidation.ok) {
+    return {
+      ok: false,
+      total_eur: null,
+      informationalOnly,
+      requiredAction: authority.requiredAction || (!orderTypeValid ? "resolve_order_type" : "resolve_invalid_product"),
+      errors: quoteValidation.errors,
+      allergenConflicts: authority.allergenConflicts.filter(conflict => conflict.status === "pending")
+    };
+  }
+
+  const calculated = deterministicQuote(items, args);
+  const { baseTotal: estimatedTotal, breakdown, currency, promo } = calculated;
+  const sinPrecio = (breakdown || []).filter(b => b.subtotal == null).map(b => b.label);
+  const suplementos = calculated.surcharges;
+  if (session && !informationalOnly) {
+    recordQuote(callId, calculated.total, suplementos);
   }
 
   const out = {
-    total_eur: promo.totalDiscount > 0 ? promo.newTotal : estimatedTotal,
+    ok: true,
+    total_eur: calculated.total,
     moneda: currency || "EUR",
-    productos_sin_precio: sinPrecio
+    productos_sin_precio: sinPrecio,
+    requiredAction: suplementos.length ? "obtain_surcharge_acceptance" : null,
+    informationalOnly,
+    draftRevision: session ? getOrCreateOrderSession(callId).draftRevision : null,
+    draftFingerprint: session ? getOrCreateOrderSession(callId).draftFingerprint : null
   };
   if (suplementos.length) {
     out.suplementos = suplementos;
@@ -860,9 +996,9 @@ function computeQuote(args, conversationMessages = []) {
     out.descuento_eur = promo.totalDiscount;
     out.promociones_aplicadas = promo.labels;
   }
+  if (session && !informationalOnly && !suplementos.length) out.summary_text = deterministicSummary(getOrCreateOrderSession(callId));
   return out;
 }
-
 // Busca un perfil guardado por teléfono (para la tool buscar_cliente).
 // Extrae SOLO el nombre de la calle de una dirección guardada (privacidad):
 // "Calle Alpandeire número 3, Urbanización..." -> "Calle Alpandeire".
@@ -932,12 +1068,15 @@ async function computeOrderLookup(args) {
 }
 
 // Registro de incidencia + derivación al personal (tool registrar_incidencia).
-async function computeIncident(args) {
+async function computeIncident(args, conversationMessages = []) {
   try {
+    // El aviso al local NO sirve de nada sin el teléfono: si el modelo no lo pasa,
+    // lo sacamos del historial. Determinista, no se confía en que se acuerde.
+    const tel = args.phone || phoneFromHistory(conversationMessages) || null;
     const r = await registerIncident({
       orderId:      args.order_id || null,
-      phone:        args.phone || null,
-      customerName: args.customer_name || null,
+      phone:        tel,
+      customerName: realCustomerName(args.customer_name) || null,
       reason:       args.reason,
       detail:       args.detail || null,
       escalate:     args.escalar !== false,
@@ -998,15 +1137,15 @@ async function persistirNombreCorregido(nombre, conversationMessages, callerPhon
   }
 }
 
-async function toolOutput(tc, conversationMessages = []) {
+async function toolOutput(tc, conversationMessages = [], callId = null) {
   const name = tc && tc.function && tc.function.name;
   let a = {};
   try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
-  if (name === "calcular_total")            return computeQuote(a, conversationMessages);
+  if (name === "calcular_total")            return computeQuote(a, conversationMessages, callId);
   if (name === "buscar_cliente")            return await computeLookup(a);
   if (name === "validar_direccion")         return await computeZone(a);
   if (name === "consultar_pedido")          return await computeOrderLookup(a);
-  if (name === "registrar_incidencia")      return await computeIncident(a);
+  if (name === "registrar_incidencia")      return await computeIncident(a, conversationMessages);
   if (name === "eliminar_alergia_guardada") return await computeRemoveAllergy(a, conversationMessages);
   return { ok: true };
 }
@@ -1033,9 +1172,66 @@ function orderSignature(args) {
   return `${phone}::${items}::${args.order_type || ""}`;
 }
 
+function acceptedSurchargeInLastTurn(messages) {
+  const ms = (messages || []).filter(m => m && m.content);
+  const last = ms[ms.length - 1];
+  if (!last || last.role !== "user" || !esAfirmacionSimple(last.content)) return false;
+  for (let i = ms.length - 2; i >= 0 && i >= ms.length - 4; i--) {
+    if (ms[i].role === "assistant") return /suplement|extra[^.]{0,50}(?:euro|€)|(?:euro|€)[^.]{0,50}extra/i.test(String(ms[i].content));
+  }
+  return false;
+}
+
+function deterministicSummary(order) {
+  const products = (order.items || []).map(item => `${item.quantity || 1} ${item.displayName}`).join(", ");
+  return `Resumen: ${products}. Total ${formatEurosSpoken(order.quotedTotal)}. ¿Está todo correcto y confirmas el pedido?`;
+}
+
+function validationRequiredAction(validation) {
+  if (validation && validation.requiredAction) return validation.requiredAction;
+  const error = validation && Array.isArray(validation.errors)
+    ? validation.errors.find(item => item && item.requiredAction)
+    : null;
+  return error ? error.requiredAction : null;
+}
+
+function submitResultAction(result) {
+  const requiredAction = (result && result.requiredAction) || validationRequiredAction(result && result.validation);
+  if (requiredAction) return requiredAction;
+  if (result && result.validationFailed) return "validation_failed";
+  if (result && result.ok === false) return result.reason || "validation_failed";
+  return "customer_confirmed";
+}
+
+function confirmationMatchesDeliveredSummary(messages, order) {
+  if (!order || !order.summaryText || order.summaryFingerprint !== order.draftFingerprint) return false;
+  if (!confirmacionPendienteDeEnviar(messages)) return false;
+  const ms = (messages || []).filter(message => message && message.content);
+  for (let i = ms.length - 2; i >= 0; i--) {
+    if (ms[i].role !== "assistant") continue;
+    const actual = String(ms[i].content).replace(/\s+/g, " ").trim();
+    const expected = String(order.summaryText).replace(/\s+/g, " ").trim();
+    return actual === expected;
+  }
+  return false;
+}
+
 async function handleSubmitOrder(callId, args, conversationMessages = []) {
-  args = resolvePerPizzaQuantities(args, conversationMessages);
   const _sess = getOrCreateOrderSession(callId);
+  args = resolvePerPizzaQuantities(args, conversationMessages, _sess && _sess.draftItems);
+  // Fail-closed económico: una incidencia nunca convierte el pedido en gratuito
+  // si el restaurante no lo ha autorizado explícitamente en su perfil.
+  if (args.incidencia && !freeReplacementAuthorized()) {
+    return {
+      ok: false,
+      delivered: false,
+      order: _sess,
+      reply: "He dejado la incidencia para que el encargado te llame y confirme la solución.",
+      validation: {},
+      retryable: false,
+      reason: "free_replacement_not_authorized"
+    };
+  }
   // Cliente YA reconocido en esta llamada (por caller ID o buscar_cliente): su
   // perfil ya existe con consentimiento previo. PROHIBIDO re-guardar o re-preguntar.
   // Determinista: aunque el modelo ponga save_profile_consent=true, aquí se anula.
@@ -1053,7 +1249,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     return { ok: true, delivered: true, order: _sess || null, reply: "", validation: {}, alreadyDone: true };
   }
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
-  const orderType = args.order_type === "delivery" ? "delivery" : "pickup";
+  const orderType = ["delivery", "pickup"].includes(args.order_type) ? args.order_type : (args.order_type || null);
   // Alergias del pedido = las declaradas en esta llamada UNIDAS a las que el cliente
   // tiene guardadas en su perfil. Determinista: van SIEMPRE al ticket aunque el modelo
   // no las repita ("lo tenías que tener apuntado en la base de datos").
@@ -1079,32 +1275,97 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     allergyNotes: _allAlg.length ? _allAlg.join(", ") : null,
     notes: args.notes || null,
     paymentMethod: args.payment_method || "cash",
-    status: ORDER_STATUS.AWAITING_CONFIRMATION
+    status: ORDER_STATUS.DRAFT
   };
+  // REPOSICIÓN POR INCIDENCIA (política del owner 02-08): coste cero y el ticket
+  // sale a cocina con una alerta y el teléfono para que el local llame al cliente.
+  if (args.incidencia && (args.incidencia.motivo || args.incidencia.quiere_reembolso)) {
+    patch.incidencia = {
+      motivo: String(args.incidencia.motivo || "pedido mal servido").slice(0, 200),
+      quiereReembolso: args.incidencia.quiere_reembolso === true,
+      pedidoOriginal: args.incidencia.pedido_original || null
+    };
+    patch.paymentMethod = "sin_cargo";   // no se cobra: lo decide el código, no el LLM
+    patch.notes = [patch.notes, "REPOSICIÓN GRATUITA POR INCIDENCIA"].filter(Boolean).join(" · ");
+  }
   if (orderType === "delivery") {
     const da = resolveDeliveryAddress(args.address, (_sess && _sess.registeredAddress) || null);
     if (da) patch.address = { street: null, number: da.number, floor: null, city: null, raw: da.raw };
   }
+  const draftResult = applyDraftSnapshot(callId, patch);
   let order = updateOrderSession(callId, patch);
   let validation = {};
   try { validation = validateOrder(order); } catch (e) { validation = { ok: false, errors: [{ message: e.message }] }; }
+  recordValidation(callId, validation);
+  order = updateOrderSession(callId, {
+    allergenConflicts: validation.allergenConflicts || [],
+    requiredAction: validation.requiredAction || null
+  });
 
   // Gate fail-closed: una validación fallida no puede producir ningún efecto
   // operativo. La firma tampoco se reserva, para permitir corregir y reintentar.
   if (validation.ok !== true) {
+    const requiredAction = validationRequiredAction(validation);
     return {
       ok: false,
       delivered: false,
       order,
-      reply: "No puedo enviar el pedido todavía porque falta algún dato. Vamos a completarlo y lo confirmamos.",
+      reply: requiredAction === "resolve_allergen_conflict"
+        ? "Antes de confirmar necesito resolver el ingrediente relacionado con tu alergia."
+        : "No puedo enviar el pedido todavía porque falta algún dato. Vamos a completarlo y lo confirmamos.",
       validation,
+      requiredAction: requiredAction || "validation_failed",
       validationFailed: true,
       retryable: true,
-      reason: "validation_failed"
+      reason: requiredAction === "resolve_allergen_conflict" ? "allergen_conflict_pending" : "validation_failed"
     };
   }
 
-  order = updateOrderSession(callId, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+  // Cotización, suplementos, resumen y confirmación quedan ligados a la huella
+  // vigente. Un payload cambiado invalida automáticamente todos los artefactos.
+  order = getOrCreateOrderSession(callId);
+  if (order.quoteFingerprint !== order.draftFingerprint) {
+    const calculated = deterministicQuote(order.items, args);
+    recordQuote(callId, calculated.total, calculated.surcharges);
+    order = getOrCreateOrderSession(callId);
+  }
+  validation = { ...validation, estimatedTotal: order.quotedTotal };
+  order = updateOrderSession(callId, { estimatedTotal: order.quotedTotal });
+  if (order.surchargeAcceptance === "pending") {
+    if (!acceptedSurchargeInLastTurn(conversationMessages)) {
+      return { ok: false, delivered: false, order, validation, retryable: true,
+        reason: "surcharge_acceptance_required", requiredAction: "obtain_surcharge_acceptance",
+        reply: "Antes de confirmar necesito que aceptes expresamente el suplemento indicado." };
+    }
+    const accepted = acceptSurcharges(callId, order.draftFingerprint);
+    if (!accepted.ok) return { ok: false, delivered: false, order: accepted.order, validation, retryable: true, reason: accepted.reason, reply: "Necesito recalcular el pedido antes de aceptar ese suplemento." };
+    order = accepted.order;
+  }
+  if (order.summaryFingerprint !== order.draftFingerprint) {
+    const summaryText = deterministicSummary(order);
+    const summarized = recordSummary(callId, summaryText);
+    order = summarized.order;
+    return { ok: false, delivered: false, order, validation, retryable: true,
+      reason: "summary_required", requiredAction: "present_current_summary",
+      reply: summaryText, draftChanged: draftResult.changed };
+  }
+  if (!confirmationMatchesDeliveredSummary(conversationMessages, order)) {
+    return { ok: false, delivered: false, order, validation, retryable: true,
+      reason: "final_confirmation_required", requiredAction: "obtain_final_confirmation",
+      reply: deterministicSummary(order) };
+  }
+  const confirmed = recordConfirmation(callId, order.summaryFingerprint);
+  if (!confirmed.ok || !confirmed.order.safeToDispatch || confirmed.order.confirmationFingerprint !== confirmed.order.draftFingerprint) {
+    return { ok: false, delivered: false, order: confirmed.order, validation, retryable: true,
+      reason: confirmed.reason || "unsafe_to_dispatch", reply: "El pedido ha cambiado y necesito resumirlo y confirmarlo otra vez." };
+  }
+  const snapshot = confirmed.order.confirmedSnapshot;
+  order = updateOrderSession(callId, {
+    items: snapshot.items, orderType: snapshot.orderType, address: snapshot.address,
+    allergies: snapshot.allergies, paymentMethod: snapshot.paymentMethod,
+    estimatedTotal: snapshot.quotedTotal,
+    status: ORDER_STATUS.CUSTOMER_CONFIRMED
+  });
   _recentDispatch.set(_sig, _now);  // reservar solo después de validar con éxito
 
   // PERSISTENCIA DURABLE *antes* del dispatch: si el contenedor cae tras confirmar,
@@ -1258,8 +1519,13 @@ function sanitizeReply(text) {
     // 3) arranque en español SOLO si va seguido de puntos suspensivos.
     //    Admite signos entre medias ("¡Entiendo!..." debe caer igual que "Entiendo...").
     t = t.replace(new RegExp("^[¡¿\"'\\s]*(?:" + ES + ")\\s*[!¡?¿]*\\s*(?:\\.{2,}|…)[\"']?[\\s.,!…\"']*", "i"), "").trim();
-    // 3b) "Entiendo."/"Entendido." como frase-muletilla inicial seguida de otra frase
-    t = t.replace(/^[¡¿"'\s]*(?:entiendo|entendido)[."'!]*\s+(?=[A-ZÁÉÍÓÚÑ¡¿"])/i, "").trim();
+    // 3b) "Entiendo."/"Entendido." como frase-muletilla inicial seguida de otra frase.
+    //     BUG REAL (cliente enfadado, 02-08): el modelo dijo "Entiendo. Tu enfado…"
+    //     y esto lo dejaba en "Tu enfado, Samuel Tineo." — frase rota, justo en el
+    //     momento más delicado. El lookahead negativo protege los casos en que la
+    //     frase siguiente CONTINÚA a "Entiendo" (empieza por determinante/pronombre)
+    //     en vez de ser una muletilla independiente.
+    t = t.replace(/^[¡¿"'\s]*(?:entiendo|entendido)[."'!]*\s+(?=[A-ZÁÉÍÓÚÑ¡¿"])(?!(?:Tu|Su|Mi|Lo|La|El|Los|Las|Eso|Esa|Ese|Esto|Esta|Este|Que|Qué)\b)/i, "").trim();
     // 3c) residuo con comilla desbalanceada: 'Uhh-huh.". ¡Perfecto' → '¡Perfecto'
     t = t.replace(/^[a-záéíóúüñ\s-]{1,14}[.!]*["']+[\s.,!]*(?=[¡¿"A-ZÁÉÍÓÚÑ])/i, "").trim();
     // 4) restos: comillas/puntos/comas sueltos al inicio (NO toca ¡¿ ni letras)
@@ -1381,6 +1647,31 @@ function repitePreguntaAnterior(incomingMessages) {
   let comunes = 0;
   for (const w of pa) if (pb.has(w)) comunes++;
   return comunes / Math.min(pa.size, pb.size) >= 0.7;
+}
+
+/**
+ * ¿El cliente se está quejando de un pedido YA ENTREGADO que llegó mal?
+ *
+ * Caso real (02-08): "la comida me ha llegado fría y destrozada… la pizza está
+ * reventada". Sarah lo trató como queja genérica y llegó a decirle que el pedido
+ * de reposición NO era gratuito. Se detecta en código para inyectar la política
+ * de compensación con recencia máxima, sin depender de que el modelo la recuerde.
+ */
+function quejaDePedidoEntregado(incomingMessages) {
+  const t = (incomingMessages || [])
+    .filter(m => m && m.role === "user" && m.content)
+    .map(m => _normalizaFrase(m.content)).join(" ");
+  const problema = /(fri[ao]s?|destroza|reventad|machacad|aplastad|derramad|volcad|rota|roto|mal\s+hecha|cruda|quemada|falta|faltaba|no\s+lleg|equivocad|no\s+es\s+lo\s+que\s+ped|otro\s+pedido\s+distinto|asquerosa|incomible)/;
+  const pedido  = /(pedido|pizza|comida|encargo|la\s+cena|el\s+repartidor|la\s+moto|me\s+ha\s+llegado|me\s+trajeron|me\s+han\s+traido)/;
+  return problema.test(t) && pedido.test(t);
+}
+
+/** Señales de que el cliente está enfadado (para no responderle como a un pedido normal). */
+function clienteEnfadado(incomingMessages) {
+  const t = (incomingMessages || [])
+    .filter(m => m && m.role === "user" && m.content)
+    .map(m => _normalizaFrase(m.content)).join(" ");
+  return /(la\s+habeis\s+cagado|es\s+una\s+verguenza|inadmisible|indignad|estoy\s+harto|no\s+pienso\s+pagar|no\s+voy\s+a\s+pagar|quiero\s+hablar\s+con\s+el\s+(?:manager|gerente|encargado|responsable)|hoja\s+de\s+reclamacion|denunci|nunca\s+mas)/.test(t);
 }
 
 /**
@@ -1547,7 +1838,7 @@ function registeredCustomerDirective(nombre, direccion) {
     `1) NUNCA le pidas el nombre, el tel\u00e9fono ni la direcci\u00f3n: YA los tienes. Si ibas a preguntar "\u00bfme das un nombre?" o similar, NO lo hagas.\n` +
     `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
     `3) RECON\u00d3CELE por su nombre al saludar: "Aqu\u00ed est\u00e1s, ${primerNombre}." (o equivalente natural). NO le llames "cliente".\n` +
-    `4) En la COMANDA y al confirmar el pedido usa su nombre COMPLETO, exactamente as\u00ed: "${nombreValido}". NUNCA lo acortes ni te quedes con una sola palabra.\n` +
+    `4) AL HABLAR con \u00e9l dile SIEMPRE "${primerNombre}" (as\u00ed, tal cual). En el campo customer_name de submit_order pon su nombre COMPLETO: "${nombreValido}". No mezcles: hablando nunca sueltes el nombre y el apellido juntos en cada frase, suena a robot.\n` +
     `5) Si el pedido es a DOMICILIO, confirma la direcci\u00f3n diciendo \u00daNICAMENTE el nombre de la calle (la primera l\u00ednea)${calle ? `, que es "${calle}"` : ""}: "\u00bfTe lo llevo a ${calle || "la calle de siempre"}, la de siempre?". NUNCA digas el n\u00famero, el piso, el portal ni el resto de la direcci\u00f3n. Si dice que s\u00ed, usa la direcci\u00f3n guardada completa internamente; si ha cambiado, p\u00eddele la nueva.\n` +
     `6) Si es para RECOGER, NO menciones ninguna direcci\u00f3n: la recogida es en el local.`;
 }
@@ -1706,6 +1997,20 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       "ANTI-BUCLE: en tu turno anterior ya dijiste prácticamente lo mismo. PROHIBIDO repetirlo otra vez. " +
       "Da por buena la respuesta del cliente y AVANZA al siguiente paso del flujo (o envía el pedido si ya está todo)." });
   }
+  // PEDIDO MAL SERVIDO. Con recencia máxima, porque es dinero y es la cara del
+  // restaurante: el modelo llegó a decirle a un cliente con la pizza destrozada
+  // que la reposición NO era gratuita.
+  if (quejaDePedidoEntregado(incomingMessages)) {
+    const enfadado = clienteEnfadado(incomingMessages);
+    messages.push({ role: "system", content:
+      "EL CLIENTE SE QUEJA DE UN PEDIDO YA ENTREGADO QUE LLEGÓ MAL. Aplica la política de PEDIDO MAL SERVIDO: " +
+      "discúlpate reconociendo el fallo y OFRÉCELE REPONER EL PEDIDO SIN COSTE, sin que tenga que pedirlo y sin condiciones. " +
+      "PROHIBIDO decirle que el pedido de reposición se paga. PROHIBIDO pedirle datos que ya tienes o hacerle repetir lo que ya ha contado. " +
+      "Llama a registrar_incidencia con escalar=true." +
+      (enfadado
+        ? " El cliente está ENFADADO y con razón: NO le lleves la contraria, no te justifiques y no le sueltes normas. Primero resuelves, luego anotas."
+        : "") });
+  }
   // SILENCIO DEL CLIENTE. Caso real conv_6601kyz8 (turnos 14-16): el cliente no
   // dijo nada, ElevenLabs mandó el turno igualmente y Sarah repitió el resumen
   // ENTERO. El anti-bucle no lo cazó porque compara turnos del asistente y aquí
@@ -1754,7 +2059,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
             : result.ok ? "guardado_pendiente_cocina" : "fallo_envio";
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: "submit_order", content: JSON.stringify({ estado }) });
         } else {
-          const out = await toolOutput(tc, incomingMessages);
+          const out = await toolOutput(tc, incomingMessages, callId);
           toolMsgs.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) });
         }
       }
@@ -1764,10 +2069,16 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       const reply = stripConsentIfRegistered(sanitizeReply((result && result.reply && result.reply.trim())
         ? result.reply.trim()
         : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!"), callId);
+      const requiredAction = (result && result.requiredAction) || validationRequiredAction(result && result.validation);
+      const action = submitResultAction(result);
       return {
         reply,
         dispatched: !!(result && result.delivered),
-        action: result && result.validationFailed ? "validation_failed" : "customer_confirmed"
+        action,
+        requiredAction: requiredAction || null,
+        allergenConflicts: requiredAction
+          ? (result.validation.allergenConflicts || []).filter(conflict => conflict.status === "pending")
+          : []
       };
     }
 
@@ -1777,8 +2088,10 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       let clienteEncontrado = false; // el perfil existe (aunque no tenga nombre)
       let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
       let alergiasEliminadas = null; // alergias que el cliente ha borrado en este turno
+      let quoteOut = null;
       const toolMsgs = await Promise.all(calls.map(async tc => {
-        const out = await toolOutput(tc, incomingMessages);
+        const out = await toolOutput(tc, incomingMessages, callId);
+        if (tc.function && tc.function.name === "calcular_total") quoteOut = out;
         // RAÍZ DEL BUCLE DE SUPLEMENTOS: `calcular_total` devuelve `aviso_suplementos`
         // ("AVISA al cliente… ANTES de confirmar") en CADA llamada. Si ya se avisó en
         // un turno anterior, se retira la orden: el importe queda en `suplementos`
@@ -1809,6 +2122,36 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
+      // `calcular_total` solo crea la cotización. La salida al cliente se controla
+      // aquí y el resumen se registra únicamente al devolver exactamente este texto.
+      if (quoteOut && !quoteOut.informationalOnly) {
+        if (!quoteOut.ok) {
+          const action = quoteOut.requiredAction || "validation_failed";
+          const reply = action === "resolve_order_type"
+            ? "Antes de calcular y resumir necesito saber si es para recoger o a domicilio."
+            : "Antes de resumir necesito resolver un dato pendiente del pedido.";
+          return { reply, dispatched: false, action, requiredAction: action };
+        }
+        if (quoteOut.requiredAction === "obtain_surcharge_acceptance") {
+          const detail = (quoteOut.suplementos || []).map(item => `${item.extra} +${formatEurosSpoken(item.importe_eur)}`).join("; ");
+          return {
+            reply: `El pedido lleva este suplemento: ${detail}. ¿Lo aceptas?`,
+            dispatched: false,
+            action: "obtain_surcharge_acceptance",
+            requiredAction: "obtain_surcharge_acceptance"
+          };
+        }
+        const summaryText = quoteOut.summary_text || deterministicSummary(getOrCreateOrderSession(callId));
+        const summarized = recordSummary(callId, summaryText);
+        if (!summarized.ok) return { reply: "Necesito revisar el pedido antes de resumirlo.", dispatched: false, action: summarized.reason, requiredAction: summarized.reason };
+        return {
+          reply: summaryText,
+          dispatched: false,
+          action: "present_current_summary",
+          requiredAction: "present_current_summary",
+          summaryFingerprint: summarized.order.summaryFingerprint
+        };
+      }
       messages = messages.concat([{ role: "assistant", content: msg.content || null, tool_calls: msg.tool_calls }], toolMsgs);
       if (alergiasEliminadas && alergiasEliminadas.length) {
         messages.push({ role: "system", content: "ALERGIA(S) ELIMINADA(S) del perfil: " + alergiasEliminadas.join(", ") + ". El cliente YA NO las tiene. NO las vuelvas a mencionar, NO avises de sus ingredientes y NO las anotes en el pedido. Sigue con normalidad." });
@@ -1848,6 +2191,7 @@ module.exports = {
   sanitizeReply,
   buildModelMessages,
   buildSystemPrompt,
+  freeReplacementAuthorized,
   renderMenu,
   buildMenuText,
   handleSubmitOrder,
@@ -1857,6 +2201,7 @@ module.exports = {
   SUBMIT_ORDER_TOOL,
   resolvePerPizzaQuantities,
   computeQuote,
+  submitResultAction,
   upsellAlreadyOffered,
   stripConsentIfRegistered,
   streetOnly,
@@ -1882,5 +2227,7 @@ module.exports = {
   vecesPedidoCadaDato,
   categoriasYaPedidas,
   nombreParaSaludar,
-  turnoDeUsuarioVacio
+  turnoDeUsuarioVacio,
+  quejaDePedidoEntregado,
+  clienteEnfadado
 };

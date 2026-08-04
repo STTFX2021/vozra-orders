@@ -66,6 +66,9 @@ const LA_LOCANDA = {
   groupOrderThreshold: 7,        // pedidos de grupo ≥ 7 → requiresProviderReview
   acceptsHalfAndHalf:  false,    // mitad y mitad no soportado por defecto
   maxModifiersPerPizza: 3,
+  // Compensación económica: desactivada hasta disponer de pedido reciente,
+  // límite por cliente e idempotencia específica de reposiciones.
+  compensacion: { reposicion_gratis: false, descuento_pct: 10, descuento_autorizado: false },
 
   // ── ZONA DE REPARTO (validación por radio en km) ──────────────────────────
   // Se geocodifica la dirección del cliente y se mide la distancia al local.

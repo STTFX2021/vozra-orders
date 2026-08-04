@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("crypto");
+
 /**
  * VOZRA ORDERS — Order Call Session Store
  * Mismo patrón que Vozra Reservations (vapi-call-session.store.js)
@@ -92,6 +94,28 @@ function createEmptyOrder(callId) {
     // Restricciones
     allergies: [],
     allergyNotes: null,
+    allergenConflicts: [],
+    requiredAction: null,
+    draftItems: [],
+    draftRevision: 0,
+    draftFingerprint: null,
+    validationStatus: "not_validated",
+    unresolvedActions: [],
+    quoteRevision: null,
+    quoteFingerprint: null,
+    quotedTotal: null,
+    quotedSurcharges: [],
+    surchargeAcceptance: "not_required",
+    summaryRevision: null,
+    summaryFingerprint: null,
+    summaryText: null,
+    confirmationRevision: null,
+    confirmationFingerprint: null,
+    confirmedSnapshot: null,
+    safeToQuote: false,
+    safeToSummarize: false,
+    safeToConfirm: false,
+    safeToDispatch: false,
 
     // Pago
     paymentMethod: null,
@@ -160,6 +184,115 @@ function addEvent(order, eventType, detail = "") {
     status: order.status,
     detail
   });
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") return Object.keys(value).sort().reduce((out, key) => {
+    if (value[key] !== undefined) out[key] = stableValue(value[key]);
+    return out;
+  }, {});
+  return value;
+}
+
+function transactionSnapshot(value = {}) {
+  const address = value.address && Object.values(value.address).some(part => part != null && String(part).trim())
+    ? value.address : null;
+  return stableValue({
+    items: value.items || value.draftItems || [],
+    orderType: value.orderType || null,
+    address,
+    allergies: [...(value.allergies || [])].map(String).sort(),
+    paymentMethod: value.paymentMethod || null
+  });
+}
+
+function fingerprintDraft(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(transactionSnapshot(value))).digest("hex");
+}
+
+function applyDraftSnapshot(callId, snapshot) {
+  const order = getOrCreateOrderSession(callId);
+  const canonical = transactionSnapshot(snapshot);
+  const fingerprint = fingerprintDraft(canonical);
+  if (fingerprint === order.draftFingerprint) return { changed: false, order };
+  const updated = updateOrderSession(callId, {
+    ...canonical, draftItems: canonical.items,
+    draftRevision: order.draftRevision + 1, draftFingerprint: fingerprint,
+    validationStatus: "not_validated", unresolvedActions: [],
+    quoteRevision: null, quoteFingerprint: null, quotedTotal: null, quotedSurcharges: [],
+    surchargeAcceptance: "not_required",
+    summaryRevision: null, summaryFingerprint: null, summaryText: null,
+    confirmationRevision: null, confirmationFingerprint: null, confirmedSnapshot: null,
+    safeToQuote: false, safeToSummarize: false, safeToConfirm: false, safeToDispatch: false,
+    status: ORDER_STATUS.DRAFT
+  });
+  addEvent(updated, "draft_revision", `revision=${updated.draftRevision} fingerprint=${fingerprint}`);
+  return { changed: true, order: updated };
+}
+
+function recordValidation(callId, validation) {
+  const order = getOrCreateOrderSession(callId);
+  const actions = [...new Set((((validation || {}).errors) || []).map(e => e.requiredAction || e.code).filter(Boolean))];
+  if (validation && validation.requiredAction && !actions.includes(validation.requiredAction)) actions.push(validation.requiredAction);
+  const valid = !!(validation && validation.ok === true && actions.length === 0);
+  if (order.surchargeAcceptance === "pending" && !actions.includes("obtain_surcharge_acceptance")) actions.push("obtain_surcharge_acceptance");
+  const quoteCurrent = order.quoteFingerprint === order.draftFingerprint;
+  const surchargeResolved = order.surchargeAcceptance !== "pending";
+  const summaryCurrent = order.summaryFingerprint === order.draftFingerprint;
+  const confirmationCurrent = order.confirmationFingerprint === order.draftFingerprint;
+  return updateOrderSession(callId, { validationStatus: valid ? "valid" : "invalid", unresolvedActions: actions,
+    safeToQuote: valid,
+    safeToSummarize: valid && quoteCurrent && surchargeResolved,
+    safeToConfirm: valid && summaryCurrent && surchargeResolved,
+    safeToDispatch: valid && confirmationCurrent && summaryCurrent && surchargeResolved });
+}
+
+function recordQuote(callId, total, surcharges = []) {
+  const order = getOrCreateOrderSession(callId);
+  if (!order.safeToQuote || !order.draftFingerprint) return { ok: false, reason: "draft_not_quotable", order };
+  const quotedSurcharges = JSON.parse(JSON.stringify(surcharges));
+  const pending = quotedSurcharges.length > 0;
+  const updated = updateOrderSession(callId, {
+    quoteRevision: order.draftRevision, quoteFingerprint: order.draftFingerprint,
+    quotedTotal: total, quotedSurcharges, surchargeAcceptance: pending ? "pending" : "not_required",
+    unresolvedActions: pending ? ["obtain_surcharge_acceptance"] : [],
+    safeToSummarize: !pending, safeToConfirm: false, safeToDispatch: false
+  });
+  return { ok: true, order: updated };
+}
+
+function acceptSurcharges(callId, fingerprint) {
+  const order = getOrCreateOrderSession(callId);
+  if (order.surchargeAcceptance !== "pending") return { ok: true, alreadyResolved: true, order };
+  if (!fingerprint || fingerprint !== order.quoteFingerprint || fingerprint !== order.draftFingerprint) return { ok: false, reason: "stale_surcharge_acceptance", order };
+  return { ok: true, order: updateOrderSession(callId, { surchargeAcceptance: "accepted", unresolvedActions: [], safeToSummarize: order.validationStatus === "valid" }) };
+}
+
+function recordSummary(callId, summaryText) {
+  const order = getOrCreateOrderSession(callId);
+  if (!order.safeToSummarize || order.quoteFingerprint !== order.draftFingerprint) return { ok: false, reason: "draft_not_summarizable", order };
+  if (!summaryText || !String(summaryText).trim()) return { ok: false, reason: "summary_not_delivered", order };
+  return { ok: true, order: updateOrderSession(callId, {
+    summaryRevision: order.draftRevision, summaryFingerprint: order.draftFingerprint, summaryText: String(summaryText).trim(),
+    confirmationRevision: null, confirmationFingerprint: null, confirmedSnapshot: null,
+    safeToConfirm: true, safeToDispatch: false, status: ORDER_STATUS.AWAITING_CONFIRMATION
+  }) };
+}
+
+function recordConfirmation(callId, fingerprint) {
+  const order = getOrCreateOrderSession(callId);
+  if (!order.safeToConfirm || !fingerprint || fingerprint !== order.summaryFingerprint || fingerprint !== order.draftFingerprint) return { ok: false, reason: "stale_or_missing_summary_confirmation", order };
+  const confirmedSnapshot = {
+    ...transactionSnapshot(order),
+    quotedTotal: order.quotedTotal,
+    quotedSurcharges: JSON.parse(JSON.stringify(order.quotedSurcharges || []))
+  };
+  return { ok: true, order: updateOrderSession(callId, {
+    confirmationRevision: order.draftRevision, confirmationFingerprint: fingerprint,
+    confirmedSnapshot,
+    safeToDispatch: true, status: ORDER_STATUS.CUSTOMER_CONFIRMED
+  }) };
 }
 
 // ─── PUBLIC API ──────────────────────────────────────────────────────────────
@@ -282,5 +415,13 @@ module.exports = {
   setFlag,
   getOrderSession,
   resetOrderSession,
-  clearAllSessionsForTests
+  clearAllSessionsForTests,
+  fingerprintDraft,
+  transactionSnapshot,
+  applyDraftSnapshot,
+  recordValidation,
+  recordQuote,
+  acceptSurcharges,
+  recordSummary,
+  recordConfirmation
 };

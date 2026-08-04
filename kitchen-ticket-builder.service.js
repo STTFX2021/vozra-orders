@@ -72,9 +72,32 @@ function buildTextTicket(order, validationResult = {}) {
   const date       = dateNow();
   const { estimatedTotal, currency, allergenConflicts, dietaryFlags, flags, warnings } = validationResult;
 
+  // ── ALERTA DE INCIDENCIA (va ARRIBA DEL TODO, antes que nada) ────────────
+  // Decisión del owner (02-08): cuando se repone un pedido que salió mal, cocina
+  // tiene que verlo lo PRIMERO, con el teléfono a la vista, para llamar al cliente.
+  // El cliente cuelga tranquilo sabiendo que le van a llamar; el local recupera
+  // el control de la incidencia (y del reembolso, que Sarah nunca autoriza).
+  if (order.incidencia) {
+    const inc = order.incidencia;
+    lines.push(SEP2);
+    lines.push("🚨🚨  INCIDENCIA — PEDIDO DE REPOSICIÓN  🚨🚨");
+    lines.push(SEP2);
+    lines.push("⚠️  ESTE PEDIDO NO SE COBRA (coste cero)");
+    lines.push(`📞  LLAMAR AL CLIENTE: ${order.phone || "—"}`);
+    if (order.customerName) lines.push(`👤  ${order.customerName}`);
+    if (inc.motivo)   lines.push(`❗  Qué pasó: ${inc.motivo}`);
+    if (inc.pedidoOriginal) lines.push(`🔁  Pedido original: ${inc.pedidoOriginal}`);
+    if (inc.quiereReembolso) {
+      lines.push("💶  EL CLIENTE PIDE REEMBOLSO → tiene que confirmárselo el encargado.");
+      lines.push("    Se le ha dicho que el encargado le llamará para confirmarlo.");
+    }
+    lines.push(SEP2);
+    lines.push("");
+  }
+
   // ── CABECERA ─────────────────────────────────────────────────────────────
   lines.push(SEP2);
-  lines.push(`🍕 PEDIDO ${order.orderId}`);
+  lines.push(`🍕 PEDIDO ${order.orderId}${order.incidencia ? "  ·  ⚠️ REPOSICIÓN SIN CARGO" : ""}`);
   lines.push(`📅 ${date}  ⏰ ${time}h`);
   lines.push(`${typeLabel}`);
   lines.push(SEP);
@@ -99,7 +122,11 @@ function buildTextTicket(order, validationResult = {}) {
     const pricePart = item.price != null
       ? `  —  ${formatPrice(item.price * qty, currency)}${qty > 1 ? ` (${formatPrice(item.price, currency)}/u)` : ""}`
       : "";
-    lines.push(`  ${qty}× ${item.displayName.toUpperCase()}${sizePart}${catLabel}${pricePart}`);
+    // Defensivo: si a un item le faltara displayName, ANTES reventaba el ticket
+    // entero y el pedido NO llegaba a cocina. Mejor una línea imperfecta que
+    // perder la comanda.
+    const nombreItem = String(item.displayName || item.name || item.menuItemId || "PRODUCTO").toUpperCase();
+    lines.push(`  ${qty}× ${nombreItem}${sizePart}${catLabel}${pricePart}`);
     for (const mod of (item.modifiers || [])) {
       if (mod.type !== "restriction") {
         lines.push(`     ${formatModifier(mod)}`);
@@ -136,8 +163,14 @@ function buildTextTicket(order, validationResult = {}) {
     }
     if (hasConflicts) {
       for (const c of allergenConflicts) {
-        const icon = c.severity === "CONFLICT" ? "🚨" : "ℹ️";
-        lines.push(`   ${icon} ${c.allergenLabel}${c.severity === "CONFLICT" ? " → PRESENTE EN ITEMS" : " (declarado)"}`);
+        if (c.status === "resolved" && c.resolution === "removed") {
+          lines.push(`   ✅ ${c.allergenLabel} en ${c.itemName || c.itemId} → RETIRADO: ${c.component}`);
+        } else if (c.status === "pending") {
+          lines.push(`   🚨 ${c.allergenLabel} en ${c.itemName || c.itemId} → CONFLICTO PENDIENTE`);
+        } else {
+          const icon = c.severity === "CONFLICT" ? "🚨" : "ℹ️";
+          lines.push(`   ${icon} ${c.allergenLabel}${c.severity === "CONFLICT" ? " → PRESENTE EN ITEMS" : " (declarado)"}`);
+        }
       }
     }
     if (hasDietary) {

@@ -1,7 +1,7 @@
 /**
  * test-nombre-compuesto-20260802.cjs
  *
- * Tres fallos de la llamada conv_6601kyz8 (01-08, 117 s):
+ * Tres fallos del caso anonimizado de nombre compuesto y silencio:
  *
  * A) NOMBRE TRUNCADO. En la BD estaba bien ("Jodido cabezón"), pero la directiva
  *    cortaba por el primer espacio:
@@ -36,7 +36,7 @@ function test(name, fn) {
 const A = c => ({ role: "assistant", content: c });
 const U = c => ({ role: "user", content: c });
 
-console.log("══ Nombre compuesto y silencio (conv_6601kyz8) ═══");
+console.log("══ Nombre compuesto y silencio (caso anonimizado) ═══");
 
 // ── A. El nombre no se trocea ───────────────────────────────────────────────
 test("CASO REAL: 'Jodido cabezón' NO se acorta a 'Jodido'", () => {
@@ -54,9 +54,10 @@ test("un nombre de una sola palabra se queda igual", () => {
 
 test("CASO REAL: la comanda lleva el nombre COMPLETO", () => {
   const d = registeredCustomerDirective("Jodido cabezón", "Avenida de los Frutales 14");
-  assert.ok(/nombre COMPLETO, exactamente así: "Jodido cabezón"/.test(d),
+  assert.ok(/campo customer_name de submit_order pon su nombre COMPLETO: "Jodido cabezón"/.test(d),
     "la comanda seguiría saliendo truncada a cocina");
-  assert.ok(/NUNCA lo acortes/.test(d));
+  assert.ok(!/customer_name de submit_order pon[^\n]*"Jodido"(?:[".])/.test(d),
+    "la directiva permite mandar solo la primera palabra a cocina");
 });
 
 test("con nombre formal la comanda también lo lleva entero", () => {

@@ -58,9 +58,16 @@ test("F1 regla de apoyo retirable/intrínseco presente", () => {
 test("F1 no afirmar 100% seguro por su cuenta", () => {
   assert.ok(/NO afirmes que un plato es 100% seguro/i.test(prompt));
 });
-test("F1 PID NUNCA bloquea el pedido por una alergia", () => {
-  assert.ok(/SOLO TOMA PEDIDOS/i.test(prompt), "falta la regla madre 'PID solo toma pedidos'");
-  assert.ok(/NUNCA bloquees/i.test(prompt), "el prompt no prohíbe bloquear el pedido");
+test("F1 el gate bloquea solo el conflicto retirable pendiente", () => {
+  const pendingItem = mapToolItem({ menu_item_id: "pizza_abruzzo", quantity: 1 });
+  const pendingOrder = validateOrder({ items: [pendingItem], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["langostinos"] });
+  assert.strictEqual(pendingOrder.ok, false, "un conflicto pendiente debe bloquear");
+  assert.strictEqual(pendingOrder.requiredAction, "resolve_allergen_conflict");
+
+  const resolvedItem = mapToolItem({ menu_item_id: "pizza_abruzzo", quantity: 1, modifiers: [{ type: "remove", value: "langostinos" }] });
+  const resolvedOrder = validateOrder({ items: [resolvedItem], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["langostinos"] });
+  assert.strictEqual(resolvedOrder.ok, true, "retirar el ingrediente debe resolver el gate");
+  assert.strictEqual(resolvedOrder.requiredAction, null);
 });
 
 // ── FALLO 4: TIEMPOS INVENTADOS ──────────────────────────────────────────────
@@ -208,11 +215,12 @@ test("F7 mitad y mitad: precio = la pizza MÁS CARA", () => {
   assert.strictEqual(estimateTotal({ items: [item] }).estimatedTotal, expected, "el total no coincide");
   assert.ok(/mitad/i.test(item.displayName), "el nombre no indica 'mitad'");
 });
-test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades (no bloquea)", () => {
+test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades y aplica el gate", () => {
   const item = mapToolItem({ half_and_half: ["pizza_abruzzo", "pizza_margherita"], quantity: 1 });
   const v = validateOrder({ items: [item], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["marisco"] });
   assert.strictEqual(v.flags.requiresKitchenReview, true, "no detectó el marisco de la mitad Abruzzo");
-  assert.strictEqual(v.ok, true, "la alergia no debe bloquear (solo anota)");
+  assert.strictEqual(v.ok, false, "el conflicto retirable pendiente debe bloquear");
+  assert.strictEqual(v.requiredAction, "resolve_allergen_conflict");
 });
 
 // ── DIRECCIÓN DE DOMICILIO (número) + "una por pizza"/"piso" ──────────────────
@@ -271,13 +279,13 @@ test("F10 submit_order acepta removed_allergies (borrar alergia guardada)", () =
 test("F11 calcular_total expone los suplementos de un extra con precio", () => {
   const q = computeQuote({ items: [
     { menu_item_id: "pizza_margherita", quantity: 1, modifiers: [{ type: "extra", value: "burrata" }] }
-  ]});
+  ], order_type: "pickup" });
   assert.ok(Array.isArray(q.suplementos) && q.suplementos.length >= 1, "no expone suplementos");
   assert.ok(q.suplementos.some(s => s.importe_eur > 0), "el suplemento no tiene importe");
   assert.ok(/AVISA al cliente/i.test(q.aviso_suplementos || ""), "falta el aviso de suplementos");
 });
 test("F11 sin extras de pago no hay aviso de suplementos", () => {
-  const q = computeQuote({ items: [{ menu_item_id: "pizza_margherita", quantity: 1 }] });
+  const q = computeQuote({ items: [{ menu_item_id: "pizza_margherita", quantity: 1 }], order_type: "pickup" });
   assert.ok(!q.suplementos, "no debería haber suplementos");
 });
 test("F11 el prompt obliga a avisar del suplemento", () => {

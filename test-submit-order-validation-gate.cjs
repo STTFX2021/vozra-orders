@@ -67,6 +67,17 @@ function assertNoOperationalEffects(before, label) {
   assert.deepStrictEqual(snapshot(), before, `${label}: se produjo un efecto lateral operativo`);
 }
 
+async function submitConfirmed(callId, args, priorMessages = []) {
+  const summarized = await handleSubmitOrder(callId, args, priorMessages);
+  assert.strictEqual(summarized.reason, "summary_required", `${callId}: debe exigir el resumen versionado antes de confirmar`);
+  assert.strictEqual(summarized.delivered, false, `${callId}: el resumen no puede producir dispatch`);
+  return handleSubmitOrder(callId, args, [
+    ...priorMessages,
+    { role: "assistant", content: summarized.reply },
+    { role: "user", content: "Sí" }
+  ]);
+}
+
 (async () => {
   clearAllSessionsForTests();
 
@@ -82,7 +93,7 @@ function assertNoOperationalEffects(before, label) {
   assert(!/pedido queda confirmado|va a cocina/i.test(invalid.reply), "la respuesta confirma verbalmente un pedido inválido");
   assertNoOperationalEffects(invalidBefore, "pedido inválido");
 
-  const retried = await handleSubmitOrder("p0-invalid", validArgs);
+  const retried = await submitConfirmed("p0-invalid", validArgs);
   assert.strictEqual(retried.ok, true, "el pedido corregido no pudo reintentarse");
   assert.strictEqual(retried.delivered, true, "el pedido corregido no continuó al dispatch");
   assert.strictEqual(calls.dispatch, 1, "el dispatch válido debe ejecutarse exactamente una vez");
@@ -92,7 +103,7 @@ function assertNoOperationalEffects(before, label) {
   assert(retried.reply.includes("Muchas gracias por escogernos, espero verte pronto de nuevo!"), "cambió la despedida comercial existente");
 
   clearAllSessionsForTests();
-  const valid = await handleSubmitOrder("p0-valid", { ...validArgs, phone: "623456789" });
+  const valid = await submitConfirmed("p0-valid", { ...validArgs, phone: "623456789" });
   assert.strictEqual(valid.ok, true, "la validación correcta no permite continuar");
   assert.strictEqual(valid.validation.ok, true, "el pedido válido no superó validateOrder");
   assert.strictEqual(calls.dispatch, 2, "el comportamiento válido existente no ejecutó dispatch");
@@ -107,7 +118,7 @@ function assertNoOperationalEffects(before, label) {
 
   for (const [index, phrase] of perPizzaPhrases.entries()) {
     clearAllSessionsForTests();
-    const result = await handleSubmitOrder(
+    const result = await submitConfirmed(
       `per-pizza-${index}`,
       {
         ...validArgs,
@@ -129,7 +140,7 @@ function assertNoOperationalEffects(before, label) {
   clearAllSessionsForTests();
   // Vozra PID SOLO TOMA PEDIDOS: una alergia declarada NO bloquea. Se anota (flag +
   // warning ALLERGEN_NOTED + kitchenNote) y el pedido PROCEDE con normalidad.
-  const allergyOrder = await handleSubmitOrder("allergy-abruzzo", {
+  const allergyOrder = await submitConfirmed("allergy-abruzzo", {
     ...validArgs,
     phone: "722345678",
     items: [{
