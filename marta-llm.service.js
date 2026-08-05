@@ -17,7 +17,9 @@ const https = require("https");
 const {
   getOrCreateOrderSession, updateOrderSession, ORDER_STATUS,
   applyDraftSnapshot, recordValidation, recordQuote, acceptSurcharges,
-  recordSummary, recordConfirmation
+  recordSummary, recordConfirmation, recordSurchargeCommunication,
+  recordUpsellOffer, resolveUpsell, setAllergyPersistence, transitionClosure,
+  recordConsentDecision
 } = require("./order-call-session.store.js");
 const { validateOrder, validateItems, estimateTotal, crossCheckAllergens, detectDeclaredAllergies } = require("./order-validator.service.js");
 const { dispatchOrder } = require("./dispatch-adapter.service.js");
@@ -27,7 +29,7 @@ const { enqueuePrint } = require("./print-queue.store.js");
 const { getProvider, getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
 const { upsertOrder } = require("./supabase-store.js");
-const { getCustomerByPhone, upsertCustomer } = require("./customer-store.js");
+const { getCustomerByPhone, upsertCustomer, updateCustomerAllergies } = require("./customer-store.js");
 const { checkDeliveryAddress } = require("./delivery-zone.service.js");
 const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
 const { lookupOrdersForCustomer, registerIncident } = require("./incident.service.js");
@@ -44,8 +46,7 @@ async function loadProfileCached(tel) {
   const now = Date.now();
   const hit = _profileCache.get(tel);
   if (hit && (now - hit.at) < _PROFILE_TTL_MS) return hit.prof;
-  let prof = null;
-  try { prof = await getCustomerByPhone(tel); } catch (_) { prof = null; }
+  const prof = await getCustomerByPhone(tel, { throwOnError: true });
   _profileCache.set(tel, { prof: prof || null, at: now });
   return prof || null;
 }
@@ -290,6 +291,55 @@ function nombreCorregidoEnLlamada(incomingMessages) {
 
 function freeReplacementAuthorized(provider = getProvider("la-locanda")) {
   return !!(provider && provider.compensacion && provider.compensacion.reposicion_gratis === true);
+}
+
+function lastUserText(messages) {
+  const last = [...(messages || [])].reverse().find(message => message && message.role === "user" && message.content);
+  return last ? String(last.content) : "";
+}
+
+function detectRemovedAllergies(messages, knownAllergies = []) {
+  const text = lastUserText(messages).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!/(ya no (?:tengo|soy)|quita|elimina|borra|no soy alerg|estaba mal apuntad)/.test(text)) return [];
+  return (knownAllergies || []).filter(allergy => {
+    const normalized = String(allergy).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return normalized && text.includes(normalized);
+  });
+}
+
+async function synchronizeAllergiesForTurn(callId, messages, phone) {
+  const session = getOrCreateOrderSession(callId);
+  const saved = (session.registeredRestrictions && session.registeredRestrictions.allergies) || session.persistedAllergies || [];
+  const declared = detectDeclaredAllergies([{ role: "user", content: lastUserText(messages) }]);
+  const removed = detectRemovedAllergies(messages, [...saved, ...(session.allergies || [])]);
+  const persisted = new Set((session.persistedAllergies || saved).map(value => String(value).toLowerCase()));
+  const additions = declared.filter(value => !persisted.has(String(value).toLowerCase()));
+  if (!additions.length && !removed.length) return { ok: true, changed: false, order: session };
+
+  const current = [...new Set([...saved, ...(session.allergies || []), ...additions]
+    .filter(value => !removed.some(item => String(item).toLowerCase() === String(value).toLowerCase())))];
+  updateOrderSession(callId, {
+    allergies: current,
+    registeredRestrictions: { ...(session.registeredRestrictions || {}), allergies: current },
+    allergyPersistenceStatus: "writing",
+    allergyPersistenceError: null
+  });
+  const hasConsentedProfile = session.registeredFound === true || session.registeredRestrictions != null;
+  if (!hasConsentedProfile) {
+    const order = setAllergyPersistence(callId, "deferred_until_consent", { allergies: current });
+    return { ok: true, changed: true, deferred: true, added: additions, removed, order };
+  }
+  if (!phone) {
+    const order = setAllergyPersistence(callId, "failed", { error: "missing_phone", allergies: current });
+    return { ok: false, changed: true, requiredAction: "resolve_allergy_persistence", reason: "missing_phone", order };
+  }
+  const write = await updateCustomerAllergies({ phone, addAllergies: additions, removeAllergies: removed });
+  if (!write || write.ok !== true) {
+    const order = setAllergyPersistence(callId, "failed", { error: (write && (write.reason || write.error)) || "allergy_write_failed", allergies: current });
+    return { ok: false, changed: true, requiredAction: "resolve_allergy_persistence", reason: order.allergyPersistenceError, order };
+  }
+  const order = setAllergyPersistence(callId, "stored", { allergies: write.allergies || current });
+  return { ok: true, changed: true, removed, added: additions, order };
 }
 
 function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null) {
@@ -1172,14 +1222,45 @@ function orderSignature(args) {
   return `${phone}::${items}::${args.order_type || ""}`;
 }
 
-function acceptedSurchargeInLastTurn(messages) {
+function acceptedSurchargeInLastTurn(messages, order) {
+  if (!order || order.surchargeCommunication === "not_communicated" || !order.surchargeMessage) return false;
+  if (order.quoteFingerprint !== order.draftFingerprint) return false;
   const ms = (messages || []).filter(m => m && m.content);
   const last = ms[ms.length - 1];
   if (!last || last.role !== "user" || !esAfirmacionSimple(last.content)) return false;
   for (let i = ms.length - 2; i >= 0 && i >= ms.length - 4; i--) {
-    if (ms[i].role === "assistant") return /suplement|extra[^.]{0,50}(?:euro|€)|(?:euro|€)[^.]{0,50}extra/i.test(String(ms[i].content));
+    if (ms[i].role === "assistant") return String(ms[i].content).replace(/\s+/g, " ").trim() === String(order.surchargeMessage).replace(/\s+/g, " ").trim();
   }
   return false;
+}
+
+function explicitConsentEvidence(messages) {
+  const ms = (messages || []).filter(message => message && message.content);
+  for (let i = ms.length - 2; i >= 0; i--) {
+    if (ms[i].role !== "assistant" || !ms[i + 1] || ms[i + 1].role !== "user" || !esAfirmacionSimple(ms[i + 1].content)) continue;
+    const assistantText = String(ms[i].content);
+    if (/(?:guardar|guarde|conservar|conserve)[^.?!]{0,120}(?:datos|nombre|direcci[oó]n|perfil)|(?:permiso|consentimiento)[^.?!]{0,120}(?:guardar|datos)/i.test(assistantText)) {
+      return { assistantText, userText: String(ms[i + 1].content) };
+    }
+  }
+  return null;
+}
+
+function deterministicUpsellOffer() {
+  return "Antes de resumir: ¿quieres añadir una bebida, un postre o un entrante?";
+}
+
+function surchargeTotalMessage(order) {
+  return `El pedido tiene ${formatEurosSpoken(order.quotedSurchargeTotal)} de suplementos en total. ¿Lo aceptas?`;
+}
+
+function surchargeBreakdownMessage(order) {
+  const detail = (order.quotedSurcharges || []).map(item => `${item.extra}: ${formatEurosSpoken(item.importe_eur)}`).join("; ");
+  return `El desglose de suplementos es: ${detail}. Total ${formatEurosSpoken(order.quotedSurchargeTotal)}. ¿Lo aceptas?`;
+}
+
+function asksSurchargeBreakdown(messages) {
+  return /(?:desglos|detalle|cu[aá]nto cada|de qu[eé] es|qu[eé] suplemento)/i.test(lastUserText(messages));
 }
 
 function deterministicSummary(order) {
@@ -1205,19 +1286,21 @@ function submitResultAction(result) {
 
 function confirmationMatchesDeliveredSummary(messages, order) {
   if (!order || !order.summaryText || order.summaryFingerprint !== order.draftFingerprint) return false;
-  if (!confirmacionPendienteDeEnviar(messages)) return false;
   const ms = (messages || []).filter(message => message && message.content);
   for (let i = ms.length - 2; i >= 0; i--) {
-    if (ms[i].role !== "assistant") continue;
+    if (ms[i].role !== "assistant" || !ms[i + 1] || ms[i + 1].role !== "user" || !esAfirmacionSimple(ms[i + 1].content)) continue;
     const actual = String(ms[i].content).replace(/\s+/g, " ").trim();
     const expected = String(order.summaryText).replace(/\s+/g, " ").trim();
-    return actual === expected;
+    if (actual === expected) return true;
   }
   return false;
 }
 
 async function handleSubmitOrder(callId, args, conversationMessages = []) {
   const _sess = getOrCreateOrderSession(callId);
+  if (["dispatching", "dispatched", "farewell_sent", "ended"].includes(_sess.closureState)) {
+    return { ok: true, delivered: _sess.closureState !== "dispatching", order: _sess, reply: "", validation: {}, alreadyDone: true, endCall: true };
+  }
   args = resolvePerPizzaQuantities(args, conversationMessages, _sess && _sess.draftItems);
   // Fail-closed económico: una incidencia nunca convierte el pedido en gratuito
   // si el restaurante no lo ha autorizado explícitamente en su perfil.
@@ -1236,6 +1319,10 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   // perfil ya existe con consentimiento previo. PROHIBIDO re-guardar o re-preguntar.
   // Determinista: aunque el modelo ponga save_profile_consent=true, aquí se anula.
   if (_sess && _sess.registeredName) { args = { ...args, save_profile_consent: false }; }
+  const consentEvidence = args.save_profile_consent === true ? explicitConsentEvidence(conversationMessages) : null;
+  const verifiedConsent = !!consentEvidence && !(_sess && _sess.registeredFound);
+  recordConsentDecision(callId, verifiedConsent ? "granted" : (args.save_profile_consent === false ? "denied" : "unknown"), consentEvidence);
+  args = { ...args, save_profile_consent: verifiedConsent };
   if (_sess && _sess.status === ORDER_STATUS.SENT_TO_KITCHEN) {
     return { ok: true, delivered: _sess.dispatchChannel && _sess.dispatchChannel !== "file_fallback", order: _sess, reply: "", validation: {}, alreadyDone: true };
   }
@@ -1331,11 +1418,45 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   }
   validation = { ...validation, estimatedTotal: order.quotedTotal };
   order = updateOrderSession(callId, { estimatedTotal: order.quotedTotal });
+
+  if (order.upsellState === "not_offered") {
+    const offer = deterministicUpsellOffer();
+    const offered = recordUpsellOffer(callId, offer);
+    return { ok: false, delivered: false, order: offered.order, validation, retryable: true,
+      reason: "upsell_required", requiredAction: "offer_upsell", reply: offer };
+  }
+  if (order.upsellState === "offered") {
+    const answer = lastUserText(conversationMessages);
+    if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
+      order = resolveUpsell(callId, "rejected").order;
+    } else if (esAfirmacionSimple(answer)) {
+      return { ok: false, delivered: false, order, validation, retryable: true,
+        reason: "upsell_selection_required", requiredAction: "capture_upsell_selection",
+        reply: "Perfecto. ¿Qué bebida o complemento quieres añadir?" };
+    } else {
+      return { ok: false, delivered: false, order, validation, retryable: true,
+        reason: "upsell_decision_required", requiredAction: "resolve_upsell",
+        reply: "Necesito saber si quieres añadir algo o seguimos con el pedido." };
+    }
+  }
+
   if (order.surchargeAcceptance === "pending") {
-    if (!acceptedSurchargeInLastTurn(conversationMessages)) {
+    if (asksSurchargeBreakdown(conversationMessages)) {
+      const detail = surchargeBreakdownMessage(order);
+      const communicated = recordSurchargeCommunication(callId, detail, true);
+      return { ok: false, delivered: false, order: communicated.order, validation, retryable: true,
+        reason: "surcharge_acceptance_required", requiredAction: "obtain_surcharge_acceptance", reply: detail };
+    }
+    if (order.surchargeCommunication === "not_communicated") {
+      const totalMessage = surchargeTotalMessage(order);
+      const communicated = recordSurchargeCommunication(callId, totalMessage, false);
+      return { ok: false, delivered: false, order: communicated.order, validation, retryable: true,
+        reason: "surcharge_acceptance_required", requiredAction: "obtain_surcharge_acceptance", reply: totalMessage };
+    }
+    if (!acceptedSurchargeInLastTurn(conversationMessages, order)) {
       return { ok: false, delivered: false, order, validation, retryable: true,
         reason: "surcharge_acceptance_required", requiredAction: "obtain_surcharge_acceptance",
-        reply: "Antes de confirmar necesito que aceptes expresamente el suplemento indicado." };
+        reply: "Necesito una aceptación expresa del total de suplementos comunicado." };
     }
     const accepted = acceptSurcharges(callId, order.draftFingerprint);
     if (!accepted.ok) return { ok: false, delivered: false, order: accepted.order, validation, retryable: true, reason: accepted.reason, reply: "Necesito recalcular el pedido antes de aceptar ese suplemento." };
@@ -1352,7 +1473,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   if (!confirmationMatchesDeliveredSummary(conversationMessages, order)) {
     return { ok: false, delivered: false, order, validation, retryable: true,
       reason: "final_confirmation_required", requiredAction: "obtain_final_confirmation",
-      reply: deterministicSummary(order) };
+      reply: "¿Me confirmas este pedido?" };
   }
   const confirmed = recordConfirmation(callId, order.summaryFingerprint);
   if (!confirmed.ok || !confirmed.order.safeToDispatch || confirmed.order.confirmationFingerprint !== confirmed.order.draftFingerprint) {
@@ -1366,16 +1487,27 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     estimatedTotal: snapshot.quotedTotal,
     status: ORDER_STATUS.CUSTOMER_CONFIRMED
   });
+  transitionClosure(callId, "dispatching");
   _recentDispatch.set(_sig, _now);  // reservar solo después de validar con éxito
 
-  // PERSISTENCIA DURABLE *antes* del dispatch: si el contenedor cae tras confirmar,
-  // el pedido ya existe en Supabase y es recuperable. Mejor esfuerzo (no rompe el pedido).
+  // PERSISTENCIA DURABLE obligatoria antes del dispatch.
   try {
     const r = await upsertOrder(order, validation, { delivered: false });
-    if (r && r.ok) console.log("[DB] pedido guardado (pre-dispatch) | " + order.orderId);
-    else if (r && r.skipped) console.log("[DB] persistencia omitida | " + r.reason);
-    else console.error("[DB] guardado pre-dispatch falló | " + (r && r.error));
-  } catch (e) { console.error("[DB] error pre-dispatch | " + e.message); }
+    if (r && r.ok) {
+      order = updateOrderSession(callId, { orderPersistenceStatus: "stored" });
+      console.log("[DB] pedido guardado (pre-dispatch) | " + order.orderId);
+    } else {
+      transitionClosure(callId, "open");
+      order = updateOrderSession(callId, { orderPersistenceStatus: "failed" });
+      _recentDispatch.delete(_sig);
+      return { ok: false, delivered: false, order, validation, retryable: true, reason: "order_persistence_failed", requiredAction: "resolve_order_persistence", reply: "No he podido guardar el pedido de forma segura y no lo he enviado a cocina." };
+    }
+  } catch (e) {
+    transitionClosure(callId, "open");
+    order = updateOrderSession(callId, { orderPersistenceStatus: "failed" });
+    _recentDispatch.delete(_sig);
+    return { ok: false, delivered: false, order, validation, retryable: true, reason: "order_persistence_failed", requiredAction: "resolve_order_persistence", reply: "No he podido guardar el pedido de forma segura y no lo he enviado a cocina." };
+  }
 
   let dispatch;
   try { dispatch = await dispatchOrder(order, validation); }
@@ -1383,6 +1515,8 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   // delivered = el pedido entró en un canal REAL de cocina (telegram/discord).
   // Si solo se guardó en file_fallback, cocina NO lo ha visto → NO confirmar como enviado.
   const delivered = !!(dispatch && dispatch.delivered);
+  if (dispatch && dispatch.ok) transitionClosure(callId, "dispatched");
+  else transitionClosure(callId, "open");
   if (delivered) {
     try { startKitchenWatch(dispatch.order); } catch (_) {}
     // Confirmación al CLIENTE (SMS/WhatsApp), solo si cocina recibió de verdad.
@@ -1424,7 +1558,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   if (args.save_profile_consent === true) {
     try {
       const addr = (patch.address && patch.address.raw) ? patch.address : (args.address ? { raw: args.address } : null);
-      Promise.resolve(upsertCustomer({
+      const profileWrite = await upsertCustomer({
         phone: args.phone || null,
         name: realCustomerName(args.customer_name),
         address: addr,
@@ -1432,13 +1566,17 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
         consent: true,
         // Persistir las alergias del pedido en el perfil (se acumulan en el store).
         restrictions: _allAlg.length ? { allergies: _allAlg } : undefined
-      }))
-        .then(r => {
-          if (r && r.ok) console.log("[CUST] perfil guardado con consentimiento | tel ***" + String(args.phone || "").slice(-3));
-          else if (r && r.skipped) console.log("[CUST] guardado omitido | " + r.reason);
-        })
-        .catch(e => console.error("[CUST] error guardando perfil | " + e.message));
-    } catch (e) { console.error("[CUST] error perfil | " + e.message); }
+      });
+      if (profileWrite && profileWrite.ok) {
+        updateOrderSession(callId, { profilePersistenceStatus: "stored", profilePersistenceError: null });
+        console.log("[CUST] perfil guardado con consentimiento | tel ***" + String(args.phone || "").slice(-3));
+      } else {
+        updateOrderSession(callId, { profilePersistenceStatus: "failed", profilePersistenceError: (profileWrite && (profileWrite.reason || profileWrite.error)) || "profile_write_failed" });
+      }
+    } catch (e) {
+      updateOrderSession(callId, { profilePersistenceStatus: "failed", profilePersistenceError: e.message });
+      console.error("[CUST] error perfil | " + e.message);
+    }
   } else if (_sess && _sess.registeredName && (_declaredAlg.length || _removedAlg.length)) {
     // Cliente YA registrado (ya consintió) que AÑADE o BORRA alergias en esta llamada:
     // se actualiza su perfil. upsertCustomer solo toca restrictions, no nombre ni dirección.
@@ -1468,7 +1606,12 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     // Fallo total de dispatch.
     reply = "He tomado tu pedido" + name + " y lo dejo registrado, pero ha habido un problemilla al enviarlo a cocina; lo revisamos enseguida. Si quieres, también puedes llamarnos directamente al local. ¡Gracias!";
   }
-  return { ok: !!(dispatch && dispatch.ok), delivered, order: dispatch ? dispatch.order : order, reply, validation };
+  if (dispatch && dispatch.ok) {
+    transitionClosure(callId, "farewell_sent");
+    transitionClosure(callId, "ended");
+  }
+  order = getOrCreateOrderSession(callId);
+  return { ok: !!(dispatch && dispatch.ok), delivered, order, reply, validation, endCall: !!(dispatch && dispatch.ok) };
 }
 
 // ─── ENTRADA PRINCIPAL ──────────────────────────────────────────────────────
@@ -1845,10 +1988,24 @@ function registeredCustomerDirective(nombre, direccion) {
 
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
   const provider = getProvider("la-locanda");
+  const terminalSession = getOrCreateOrderSession(callId);
+  if (["farewell_sent", "ended"].includes(terminalSession.closureState)) {
+    return { reply: "", dispatched: true, action: "ended", endCall: true };
+  }
   let profile = null;
   if (callerPhone) {
-    try { profile = await getCustomerByPhone(callerPhone); }
-    catch (e) { console.error("[CUST] lookup error | " + e.message); profile = null; }
+    try { profile = await getCustomerByPhone(callerPhone, { throwOnError: true }); }
+    catch (e) {
+      console.error("[CUST] lookup error | " + e.message);
+      return { reply: "No he podido consultar tu perfil de forma segura. No voy a continuar hasta recuperar esos datos.", dispatched: false, action: "resolve_profile_read", requiredAction: "resolve_profile_read" };
+    }
+    if (profile) {
+      terminalSession.registeredName = realCustomerName(profile.name);
+      terminalSession.registeredFound = true;
+      terminalSession.registeredAddress = profile.address ? (profile.address.raw || profile.address) : null;
+      terminalSession.registeredRestrictions = profile.restrictions || { allergies: [], preferences: [] };
+      terminalSession.persistedAllergies = [...(terminalSession.registeredRestrictions.allergies || [])];
+    }
   }
 
   // ── LATENCIA: precarga de perfil por teléfono dicho en la llamada ────────────
@@ -1885,7 +2042,37 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         }
       }
     }
-  } catch (_) {}
+  } catch (e) {
+    console.error("[CUST] preload error | " + e.message);
+    return { reply: "No he podido consultar tu perfil de forma segura. No voy a continuar hasta recuperar esos datos.", dispatched: false, action: "resolve_profile_read", requiredAction: "resolve_profile_read" };
+  }
+
+  const effectivePhone = callerPhone || phoneFromHistory(incomingMessages);
+  const allergySync = await synchronizeAllergiesForTurn(callId, incomingMessages, effectivePhone);
+  if (!allergySync.ok) {
+    return {
+      reply: "No he podido guardar tu alergia de forma segura. No voy a avanzar con el pedido hasta que quede registrada; el encargado debe revisarlo.",
+      dispatched: false,
+      action: "resolve_allergy_persistence",
+      requiredAction: "resolve_allergy_persistence"
+    };
+  }
+
+  if (allergySync.removed && allergySync.removed.length) {
+    return { reply: "He eliminado esa alergia de tu ficha.", dispatched: false, action: "allergy_removed" };
+  }
+
+  const upsellSessionAtTurn = getOrCreateOrderSession(callId);
+  if (upsellSessionAtTurn.upsellState === "offered") {
+    const answer = lastUserText(incomingMessages);
+    if (esAfirmacionSimple(answer)) {
+      resolveUpsell(callId, "accepted");
+      return { reply: "Perfecto. ¿Qué bebida o complemento quieres añadir?", dispatched: false, action: "upsell_accepted" };
+    }
+    if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
+      resolveUpsell(callId, "rejected");
+    }
+  }
 
   let messages = buildModelMessages(provider, incomingMessages, profile);
   try {
@@ -2074,6 +2261,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       return {
         reply,
         dispatched: !!(result && result.delivered),
+        endCall: !!(result && result.endCall),
         action,
         requiredAction: requiredAction || null,
         allergenConflicts: requiredAction
@@ -2132,10 +2320,20 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
             : "Antes de resumir necesito resolver un dato pendiente del pedido.";
           return { reply, dispatched: false, action, requiredAction: action };
         }
+        const quotedSession = getOrCreateOrderSession(callId);
+        if (quotedSession.upsellState === "not_offered") {
+          const offer = deterministicUpsellOffer();
+          const offered = recordUpsellOffer(callId, offer);
+          return { reply: offer, dispatched: false, action: "offer_upsell", requiredAction: "offer_upsell", upsellState: offered.order.upsellState };
+        }
+        if (quotedSession.upsellState === "offered") {
+          return { reply: "Necesito saber si quieres añadir algo o seguimos con el pedido.", dispatched: false, action: "resolve_upsell", requiredAction: "resolve_upsell" };
+        }
         if (quoteOut.requiredAction === "obtain_surcharge_acceptance") {
-          const detail = (quoteOut.suplementos || []).map(item => `${item.extra} +${formatEurosSpoken(item.importe_eur)}`).join("; ");
+          const totalMessage = surchargeTotalMessage(getOrCreateOrderSession(callId));
+          recordSurchargeCommunication(callId, totalMessage, false);
           return {
-            reply: `El pedido lleva este suplemento: ${detail}. ¿Lo aceptas?`,
+            reply: totalMessage,
             dispatched: false,
             action: "obtain_surcharge_acceptance",
             requiredAction: "obtain_surcharge_acceptance"
@@ -2202,6 +2400,8 @@ module.exports = {
   resolvePerPizzaQuantities,
   computeQuote,
   submitResultAction,
+  explicitConsentEvidence,
+  synchronizeAllergiesForTurn,
   upsellAlreadyOffered,
   stripConsentIfRegistered,
   streetOnly,

@@ -97,7 +97,7 @@ function mergeRestrictions(existing, incoming) {
  * Devuelve el perfil del cliente por teléfono SOLO si dio consentimiento.
  * @returns {Promise<{phone,name,address,orderCount,lastOrderAt}|null>}
  */
-async function getCustomerByPhone(phone) {
+async function getCustomerByPhone(phone, options = {}) {
   const p = normalizePhone(phone);
   if (!p || !isEnabled()) return null;
   try {
@@ -119,6 +119,7 @@ async function getCustomerByPhone(phone) {
     };
   } catch (e) {
     console.error("[CUST] getCustomerByPhone error:", e.message);
+    if (options && options.throwOnError === true) throw e;
     return null;
   }
 }
@@ -178,6 +179,40 @@ async function upsertCustomer(data = {}) {
   }
 }
 
+/**
+ * Actualiza alergias únicamente sobre un perfil consentido ya existente.
+ * A diferencia de upsertCustomer, nunca crea consentimiento ni un perfil nuevo.
+ */
+async function updateCustomerAllergies(data = {}) {
+  try {
+    if (!isEnabled()) return { ok: false, reason: "supabase_not_configured" };
+    const p = normalizePhone(data.phone);
+    if (!p) return { ok: false, reason: "missing_phone" };
+    const current = await request(
+      "GET",
+      "/rest/v1/customers?phone=eq." + encodeURIComponent(p) + "&consent=eq.true&select=restrictions&limit=1",
+      null
+    );
+    const row = (JSON.parse(current.body || "[]")[0] || null);
+    if (!row) return { ok: false, reason: "consented_profile_not_found" };
+    let restrictions = mergeRestrictions(row.restrictions, { allergies: data.addAllergies || [] });
+    if (Array.isArray(data.removeAllergies) && data.removeAllergies.length) {
+      const removed = new Set(data.removeAllergies.map(value => String(value).toLowerCase()));
+      restrictions.allergies = restrictions.allergies.filter(value => !removed.has(String(value).toLowerCase()));
+    }
+    await request(
+      "PATCH",
+      "/rest/v1/customers?phone=eq." + encodeURIComponent(p) + "&consent=eq.true",
+      { restrictions, updated_at: new Date().toISOString() },
+      { "Prefer": "return=minimal" }
+    );
+    return { ok: true, allergies: restrictions.allergies };
+  } catch (e) {
+    console.error("[CUST] updateCustomerAllergies error:", e.message);
+    return { ok: false, reason: "allergy_write_failed", error: e.message };
+  }
+}
+
 /** Borra el perfil (derecho de supresión GDPR). No lanza. */
 async function deleteCustomer(phone) {
   try {
@@ -191,4 +226,4 @@ async function deleteCustomer(phone) {
   }
 }
 
-module.exports = { getCustomerByPhone, upsertCustomer, deleteCustomer, normalizePhone, isEnabled, parseRestrictions, mergeRestrictions };
+module.exports = { getCustomerByPhone, upsertCustomer, updateCustomerAllergies, deleteCustomer, normalizePhone, isEnabled, parseRestrictions, mergeRestrictions };

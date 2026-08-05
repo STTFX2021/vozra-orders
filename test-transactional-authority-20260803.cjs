@@ -11,7 +11,7 @@ Module._load = function(request, parent, isMain) {
     if (request === "./print-queue.store.js") return { enqueuePrint: () => { effects.print++; } };
     if (request === "./customer-notify.service.js") return { sendCustomerConfirmation: async () => { effects.notify++; return { ok: true }; } };
     if (request === "./kitchen-ack-monitor.service.js") return { startKitchenWatch: () => { effects.watch++; } };
-    if (request === "./customer-store.js") return { getCustomerByPhone: async () => null, upsertCustomer: async () => ({ ok: true }) };
+    if (request === "./customer-store.js") return { getCustomerByPhone: async () => null, upsertCustomer: async () => ({ ok: true }), updateCustomerAllergies: async () => ({ ok: true, allergies: [] }) };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -28,6 +28,25 @@ const baseArgs = phone => ({
 const finalYes = summary => [{ role: "assistant", content: summary }, { role: "user", content: "Sí" }];
 const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
 
+async function summaryFor(callId, args, prior = []) {
+  let history = [...prior];
+  let result = await marta.handleSubmitOrder(callId, args, history);
+  if (result.reason === "upsell_required") {
+    history.push({ role: "assistant", content: result.reply }, { role: "user", content: "No, seguimos" });
+    result = await marta.handleSubmitOrder(callId, args, history);
+  }
+  if (result.reason === "surcharge_acceptance_required") {
+    history.push({ role: "assistant", content: result.reply }, { role: "user", content: "Sí" });
+    result = await marta.handleSubmitOrder(callId, args, history);
+  }
+  assert.strictEqual(result.reason, "summary_required");
+  return { result, history };
+}
+
+async function confirmSummary(callId, args, flow) {
+  return marta.handleSubmitOrder(callId, args, [...flow.history, ...finalYes(flow.result.reply)]);
+}
+
 (async () => {
   store.clearAllSessionsForTests();
   const item = marta.mapToolItem({ menu_item_id: "pizza_bb", quantity: 1 });
@@ -39,6 +58,8 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   const fp1 = store.getOrderSession("state").draftFingerprint;
   store.recordValidation("state", { ok: true, errors: [] });
   store.recordQuote("state", 12, []);
+  store.recordUpsellOffer("state", "Oferta única");
+  store.resolveUpsell("state", "rejected");
   assert.strictEqual(store.getOrderSession("state").quoteRevision, 1);
   assert.strictEqual(store.getOrderSession("state").quoteFingerprint, fp1);
   store.recordSummary("state", "Resumen vigente");
@@ -59,11 +80,14 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   store.applyDraftSnapshot("extra", { items: [item], orderType: "pickup", allergies: [], paymentMethod: "cash" });
   store.recordValidation("extra", { ok: true, errors: [] });
   store.recordQuote("extra", 13.5, [{ extra: "Ingrediente extra", importe_eur: 1.5 }]);
+  store.recordUpsellOffer("extra", "Oferta única");
+  store.resolveUpsell("extra", "rejected");
   let extra = store.getOrderSession("extra");
   assert.strictEqual(extra.surchargeAcceptance, "pending");
   assert(extra.unresolvedActions.includes("obtain_surcharge_acceptance"));
   assert.strictEqual(store.recordSummary("extra", "Resumen con extra").ok, false);
   assert.strictEqual(store.acceptSurcharges("extra", "obsolete").ok, false);
+  store.recordSurchargeCommunication("extra", "Suplementos en total: 1,50 euros");
   assert.strictEqual(store.acceptSurcharges("extra", extra.draftFingerprint).ok, true);
   assert.strictEqual(store.recordSummary("extra", "Resumen con extra").ok, true);
 
@@ -81,9 +105,13 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   assert.strictEqual(store.getOrderSession("quote-only").quoteFingerprint, store.getOrderSession("quote-only").draftFingerprint);
   assert.strictEqual(store.getOrderSession("quote-only").summaryFingerprint, null, "calcular_total marcó resumen prematuramente");
   const omittedBefore = effectCount();
-  const omitted = await marta.handleSubmitOrder("quote-only", quotedOnlyArgs, [
+  const offered = await marta.handleSubmitOrder("quote-only", quotedOnlyArgs, [
     { role: "assistant", content: "El total está calculado." },
     { role: "user", content: "Sí" }
+  ]);
+  assert.strictEqual(offered.reason, "upsell_required");
+  const omitted = await marta.handleSubmitOrder("quote-only", quotedOnlyArgs, [
+    { role: "assistant", content: offered.reply }, { role: "user", content: "No, seguimos" }
   ]);
   assert.strictEqual(omitted.reason, "summary_required");
   assert.strictEqual(omitted.requiredAction, "present_current_summary");
@@ -113,13 +141,11 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   assert.strictEqual(invalidType.requiredAction, "resolve_order_type");
   assert.strictEqual(invalidType.order.orderType, "takeaway_maybe");
   assert.strictEqual(effectCount(), typeEffects, "tipo ausente/inválido produjo efectos");
-  const pickupSummary = await marta.handleSubmitOrder("valid-pickup", baseArgs("600000004"));
-  assert.strictEqual(pickupSummary.reason, "summary_required");
-  assert.strictEqual((await marta.handleSubmitOrder("valid-pickup", baseArgs("600000004"), finalYes(pickupSummary.reply))).ok, true);
+  const pickupSummary = await summaryFor("valid-pickup", baseArgs("600000004"));
+  assert.strictEqual((await confirmSummary("valid-pickup", baseArgs("600000004"), pickupSummary)).ok, true);
   const deliveryArgs = { ...baseArgs("600000005"), order_type: "delivery", address: "Calle Mayor 10" };
-  const deliverySummary = await marta.handleSubmitOrder("valid-delivery", deliveryArgs);
-  assert.strictEqual(deliverySummary.reason, "summary_required");
-  assert.strictEqual((await marta.handleSubmitOrder("valid-delivery", deliveryArgs, finalYes(deliverySummary.reply))).ok, true);
+  const deliverySummary = await summaryFor("valid-delivery", deliveryArgs);
+  assert.strictEqual((await confirmSummary("valid-delivery", deliveryArgs, deliverySummary)).ok, true);
 
   store.clearAllSessionsForTests();
   store.applyDraftSnapshot("ratio", { items: [{ ...item, category: "pizza_bianca", quantity: 5 }], orderType: "pickup" });
@@ -140,8 +166,8 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   assert.strictEqual(nonexistent.ok, false);
   assert.strictEqual(effectCount(), zeroBefore, "producto inexistente produjo efectos");
 
-  const oldSummary = await marta.handleSubmitOrder("stale", baseArgs("622222222"));
-  assert.strictEqual(oldSummary.reason, "summary_required");
+  const oldFlow = await summaryFor("stale", baseArgs("622222222"));
+  const oldSummary = oldFlow.result;
   const staleBefore = effectCount();
   const stale = await marta.handleSubmitOrder("stale", { ...baseArgs("622222222"), items: [{ menu_item_id: "pizza_bb", quantity: 2 }] }, finalYes(oldSummary.reply));
   assert.strictEqual(stale.reason, "summary_required");
@@ -152,23 +178,22 @@ const effectCount = () => Object.values(effects).reduce((a, b) => a + b, 0);
   assert.strictEqual(allowed.order.confirmationFingerprint, allowed.order.draftFingerprint);
   assert.strictEqual(allowed.order.safeToDispatch, true);
 
-  const allergenFirst = await marta.handleSubmitOrder("allergen-yes", { ...baseArgs("633333333"), items: [{ menu_item_id: "pizza_abruzzo", quantity: 1, modifiers: [{ type: "remove", value: "langostinos" }] }], allergies: ["langostinos"] });
-  assert.strictEqual(allergenFirst.reason, "summary_required");
+  const allergenArgs = { ...baseArgs("633333333"), items: [{ menu_item_id: "pizza_abruzzo", quantity: 1, modifiers: [{ type: "remove", value: "langostinos" }] }], allergies: ["langostinos"] };
+  const allergenFlow = await summaryFor("allergen-yes", allergenArgs);
+  const allergenFirst = allergenFlow.result;
   const allergenBefore = effectCount();
   const notFinal = await marta.handleSubmitOrder("allergen-yes", { ...baseArgs("633333333"), items: [{ menu_item_id: "pizza_abruzzo", quantity: 1, modifiers: [{ type: "remove", value: "langostinos" }] }], allergies: ["langostinos"] }, [{ role: "assistant", content: "¿Retiro los langostinos?" }, { role: "user", content: "Sí" }]);
   assert.strictEqual(notFinal.reason, "final_confirmation_required");
   assert.strictEqual(effectCount(), allergenBefore, "sí de alérgeno confirmó el pedido");
 
   const surchargeArgs = { ...baseArgs("644444444"), items: [{ menu_item_id: "pizza_bb", quantity: 1, modifiers: [{ type: "extra", value: "cebolla" }] }] };
-  const surcharge1 = await marta.handleSubmitOrder("surcharge", surchargeArgs);
-  assert.strictEqual(surcharge1.reason, "surcharge_acceptance_required");
-  const surcharge2 = await marta.handleSubmitOrder("surcharge", surchargeArgs, [{ role: "assistant", content: "El extra tiene un suplemento de 1,50 euros, ¿lo aceptas?" }, { role: "user", content: "Sí" }]);
-  assert.strictEqual(surcharge2.reason, "summary_required");
-  const surcharge3 = await marta.handleSubmitOrder("surcharge", surchargeArgs, finalYes(surcharge2.reply));
+  const surchargeFlow = await summaryFor("surcharge", surchargeArgs);
+  const surcharge3 = await confirmSummary("surcharge", surchargeArgs, surchargeFlow);
   assert.strictEqual(surcharge3.ok, true);
 
-  const once1 = await marta.handleSubmitOrder("once", baseArgs("655555555"));
-  const once2 = await marta.handleSubmitOrder("once", baseArgs("655555555"), finalYes(once1.reply));
+  const onceFlow = await summaryFor("once", baseArgs("655555555"));
+  const once1 = onceFlow.result;
+  const once2 = await confirmSummary("once", baseArgs("655555555"), onceFlow);
   assert.strictEqual(once2.ok, true);
   const dispatchAfter = effects.dispatch;
   const once3 = await marta.handleSubmitOrder("once", baseArgs("655555555"), finalYes(once1.reply));

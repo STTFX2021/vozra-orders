@@ -20,7 +20,7 @@
 const express  = require("express");
 const { processTurn, buildKitchenTicket } = require("./order-slot-filler.service.js");
 const { generateMartaReply, sanitizeReply } = require("./marta-llm.service.js");
-const { getOrCreateOrderSession, getOrderSession, ORDER_STATUS } = require("./order-call-session.store.js");
+const { getOrCreateOrderSession, getOrderSession, ORDER_STATUS, transitionClosure } = require("./order-call-session.store.js");
 const { validateOrder }   = require("./order-validator.service.js");
 const { buildTicket }     = require("./kitchen-ticket-builder.service.js");
 const { dispatchOrder }   = require("./dispatch-adapter.service.js");
@@ -279,12 +279,14 @@ router.post("/v1/chat/completions", async (req, res) => {
   // despedida corta y emitimos el tool_call `end_call` para que ElevenLabs cuelgue.
   try {
     const s0 = getOrderSession(callId);
-    if (s0 && s0.farewellArmed && isFarewell(userText)) {
+    if (s0 && s0.closureState === "dispatched" && isFarewell(userText)) {
       console.log(`[EL] cierre por despedida | callId=${callId} → end_call`);
       const nombre = (s0.registeredName || s0.customerName || "").trim().split(/\s+/)[0];
       const despedida = nombre
         ? `¡Un placer, ${nombre}! Gracias por tu pedido, ¡hasta pronto!`
         : "¡Gracias por tu pedido, un placer! ¡Hasta pronto!";
+      transitionClosure(callId, "farewell_sent");
+      transitionClosure(callId, "ended");
       return sendStreamResponseWithEndCall(res, despedida, id, model);
     }
   } catch (_) {}
@@ -299,15 +301,13 @@ router.post("/v1/chat/completions", async (req, res) => {
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   const userTurns = incoming.filter(m => m && m.role !== "system");
   const callerPhone = extractCallerPhone(req);
-  const { reply, dispatched, action } = await generateMartaReply(callId, userTurns, callerPhone);
+  const { reply, dispatched, action, endCall } = await generateMartaReply(callId, userTurns, callerPhone);
     const spoken = sanitizeReply(reply); // segunda pasada: nada sucio llega al TTS
     console.log(`[EL] LLM | action=${action} | dispatched=${dispatched} | reply="${String(spoken).slice(0,60)}"`);
 
     // Pedido confirmado y despachado → ARMAR el cierre: en el próximo turno, si el
     // cliente se despide, colgamos (end_call). Se mutará la sesión por referencia.
-    if (dispatched === true) {
-      try { getOrCreateOrderSession(callId).farewellArmed = true; } catch (_) {}
-    }
+    if (endCall === true) return sendStreamResponseWithEndCall(res, spoken, id, model);
 
     // Registro de la conversación en Supabase (call_logs). Fire-and-forget: NO bloquea
     // la respuesta de voz. Se upserta por conversation_id con el transcript acumulado

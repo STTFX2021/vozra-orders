@@ -77,6 +77,10 @@ function createEmptyOrder(callId) {
     phone: null,
     phoneConfirmed: false,
     phoneAttempts: 0,
+    consentState: "unknown",
+    consentEvidence: null,
+    profilePersistenceStatus: "not_requested",
+    profilePersistenceError: null,
 
     // Tipo de pedido
     orderType: null, // "pickup" | "delivery"
@@ -97,6 +101,9 @@ function createEmptyOrder(callId) {
     allergenConflicts: [],
     requiredAction: null,
     draftItems: [],
+    allergyPersistenceStatus: "not_required",
+    allergyPersistenceError: null,
+    persistedAllergies: [],
     draftRevision: 0,
     draftFingerprint: null,
     validationStatus: "not_validated",
@@ -105,7 +112,13 @@ function createEmptyOrder(callId) {
     quoteFingerprint: null,
     quotedTotal: null,
     quotedSurcharges: [],
+    quotedSurchargeTotal: 0,
     surchargeAcceptance: "not_required",
+    surchargeCommunication: "not_required",
+    surchargeMessage: null,
+    upsellState: "not_offered",
+    upsellFingerprint: null,
+    upsellOfferText: null,
     summaryRevision: null,
     summaryFingerprint: null,
     summaryText: null,
@@ -116,6 +129,11 @@ function createEmptyOrder(callId) {
     safeToSummarize: false,
     safeToConfirm: false,
     safeToDispatch: false,
+    orderPersistenceStatus: "not_started",
+    zoneStatus: "not_required",
+    closureState: "open",
+    farewellCount: 0,
+    endCallIssued: false,
 
     // Pago
     paymentMethod: null,
@@ -220,8 +238,8 @@ function applyDraftSnapshot(callId, snapshot) {
     ...canonical, draftItems: canonical.items,
     draftRevision: order.draftRevision + 1, draftFingerprint: fingerprint,
     validationStatus: "not_validated", unresolvedActions: [],
-    quoteRevision: null, quoteFingerprint: null, quotedTotal: null, quotedSurcharges: [],
-    surchargeAcceptance: "not_required",
+    quoteRevision: null, quoteFingerprint: null, quotedTotal: null, quotedSurcharges: [], quotedSurchargeTotal: 0,
+    surchargeAcceptance: "not_required", surchargeCommunication: "not_required", surchargeMessage: null,
     summaryRevision: null, summaryFingerprint: null, summaryText: null,
     confirmationRevision: null, confirmationFingerprint: null, confirmedSnapshot: null,
     safeToQuote: false, safeToSummarize: false, safeToConfirm: false, safeToDispatch: false,
@@ -239,13 +257,14 @@ function recordValidation(callId, validation) {
   if (order.surchargeAcceptance === "pending" && !actions.includes("obtain_surcharge_acceptance")) actions.push("obtain_surcharge_acceptance");
   const quoteCurrent = order.quoteFingerprint === order.draftFingerprint;
   const surchargeResolved = order.surchargeAcceptance !== "pending";
+  const upsellResolved = ["accepted", "rejected"].includes(order.upsellState);
   const summaryCurrent = order.summaryFingerprint === order.draftFingerprint;
   const confirmationCurrent = order.confirmationFingerprint === order.draftFingerprint;
   return updateOrderSession(callId, { validationStatus: valid ? "valid" : "invalid", unresolvedActions: actions,
     safeToQuote: valid,
-    safeToSummarize: valid && quoteCurrent && surchargeResolved,
-    safeToConfirm: valid && summaryCurrent && surchargeResolved,
-    safeToDispatch: valid && confirmationCurrent && summaryCurrent && surchargeResolved });
+    safeToSummarize: valid && quoteCurrent && surchargeResolved && upsellResolved,
+    safeToConfirm: valid && summaryCurrent && surchargeResolved && upsellResolved,
+    safeToDispatch: valid && confirmationCurrent && summaryCurrent && surchargeResolved && upsellResolved });
 }
 
 function recordQuote(callId, total, surcharges = []) {
@@ -253,11 +272,15 @@ function recordQuote(callId, total, surcharges = []) {
   if (!order.safeToQuote || !order.draftFingerprint) return { ok: false, reason: "draft_not_quotable", order };
   const quotedSurcharges = JSON.parse(JSON.stringify(surcharges));
   const pending = quotedSurcharges.length > 0;
+  const surchargeTotal = Math.round(quotedSurcharges.reduce((sum, item) => sum + Number(item.importe_eur || 0), 0) * 100) / 100;
+  const upsellResolved = ["accepted", "rejected"].includes(order.upsellState);
   const updated = updateOrderSession(callId, {
     quoteRevision: order.draftRevision, quoteFingerprint: order.draftFingerprint,
-    quotedTotal: total, quotedSurcharges, surchargeAcceptance: pending ? "pending" : "not_required",
+    quotedTotal: total, quotedSurcharges, quotedSurchargeTotal: surchargeTotal,
+    surchargeAcceptance: pending ? "pending" : "not_required",
+    surchargeCommunication: pending ? "not_communicated" : "not_required", surchargeMessage: null,
     unresolvedActions: pending ? ["obtain_surcharge_acceptance"] : [],
-    safeToSummarize: !pending, safeToConfirm: false, safeToDispatch: false
+    safeToSummarize: !pending && upsellResolved, safeToConfirm: false, safeToDispatch: false
   });
   return { ok: true, order: updated };
 }
@@ -266,7 +289,59 @@ function acceptSurcharges(callId, fingerprint) {
   const order = getOrCreateOrderSession(callId);
   if (order.surchargeAcceptance !== "pending") return { ok: true, alreadyResolved: true, order };
   if (!fingerprint || fingerprint !== order.quoteFingerprint || fingerprint !== order.draftFingerprint) return { ok: false, reason: "stale_surcharge_acceptance", order };
-  return { ok: true, order: updateOrderSession(callId, { surchargeAcceptance: "accepted", unresolvedActions: [], safeToSummarize: order.validationStatus === "valid" }) };
+  if (order.surchargeCommunication === "not_communicated") return { ok: false, reason: "surcharge_not_communicated", order };
+  return { ok: true, order: updateOrderSession(callId, { surchargeAcceptance: "accepted", unresolvedActions: [], safeToSummarize: order.validationStatus === "valid" && ["accepted", "rejected"].includes(order.upsellState) }) };
+}
+
+function recordSurchargeCommunication(callId, message, detailed = false) {
+  const order = getOrCreateOrderSession(callId);
+  if (order.surchargeAcceptance !== "pending" || order.quoteFingerprint !== order.draftFingerprint) return { ok: false, reason: "no_current_surcharge", order };
+  return { ok: true, order: updateOrderSession(callId, { surchargeCommunication: detailed ? "breakdown_communicated" : "total_communicated", surchargeMessage: String(message || "").trim() }) };
+}
+
+function recordUpsellOffer(callId, offerText) {
+  const order = getOrCreateOrderSession(callId);
+  if (order.upsellState !== "not_offered") return { ok: false, reason: "upsell_already_offered", order };
+  return { ok: true, order: updateOrderSession(callId, { upsellState: "offered", upsellFingerprint: order.draftFingerprint, upsellOfferText: String(offerText || "").trim(), safeToSummarize: false, safeToConfirm: false, safeToDispatch: false }) };
+}
+
+function resolveUpsell(callId, decision) {
+  const order = getOrCreateOrderSession(callId);
+  if (order.upsellState !== "offered") return { ok: false, reason: "upsell_not_pending", order };
+  if (!["accepted", "rejected"].includes(decision)) return { ok: false, reason: "invalid_upsell_decision", order };
+  const quoteCurrent = order.quoteFingerprint === order.draftFingerprint;
+  const surchargeResolved = order.surchargeAcceptance !== "pending";
+  return { ok: true, order: updateOrderSession(callId, { upsellState: decision, safeToSummarize: order.validationStatus === "valid" && quoteCurrent && surchargeResolved }) };
+}
+
+function setAllergyPersistence(callId, status, detail = {}) {
+  return updateOrderSession(callId, { allergyPersistenceStatus: status, allergyPersistenceError: detail.error || null, persistedAllergies: detail.allergies || getOrCreateOrderSession(callId).persistedAllergies || [] });
+}
+
+function recordConsentDecision(callId, decision, evidence = null) {
+  const order = getOrCreateOrderSession(callId);
+  if (!["granted", "denied", "unknown"].includes(decision)) return { ok: false, reason: "invalid_consent_decision", order };
+  if (decision === "granted" && (!evidence || !evidence.assistantText || !evidence.userText)) {
+    return { ok: false, reason: "consent_evidence_required", order };
+  }
+  return { ok: true, order: updateOrderSession(callId, {
+    consentState: decision,
+    consentEvidence: decision === "granted" ? {
+      assistantText: String(evidence.assistantText),
+      userText: String(evidence.userText),
+      capturedAt: new Date().toISOString()
+    } : null
+  }) };
+}
+
+function transitionClosure(callId, nextState) {
+  const order = getOrCreateOrderSession(callId);
+  const allowed = { open: ["dispatching"], dispatching: ["dispatched", "open"], dispatched: ["farewell_sent"], farewell_sent: ["ended"], ended: [] };
+  if (!(allowed[order.closureState] || []).includes(nextState)) {
+    if (order.closureState === nextState || (order.closureState === "ended" && nextState === "ended")) return { ok: true, idempotent: true, order };
+    return { ok: false, reason: "invalid_closure_transition", order };
+  }
+  return { ok: true, order: updateOrderSession(callId, { closureState: nextState, farewellCount: nextState === "farewell_sent" ? order.farewellCount + 1 : order.farewellCount, endCallIssued: nextState === "ended" ? true : order.endCallIssued }) };
 }
 
 function recordSummary(callId, summaryText) {
@@ -422,6 +497,12 @@ module.exports = {
   recordValidation,
   recordQuote,
   acceptSurcharges,
+  recordSurchargeCommunication,
+  recordUpsellOffer,
+  resolveUpsell,
+  setAllergyPersistence,
+  recordConsentDecision,
+  transitionClosure,
   recordSummary,
   recordConfirmation
 };

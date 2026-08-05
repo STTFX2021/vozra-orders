@@ -40,7 +40,8 @@ Module._load = function(request, parent, isMain) {
     };
     if (request === "./customer-store.js") return {
       getCustomerByPhone: async () => null,
-      upsertCustomer: async () => { calls.customer++; return { ok: true }; }
+      upsertCustomer: async () => { calls.customer++; return { ok: true }; },
+      updateCustomerAllergies: async () => ({ ok: true, allergies: [] })
     };
   }
   return originalLoad.call(this, request, parent, isMain);
@@ -68,7 +69,13 @@ function assertNoOperationalEffects(before, label) {
 }
 
 async function submitConfirmed(callId, args, priorMessages = []) {
-  const summarized = await handleSubmitOrder(callId, args, priorMessages);
+  const offered = await handleSubmitOrder(callId, args, priorMessages);
+  assert.strictEqual(offered.reason, "upsell_required", `${callId}: debe exigir upselling cuando siga not_offered`);
+  const summarized = await handleSubmitOrder(callId, args, [
+    ...priorMessages,
+    { role: "assistant", content: offered.reply },
+    { role: "user", content: "No, seguimos" }
+  ]);
   assert.strictEqual(summarized.reason, "summary_required", `${callId}: debe exigir el resumen versionado antes de confirmar`);
   assert.strictEqual(summarized.delivered, false, `${callId}: el resumen no puede producir dispatch`);
   return handleSubmitOrder(callId, args, [
