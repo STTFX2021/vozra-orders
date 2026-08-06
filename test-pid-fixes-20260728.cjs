@@ -71,17 +71,29 @@ test("F1 el gate bloquea solo el conflicto retirable pendiente", () => {
 });
 
 // ── FALLO 4: TIEMPOS INVENTADOS ──────────────────────────────────────────────
+// POLÍTICA ACTUALIZADA (owner, 06-08): en julio se prohibió dar cualquier tiempo
+// porque el modelo se inventaba horas. La decisión nueva es dar un RANGO honesto
+// —"entre 30 y 45 minutos"—, que es lo que espera cualquiera que llama a una
+// pizzería. Lo que sigue prohibido es la hora concreta y el "está en camino".
 test("F4 el prompt YA NO manda sumar tiempo de preparación", () => {
   assert.ok(!/s[uú]male el tiempo de preparaci[oó]n/i.test(prompt), "sigue la instrucción de sumar minutos");
 });
-test("F4 prohíbe inventar minutos/hora", () => {
-  assert.ok(/PROHIBIDO inventar minutos/i.test(prompt));
+test("F4 da el RANGO honesto de entrega", () => {
+  assert.ok(/entre 30 y 45 minutos/i.test(prompt), "ya no ofrece el rango acordado");
 });
-test("F4 usa el copy aprobado sin cifras", () => {
-  assert.ok(/El restaurante te confirmar[aá] el tiempo estimado/i.test(prompt));
+test("F4 sigue prohibiendo la hora concreta y sumar a la hora actual", () => {
+  assert.ok(/PROHIBIDO dar una hora concreta/i.test(prompt));
+  assert.ok(/sumar minutos a la hora actual/i.test(prompt));
 });
 test("F4 no dice 'está en camino'", () => {
-  assert.ok(/NUNCA digas que est[aá] "en camino"/i.test(prompt));
+  assert.ok(/est[aá] "?en camino"?/i.test(prompt) && /PROHIBIDO afirmar que ya "est[aá] en camino"/i.test(prompt),
+    "podría afirmar que el pedido ya salió");
+});
+test("F4 con la cocina cerrada el rango se cuenta desde la APERTURA", () => {
+  assert.ok(/se cuenta DESDE LA APERTURA/i.test(prompt), "daría el rango desde la hora actual con la cocina cerrada");
+});
+test("F4 última orden 30 minutos antes del cierre", () => {
+  assert.ok(/ÚLTIMA ORDEN/i.test(prompt) && /30 minutos para que cierre/i.test(prompt));
 });
 
 // ── FALLO 2: UPSELLING UNA VEZ (detector determinista) ───────────────────────

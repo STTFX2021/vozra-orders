@@ -1,0 +1,159 @@
+{
+  "document": {
+    "type": "PID continuity handoff",
+    "created_at": "2026-08-06",
+    "timezone": "Europe/Madrid",
+    "repository": "D:\\VOZRA\\vozra_proyecto_completo_20260620\\vozra-orders\\backend"
+  },
+  "git": {
+    "original_base_head": "c5b002472998a4e1849922bff657ec2764aa9a88",
+    "current_head": "e1a6fc87949d6d35dd6da40091be9ac6f2f02bb3",
+    "origin_main": "e1a6fc87949d6d35dd6da40091be9ac6f2f02bb3",
+    "commit_subject": "feat(pid): enforce deterministic conversational closure",
+    "branch": "main",
+    "push_completed": true,
+    "status_before_creating_this_handoff_file": "clean",
+    "recent_log": [
+      "e1a6fc8 feat(pid): enforce deterministic conversational closure",
+      "c5b0024 feat(pid): enforce deterministic order authority",
+      "017323e memoria: sesion 01/02-08 — bucles, gate de datos del cliente y regla de oro (ninguna directiva sin contador ni limite)"
+    ]
+  },
+  "objective": "Cerrar el flujo conversacional PID de forma determinista, ligando upselling, suplementos, resumen, confirmacion, consentimiento, persistencia, despedida y End Call a estados y evidencias verificables en runtime, sin otorgar autoridad final al modelo.",
+  "work_completed_last_days": [
+    "Autoridad transaccional mediante revisiones y huellas del borrador.",
+    "Validacion fail-closed antes de cualquier efecto operativo.",
+    "Recuperacion de perfiles consentidos, nombre, direccion y alergias.",
+    "Persistencia, eliminacion y recuperacion de alergias entre sesiones.",
+    "Diferenciacion entre fallo de lectura de perfil y perfil inexistente.",
+    "Actualizacion inmediata de alergias para perfiles consentidos y escritura diferida para clientes nuevos hasta obtener consentimiento.",
+    "Upselling obligatorio exactamente una vez antes del resumen.",
+    "Comunicacion del total de suplementos antes del desglose, que solo se facilita si el cliente lo solicita.",
+    "Aceptacion de suplementos ligada a la huella vigente.",
+    "Resumen y confirmacion unicos, versionados y ligados al borrador exacto.",
+    "Invalidacion automatica de cotizacion, resumen y confirmacion tras una mutacion.",
+    "Consentimiento verificable ligado a una pregunta del asistente y una respuesta afirmativa posterior.",
+    "Rechazo del booleano save_profile_consent impuesto por el modelo cuando no existe evidencia.",
+    "Persistencia durable obligatoria antes del dispatch.",
+    "FSM de cierre open -> dispatching -> dispatched -> farewell_sent -> ended.",
+    "Despedida unica y End Call inmediato e idempotente.",
+    "Bloqueo de nuevos turnos y nuevos efectos despues de ended."
+  ],
+  "published_files": {
+    "customer-store.js": "Lectura estructurada de perfiles y actualizacion de alergias exclusivamente sobre perfiles consentidos existentes.",
+    "elevenlabs-llm.routes.js": "Integracion del End Call inmediato con la FSM determinista.",
+    "marta-llm.service.js": "Orquestacion determinista de alergias, upselling, suplementos, resumen, confirmacion, consentimiento, persistencia y cierre.",
+    "order-call-session.store.js": "Estados, huellas, gates, evidencia de consentimiento, persistencia de perfil y FSM de cierre.",
+    "package.json": "Inclusion de la nueva suite determinista en npm test.",
+    "test-submit-order-validation-gate.cjs": "Adaptacion del gate P0 para exigir upsell_required antes del resumen.",
+    "test-transactional-authority-20260803.cjs": "Adaptacion de pruebas de huellas, suplementos, resumen y confirmacion al nuevo gate de upselling.",
+    "test-deterministic-closure-20260805.cjs": "Cobertura nueva de alergias, fallos de perfil, upselling, suplementos, versionado, mutaciones, consentimiento, despedida y End Call."
+  },
+  "architectural_decisions": [
+    "El modelo propone argumentos, pero el runtime conserva la autoridad para validar, persistir, despachar y cerrar.",
+    "Toda aceptacion economica, resumen y confirmacion se liga a la huella del borrador vigente.",
+    "Una mutacion invalida los artefactos transaccionales anteriores.",
+    "El consentimiento requiere evidencia conversacional; un booleano aislado nunca es suficiente.",
+    "Las alergias de un perfil ya consentido se actualizan de forma fail-closed.",
+    "Las alergias de un cliente nuevo se conservan en la sesion y solo se persisten si posteriormente existe consentimiento verificable.",
+    "El pedido debe persistirse durablemente antes de enviarse a cocina.",
+    "La despedida y el End Call pertenecen a una FSM idempotente, no a la memoria del modelo."
+  ],
+  "gate_matrix": {
+    "validation_before_effects": "closed_fail_closed",
+    "upsell_exactly_once": "closed",
+    "extras_total_first": "closed",
+    "extras_breakdown_only_on_request": "closed",
+    "versioned_surcharge_acceptance": "closed",
+    "unique_versioned_summary": "closed",
+    "confirmation_bound_to_exact_summary": "closed",
+    "mutation_invalidates_prior_artifacts": "closed",
+    "allergy_recovery_between_sessions": "closed",
+    "profile_read_failure": "closed_fail_closed",
+    "profile_allergy_write_failure": "closed_fail_closed",
+    "new_customer_allergy_persistence": "deferred_until_verified_consent",
+    "verifiable_consent": "closed",
+    "model_boolean_without_evidence": "rejected",
+    "durable_order_persistence_before_dispatch": "closed_fail_closed",
+    "single_farewell": "closed",
+    "immediate_end_call": "closed",
+    "idempotent_end_call": "closed",
+    "turns_after_ended": "blocked"
+  },
+  "tests": {
+    "last_full_command": "npm.cmd test",
+    "last_full_result": "PASS",
+    "exit_code": 0,
+    "phase_4": "20 passed, 0 failed, 8 skipped",
+    "phase_5": "6 passed, 0 failed",
+    "phase_6": "10 passed, 0 failed",
+    "system_contract_groups": "5 passed",
+    "p0_validation_gate": "PASS",
+    "allergen_authority": "6 scenarios passed, 0 failed",
+    "transactional_authority": "PASS",
+    "pid_regressions": "47 passed, 0 failed",
+    "deterministic_closure": "PASS",
+    "demo_callback": "15 passed",
+    "syntax_checks": "PASS",
+    "git_diff_check": "PASS; only non-blocking LF-to-CRLF warnings"
+  },
+  "errors_and_root_causes": [
+    {
+      "error": "generateMartaReply referenced order, validation and orderType outside scope.",
+      "root_cause": "A partial block was inserted into the wrong function scope.",
+      "resolution": "The invalid block was removed and the required gates were placed in their correct runtime contexts."
+    },
+    {
+      "error": "Existing tests expected summary_required immediately.",
+      "root_cause": "The new mandatory upselling gate correctly returns upsell_required first.",
+      "resolution": "P0 and transactional tests were adapted to traverse the deterministic upsell state."
+    },
+    {
+      "error": "A model-provided consent boolean could trigger profile persistence.",
+      "root_cause": "Consent was not linked to conversational evidence.",
+      "resolution": "Consent now requires a matching assistant question and affirmative user response."
+    },
+    {
+      "error": "A new customer allergy could be written before consent.",
+      "root_cause": "All allergy changes initially shared the consented-profile update path.",
+      "resolution": "New-customer allergy persistence is deferred until verified consent."
+    },
+    {
+      "error": "The D drive temporarily disappeared during verification.",
+      "root_cause": "Transient environment or drive availability failure.",
+      "resolution": "Work resumed after the drive returned; the full suite was rerun successfully."
+    }
+  ],
+  "remaining_work": [],
+  "residual_model_dependencies": [
+    "Interpret the spoken order and propose tool arguments.",
+    "Capture the concrete product requested after the customer accepts an upsell.",
+    "Formulate the consent question. Runtime verification remains authoritative."
+  ],
+  "deployment": {
+    "provider": "Railway",
+    "service": "vozra-orders",
+    "environment": "production",
+    "url": "https://vozra-orders-production.up.railway.app",
+    "healthcheck": "https://vozra-orders-production.up.railway.app/health",
+    "health_http_status": 200,
+    "served_commit": "e1a6fc8",
+    "expected_commit": "e1a6fc8",
+    "verified": true,
+    "test_calls_performed": false
+  },
+  "publication": {
+    "commit_created": true,
+    "push_completed": true,
+    "deployed": true,
+    "production_verified": true
+  },
+  "next_step": "No PID implementation work is pending. If a new change is requested, begin with git status --short and confirm whether this handoff JSON should remain untracked, be committed separately, or be removed with explicit authorization.",
+  "restrictions": [
+    "Do not modify Railway, ElevenLabs, Supabase, prompts, model or environment variables without explicit authorization.",
+    "Do not discard user changes with git restore, checkout, reset, stash or clean unless explicitly authorized.",
+    "Do not commit, push or deploy new work without explicit authorization.",
+    "Do not perform real test calls unless explicitly authorized.",
+    "Do not include .env files, secrets, credentials, logs, dumps or real customer data in commits."
+  ]
+}

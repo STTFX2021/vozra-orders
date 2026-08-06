@@ -79,14 +79,29 @@ function buildTextTicket(order, validationResult = {}) {
   // el control de la incidencia (y del reembolso, que Sarah nunca autoriza).
   if (order.incidencia) {
     const inc = order.incidencia;
+    const ALCANCE_LABEL = {
+      articulo:        "SOLO EL ARTÍCULO QUE FALTABA",
+      plato:           "SOLO EL PLATO QUE SALIÓ MAL",
+      pedido_completo: "EL PEDIDO COMPLETO"
+    };
     lines.push(SEP2);
     lines.push("🚨🚨  INCIDENCIA — PEDIDO DE REPOSICIÓN  🚨🚨");
     lines.push(SEP2);
+    // Si es reincidente, esto va lo PRIMERO: decide el encargado, no el sistema.
+    if (inc.ordinal && inc.ordinal >= 2) {
+      lines.push(`‼️  ATENCIÓN: ${inc.ordinal}ª INCIDENCIA DE ESTE CLIENTE EN 30 DÍAS`);
+      lines.push("    DECIDE TÚ si se repone. El sistema NO lo ha autorizado solo.");
+      for (const h of (inc.historial || [])) {
+        lines.push(`    · ${h.fecha || "?"} — ${h.motivo || "sin detalle"}`);
+      }
+      lines.push(SEP);
+    }
     lines.push("⚠️  ESTE PEDIDO NO SE COBRA (coste cero)");
+    lines.push(`🔁  Se repone: ${ALCANCE_LABEL[inc.alcance] || ALCANCE_LABEL.pedido_completo}`);
     lines.push(`📞  LLAMAR AL CLIENTE: ${order.phone || "—"}`);
     if (order.customerName) lines.push(`👤  ${order.customerName}`);
     if (inc.motivo)   lines.push(`❗  Qué pasó: ${inc.motivo}`);
-    if (inc.pedidoOriginal) lines.push(`🔁  Pedido original: ${inc.pedidoOriginal}`);
+    if (inc.pedidoOriginal) lines.push(`📄  Pedido original: ${inc.pedidoOriginal}`);
     if (inc.quiereReembolso) {
       lines.push("💶  EL CLIENTE PIDE REEMBOLSO → tiene que confirmárselo el encargado.");
       lines.push("    Se le ha dicho que el encargado le llamará para confirmarlo.");

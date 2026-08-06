@@ -276,12 +276,21 @@ async function checkDeliveryAddress(address, providerSlug = "la-locanda") {
     return out;
   }
 
-  const inZone = distanceKm <= radiusKm;
+  // MARGEN DE CORTESÍA (decisión del owner 06-08): "la zona es una guía, no un
+  // muro". Un cliente que se ha mudado 500 m fuera del radio se le sirve igual.
+  // Se marca `borde` para que el local lo vea, pero NO se rechaza el pedido.
+  const margenKm = Number(cfg.margenKm != null ? cfg.margenKm : 1) || 0;
+  const inZone   = distanceKm <= radiusKm;
+  const enMargen = !inZone && distanceKm <= (radiusKm + margenKm);
+
   const out = Object.assign({}, base, {
-    status: inZone ? "in_zone" : "out_of_zone",
+    status: (inZone || enMargen) ? "in_zone" : "out_of_zone",
+    borde: enMargen,                       // justo fuera del radio, servido por cortesía
     distanceKm: rounded,
-    deliveryRisk: !inZone,
-    reason: inZone ? "dentro_del_radio" : "fuera_del_radio",
+    deliveryRisk: !inZone,                 // fuera del radio estricto: el local debe saberlo
+    reason: inZone ? "dentro_del_radio"
+          : enMargen ? "en_margen_de_cortesia"
+          : "fuera_del_radio",
     geocoded: geo
   });
   cacheSet(key, out);

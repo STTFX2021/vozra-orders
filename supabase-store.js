@@ -250,4 +250,35 @@ async function upsertCallLog(data = {}) {
   }
 }
 
-module.exports = { upsertOrder, patchByOrderId, getOrder, findOrdersByPhone, insertIncident, upsertCallLog, isEnabled, toRow };
+/**
+ * Incidencias previas de un teléfono en los últimos N días.
+ *
+ * Regla del owner (02-08): lo normal es UNA incidencia como mucho. A partir de la
+ * segunda, el ticket avisa al local de que es la 2ª/3ª y decide el encargado si
+ * repone. El sistema NO acusa al cliente: esto es información interna.
+ *
+ * No lanza. Si Supabase está caído devuelve ok:false y el flujo sigue: ante la
+ * duda se repone (mejor perder una pizza que un cliente por un fallo de BD).
+ */
+async function countIncidentsByPhone(phone, dias = 30) {
+  try {
+    if (!isEnabled()) return { ok: false, skipped: true, reason: "Supabase no configurado" };
+    const p = String(phone || "").replace(/[^\d+]/g, "");
+    if (!p) return { ok: false, skipped: true, reason: "sin telefono" };
+    const desde = new Date(Date.now() - (Math.max(1, dias) * 24 * 60 * 60 * 1000)).toISOString();
+    const r = await request(
+      "GET",
+      "/rest/v1/incidents?phone=eq." + encodeURIComponent(p) +
+      "&created_at=gte." + encodeURIComponent(desde) +
+      "&select=created_at,reason,detail&order=created_at.desc&limit=10",
+      null
+    );
+    const filas = JSON.parse(r.body || "[]");
+    return { ok: true, total: filas.length, incidencias: filas };
+  } catch (e) {
+    console.error("[INCID] countIncidentsByPhone error:", e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+module.exports = { upsertOrder, patchByOrderId, getOrder, findOrdersByPhone, insertIncident, countIncidentsByPhone, upsertCallLog, isEnabled, toRow };

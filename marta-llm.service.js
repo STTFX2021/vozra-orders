@@ -28,7 +28,7 @@ const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
 const { getProvider, getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
-const { upsertOrder } = require("./supabase-store.js");
+const { upsertOrder, countIncidentsByPhone } = require("./supabase-store.js");
 const { getCustomerByPhone, upsertCustomer, updateCustomerAllergies } = require("./customer-store.js");
 const { checkDeliveryAddress } = require("./delivery-zone.service.js");
 const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
@@ -369,14 +369,25 @@ function buildSystemPrompt(provider = getProvider("la-locanda"), profile = null)
   // Nace del caso real de un cliente con la pizza destrozada al que Sarah respondió
   // "el pedido nuevo NO es gratuito" — porque el prompt solo decía "no prometas nada".
   const comp = Object.assign(
-    { reposicion_gratis: false, descuento_pct: 10, descuento_autorizado: false },
+    {
+      reposicion_gratis: false, descuento_pct: 10, descuento_autorizado: false,
+      // Decisiones del owner 06-08. Configurables por local.
+      rango_entrega: "entre 30 y 45 minutos",
+      ultima_orden_min: 30,     // no se toman pedidos a menos de 30 min del cierre
+      margen_zona_km: 1         // habitual que se mudó justo fuera de zona: se le sirve
+    },
     config.compensacion || {}
   );
   const compensacionBloque = `# PEDIDO MAL SERVIDO (frío, roto, incompleto o equivocado)
 Si el cliente se queja de un pedido YA ENTREGADO que llegó mal, esto NO es una queja que solo se anota: es algo que TÚ puedes resolver ahora.
 1. Discúlpate de verdad y sin excusas. Nada de "lo lamento" a secas y seguir a lo tuyo; reconoce el fallo ("Lo siento, eso no puede pasar").
 2. NO le hagas repetir lo que ya te ha contado ni le pidas datos que ya tienes.
-${comp.reposicion_gratis ? `3. OFRÉCELE REPONER EL PEDIDO **SIN COSTE**: el mismo pedido otra vez, gratis. Dilo claro y sin que te lo pida: "Te lo repetimos ahora mismo sin coste". PROHIBIDO decirle que tiene que pagarlo. En submit_order pon en notes "REPOSICIÓN GRATUITA POR INCIDENCIA".` : `3. NO puedes ofrecer reposición gratuita: deriva al encargado.`}
+${comp.reposicion_gratis ? `3. OFRÉCELE REPONER **SIN COSTE** lo que salió mal, sin que te lo pida: "Te lo repetimos ahora mismo sin coste". PROHIBIDO decirle que tiene que pagarlo.
+   REPÓN SOLO LO QUE FALLÓ. En submit_order, campo incidencia.alcance:
+     · Falta un artículo  → alcance="articulo": manda SOLO lo que faltaba, NO repitas el pedido entero.
+     · Un plato salió mal o equivocado → alcance="plato": SOLO ese plato.
+     · Llegó todo destrozado, frío o inservible → alcance="pedido_completo": el pedido entero.
+   Pregunta lo justo para saber qué falló y no le hagas repetir lo que ya te ha contado.` : `3. NO puedes ofrecer reposición gratuita: deriva al encargado.`}
 ${comp.descuento_pct ? (comp.descuento_autorizado
   ? `4. Si prefiere no repetir el pedido ahora, ofrécele un ${comp.descuento_pct}% de descuento en su próximo pedido y déjalo anotado.`
   : `4. Un descuento del ${comp.descuento_pct}% en el próximo pedido lo tiene que aprobar el local: NO lo prometas como seguro. Puedes decir que se lo propones al encargado.`) : ""}
@@ -517,17 +528,21 @@ ${(() => {
    - DOMICILIO: teléfono + dirección completa. Los DOS.
    - RECOGER: teléfono + nombre.
    Si alguno falta, pídelo AHORA (solo el que falte, nunca uno que ya tengas). Si el cliente está REGISTRADO (reconocido por su teléfono), su nombre y su dirección YA los tienes guardados: NO se los pidas, el sistema los rellena solo. Solo debes pedir el teléfono si no lo tienes; y a un cliente NUEVO en recoger, su nombre.
-4. TIEMPO DE PREPARACIÓN (NO lo inventes): NO conocemos la carga real de cocina, ni la cola, ni los repartidores, así que NO tenemos un tiempo estimado fiable. Por eso:
-   - PROHIBIDO inventar minutos o una hora concreta ("en veinte minutos", "sobre las nueve y media"). PROHIBIDO sumar minutos a la hora actual para dar una hora.
-   - NO preguntes "¿para qué hora?" ni digas "lo antes posible".
-   - Si el cliente pregunta cuánto tardará, respóndele con naturalidad SIN dar cifras: "El restaurante te confirmará el tiempo estimado en un momento." NUNCA digas que está "en camino" ni des una hora ni un rango de minutos.
-   - Lo ÚNICO que sí sabemos por dato es el HORARIO DE COCINA: si la cocina está CERRADA, avisa antes de cerrar el pedido y ofrece la próxima apertura disponible. Eso sí puedes decirlo.
-5. UPSELLING (OBLIGATORIO EXACTAMENTE UNA vez en TODOS los pedidos, antes del resumen): haz una sola sugerencia con naturalidad. Si el cliente la rechaza, no insistas. Elige según PRIORIDAD:
-   - Si el pedido NO tiene ninguna bebida → pregunta ÚNICAMENTE: "¿Te pongo algo de beber?". NO enumeres Coca-Cola, agua, cerveza ni otros productos, salvo que el cliente pida opciones. Nunca ofrezcas postre ni entrante si falta la bebida.
-   - Si YA hay bebida y no hay postre → sugiere un postre concreto por su nombre ("¿Te apetece un Tiramisú de postre?").
-   - Si ya hay bebida y postre → un entrante para compartir.
-   - Si el cliente ya dijo que no quiere nada más, o pidió expresamente OTRA COSA (p. ej. "sugiéreme otra pizza"), ATIENDE ESO y NO metas la sugerencia de bebida/postre encima.
-   - Solo si ya hay bebida y postre: ofrece un entrante para compartir.
+4. TIEMPO DE ENTREGA (decisión del owner 06-08: se da un RANGO honesto, nunca una hora exacta):
+   - Con la cocina ABIERTA, si el cliente pregunta cuánto tarda: "${comp.rango_entrega || "entre 30 y 45 minutos"}". Ese rango y nada más.
+   - PROHIBIDO dar una hora concreta ("sobre las nueve y media") ni sumar minutos a la hora actual. PROHIBIDO afirmar que ya "está en camino".
+   - No lo repitas en cada turno: se dice UNA vez, o cuando el cliente pregunte.
+   - CON LA COCINA CERRADA el rango se cuenta DESDE LA APERTURA, no desde ahora: "Ahora mismo la cocina está cerrada, abrimos a las [hora]. Tu pedido te llegaría sobre las [hora + rango]". Se aceptan pedidos igualmente.
+   - ÚLTIMA ORDEN: no se toman pedidos para un turno cuando faltan menos de ${comp.ultima_orden_min || 30} minutos para que cierre. En ese caso dilo y ofrece el turno siguiente.
+5. UPSELLING (OBLIGATORIO EXACTAMENTE UNA vez en TODOS los pedidos, antes del resumen): UNA sola sugerencia, con naturalidad. Si el cliente la rechaza, no insistas.
+   ORDEN DE PRIORIDAD (se ofrece la PRIMERA categoría que NO esté ya en el pedido):
+     1º ENTRANTE / algo para picar   → "¿Te pongo algo para picar, un entrante para compartir?"
+     2º BEBIDA                       → "¿Te pongo algo de beber?"
+     3º POSTRE                       → "¿Te apetece un postre para rematar?"
+   - PROHIBIDO ofrecer una categoría que el cliente YA ha pedido. Si ya lleva bebida, se le ofrece postre (o entrante si tampoco lo lleva), NUNCA otra bebida.
+   - Si ya lleva las tres, NO sugieras nada: ve directo al resumen.
+   - NO enumeres productos (Coca-Cola, agua, cerveza…) salvo que el cliente pida opciones. Para el postre sí puedes decir uno concreto por su nombre ("¿Te apetece un Tiramisú?").
+   - Si el cliente ya dijo que no quiere nada más, o pidió expresamente OTRA COSA (p. ej. "sugiéreme otra pizza"), ATIENDE ESO y NO metas la sugerencia encima.
    Una frase apetecible. Registra que ya se ofreció para no repetirlo y pasa al resumen.
 6. Cuando el cliente diga que ha terminado, lee el pedido completo UNA vez: platos, cantidades, modificaciones, tipo de entrega, hora, alergia si la hay, y el TOTAL. El total es OBLIGATORIO en el resumen: llama a calcular_total antes si aún no lo tienes. No pidas confirmación sin haber dicho el total.
 7. ANTES de confirmar, repasa este CHECKLIST OBLIGATORIO. Si falta algo, hazlo primero y NO pidas confirmación todavía:
@@ -664,6 +679,11 @@ const SUBMIT_ORDER_TOOL = {
           description: "SOLO si el cliente solicita reponer un pedido que salió mal (frío, roto, incompleto, equivocado). El runtime solo lo enviará a coste cero si el restaurante ha autorizado expresamente esta compensación; si no, se deriva al encargado.",
           properties: {
             motivo: { type: "string", description: "qué pasó, con las palabras del cliente. Ej: 'la pizza llegó destrozada y fría'." },
+            alcance: {
+              type: "string",
+              enum: ["articulo", "plato", "pedido_completo"],
+              description: "QUÉ hay que reponer. 'articulo' si solo faltaba algo (una bebida, un postre); 'plato' si un plato salió mal o equivocado; 'pedido_completo' si llegó todo destrozado, frío o inservible. No repongas el pedido entero si solo faltaba una cosa."
+            },
             quiere_reembolso: { type: "boolean", description: "true si el cliente pide que le devuelvan el dinero (el encargado se lo confirmará por teléfono)." },
             pedido_original: { type: "string", description: "id del pedido que salió mal, si lo conoces." }
           },
@@ -1246,8 +1266,53 @@ function explicitConsentEvidence(messages) {
   return null;
 }
 
-function deterministicUpsellOffer() {
-  return "Antes de resumir: ¿quieres añadir una bebida, un postre o un entrante?";
+// ─── UPSELLING EN CASCADA (regla del owner, 2026-08-06) ─────────────────────
+// El upselling es OBLIGATORIO una vez, pero NO se ofrece lo que el cliente ya
+// lleva: si ha pedido bebida, se le ofrece postre. Orden de prioridad fijado por
+// el owner (así es como se hace en barra): ENTRANTE → BEBIDA → POSTRE.
+// Antes se soltaba "¿una bebida, un postre o un entrante?" a todo el mundo, y a
+// quien acababa de pedir una Coca-Cola le ofrecía otra bebida.
+const UPSELL_PRIORIDAD = ["entrante", "bebida", "postre"];
+
+const _CATEGORIA_UPSELL = {
+  starters:      "entrante",
+  salads:        "entrante",
+  beverages:     "bebida",
+  desserts:      "postre"
+};
+
+/** Categorías de upsell que YA están en el pedido, leídas de los items reales. */
+function categoriasEnPedido(order) {
+  const dentro = new Set();
+  for (const it of ((order && order.items) || [])) {
+    const cat = _CATEGORIA_UPSELL[it && it.category];
+    if (cat) dentro.add(cat);
+  }
+  return dentro;
+}
+
+/**
+ * Qué toca ofrecer. Devuelve null si el cliente ya lleva las tres categorías:
+ * en ese caso NO hay nada que sugerir y el upselling se da por resuelto (nunca
+ * se bloquea el pedido por no poder ofrecer algo).
+ */
+function siguienteUpsell(order, incomingMessages) {
+  const yaHay = categoriasEnPedido(order);
+  for (const c of categoriasYaPedidas(incomingMessages)) yaHay.add(c);
+  return UPSELL_PRIORIDAD.find(c => !yaHay.has(c)) || null;
+}
+
+// Frases canónicas: son las MISMAS que verifica test-system-prompt-contract.
+// Si se cambian aquí, hay que cambiarlas también en el prompt y en ese test.
+const _FRASE_UPSELL = {
+  entrante: "¿Te pongo algo para picar, un entrante para compartir?",
+  bebida:   "¿Te pongo algo de beber?",
+  postre:   "¿Te apetece un postre para rematar?"
+};
+
+function deterministicUpsellOffer(order, incomingMessages) {
+  const cat = siguienteUpsell(order, incomingMessages);
+  return cat ? _FRASE_UPSELL[cat] : null;
 }
 
 function surchargeTotalMessage(order) {
@@ -1367,13 +1432,37 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   // REPOSICIÓN POR INCIDENCIA (política del owner 02-08): coste cero y el ticket
   // sale a cocina con una alerta y el teléfono para que el local llame al cliente.
   if (args.incidencia && (args.incidencia.motivo || args.incidencia.quiere_reembolso)) {
+    // ALCANCE (regla del owner 02-08): reponer un artículo que falta NO es lo
+    // mismo que reponer un pedido entero destrozado.
+    const alcance = ["articulo", "plato", "pedido_completo"].includes(args.incidencia.alcance)
+      ? args.incidencia.alcance
+      : "pedido_completo";
     patch.incidencia = {
       motivo: String(args.incidencia.motivo || "pedido mal servido").slice(0, 200),
+      alcance,
       quiereReembolso: args.incidencia.quiere_reembolso === true,
       pedidoOriginal: args.incidencia.pedido_original || null
     };
     patch.paymentMethod = "sin_cargo";   // no se cobra: lo decide el código, no el LLM
     patch.notes = [patch.notes, "REPOSICIÓN GRATUITA POR INCIDENCIA"].filter(Boolean).join(" · ");
+
+    // CONTADOR DE INCIDENCIAS: lo normal es UNA. A partir de la segunda, el
+    // ticket avisa al local para que DECIDA el encargado. Al cliente no se le
+    // dice nada: es información interna. Si la BD falla, se repone igual.
+    try {
+      const tel = args.phone || (_sess && _sess.registeredPhone) || phoneFromHistory(conversationMessages);
+      if (tel) {
+        const previas = await countIncidentsByPhone(tel, 30);
+        if (previas.ok && previas.total > 0) {
+          patch.incidencia.previas = previas.total;
+          patch.incidencia.ordinal = previas.total + 1;   // 2ª, 3ª…
+          patch.incidencia.historial = (previas.incidencias || []).slice(0, 3).map(i => ({
+            fecha: String(i.created_at || "").slice(0, 10),
+            motivo: i.detail || i.reason || null
+          }));
+        }
+      }
+    } catch (e) { console.error("[INCID] contador no disponible | " + e.message); }
   }
   if (orderType === "delivery") {
     const da = resolveDeliveryAddress(args.address, (_sess && _sess.registeredAddress) || null);
@@ -1420,10 +1509,17 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   order = updateOrderSession(callId, { estimatedTotal: order.quotedTotal });
 
   if (order.upsellState === "not_offered") {
-    const offer = deterministicUpsellOffer();
-    const offered = recordUpsellOffer(callId, offer);
-    return { ok: false, delivered: false, order: offered.order, validation, retryable: true,
-      reason: "upsell_required", requiredAction: "offer_upsell", reply: offer };
+    const offer = deterministicUpsellOffer(order, conversationMessages);
+    if (!offer) {
+      // El cliente ya lleva entrante, bebida y postre: no hay nada que sugerir.
+      // El upselling se da por resuelto en vez de bloquear el pedido pidiendo
+      // una oferta imposible.
+      order = resolveUpsell(callId, "rejected").order;
+    } else {
+      const offered = recordUpsellOffer(callId, offer);
+      return { ok: false, delivered: false, order: offered.order, validation, retryable: true,
+        reason: "upsell_required", requiredAction: "offer_upsell", reply: offer };
+    }
   }
   if (order.upsellState === "offered") {
     const answer = lastUserText(conversationMessages);
@@ -2322,9 +2418,13 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         }
         const quotedSession = getOrCreateOrderSession(callId);
         if (quotedSession.upsellState === "not_offered") {
-          const offer = deterministicUpsellOffer();
-          const offered = recordUpsellOffer(callId, offer);
-          return { reply: offer, dispatched: false, action: "offer_upsell", requiredAction: "offer_upsell", upsellState: offered.order.upsellState };
+          const offer = deterministicUpsellOffer(quotedSession, incomingMessages);
+          if (!offer) {
+            resolveUpsell(callId, "rejected");   // ya lleva las tres categorías
+          } else {
+            const offered = recordUpsellOffer(callId, offer);
+            return { reply: offer, dispatched: false, action: "offer_upsell", requiredAction: "offer_upsell", upsellState: offered.order.upsellState };
+          }
         }
         if (quotedSession.upsellState === "offered") {
           return { reply: "Necesito saber si quieres añadir algo o seguimos con el pedido.", dispatched: false, action: "resolve_upsell", requiredAction: "resolve_upsell" };
@@ -2403,6 +2503,10 @@ module.exports = {
   explicitConsentEvidence,
   synchronizeAllergiesForTurn,
   upsellAlreadyOffered,
+  siguienteUpsell,
+  categoriasEnPedido,
+  deterministicUpsellOffer,
+  UPSELL_PRIORIDAD,
   stripConsentIfRegistered,
   streetOnly,
   resolveDeliveryAddress,

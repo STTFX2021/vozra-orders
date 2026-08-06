@@ -77,15 +77,27 @@ ese turno; se ofrece el turno siguiente.
 
 ## 4. Tiempos de entrega
 
-Se da un **rango honesto**: *"entre 30 y 45 minutos"*. Nada de horas exactas inventadas.
-Con la cocina cerrada, el rango se cuenta desde la apertura (ver punto 3).
+Se da un **rango honesto**: *"entre 30 y 45 minutos"* (confirmado por el owner el 06-08).
+Configurable por local en `config.compensacion.rango_entrega`.
+
+Sigue **prohibido**: dar una hora concreta, sumar minutos a la hora actual, o afirmar
+que el pedido "está en camino". Con la cocina cerrada, el rango se cuenta **desde la
+apertura** (ver punto 3).
+
+> Histórico: en julio se prohibió dar cualquier tiempo porque el modelo se inventaba
+> horas. El problema era la invención, no el dato: un rango honesto es lo que espera
+> cualquiera que llama a una pizzería.
 
 ---
 
 ## 5. Zona de reparto
 
-El radio son 8 km, pero **hay margen**. Un cliente habitual que se ha mudado 500 m fuera
-de zona **se le sirve igual**. La zona es una guía, no un muro.
+El radio son 8 km, pero **hay margen**: `config.delivery.margenKm` (1 km por defecto).
+Un cliente que se ha mudado 500 m fuera de zona **se le sirve igual**. La zona es una
+guía, no un muro.
+
+El pedido entra marcado como `borde: true` y con `deliveryRisk`, para que el local lo
+vea en el ticket, pero **no se rechaza**.
 
 ---
 
