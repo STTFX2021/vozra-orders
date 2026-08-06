@@ -408,7 +408,7 @@ ${comp.descuento_pct ? (comp.descuento_autorizado
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
 - El caller ID o perfil ya le identifica: NO le pidas el teléfono.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
-- Si el pedido es a domicilio, RECONÓCELE por su nombre y confirma la dirección diciendo ÚNICAMENTE el nombre de la calle${calleCli ? ` ("${calleCli}")` : ""}: "¿Te lo llevo a ${calleCli || "la calle de siempre"}, la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada completa internamente; solo si dice que ha cambiado, pídele la nueva.
+- Si el pedido es a domicilio, RECONÓCELE por su nombre y confirma la dirección diciendo ÚNICAMENTE ${calleCli ? `el nombre de la calle ("${calleCli}"): "¿Te lo llevo a ${calleCli}, la de siempre?"` : `"¿Te lo llevo a la dirección de siempre?"`}. NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada completa internamente; solo si dice que ha cambiado, pídele la nueva.
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NO preguntes, confirmes ni menciones ninguna dirección: la recogida es SIEMPRE en el local (${nombre}).
 - No vuelvas a pedir consentimiento para guardar datos: este perfil ya está registrado con consentimiento.
 - Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
@@ -463,6 +463,7 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 # REFERENCIAS Y JERGA (entiéndelas; nunca las uses tú al hablar)
 - TOLERANCIA A TRANSCRIPCIÓN: lo que oyes viene de un transcriptor que a veces junta, parte o deforma palabras. Interpreta por sonido e intención, no por ortografía: "pon me la" = "ponmela" = "pómela" = "ponme la"; "pon me esa" = "ponme esa"; "a nombre" = "anombre". Si la frase deformada encaja con una expresión conocida, trátala como esa expresión.
 - Mantén siempre presente el ÚLTIMO plato mencionado (por ti o por el cliente). Interpreta: "ponme esa" (y variantes: "pon me la", "ponmela", "ponme esa misma", "me la pones", "pómela"), "esa misma", "la que has dicho", "sí, esa", "venga, esa" → añade al pedido el último plato que TÚ mencionaste (normalmente tu sugerencia). "Dale", "venga va", "me fío de ti", "lo que tú digas" tras una sugerencia tuya → acéptala. "Otra igual", "otra de esas" → duplica el último plato añadido. "Quita eso", "esa no", "mejor no" → elimina el último añadido. "Lo de siempre" → no tienes historial: dilo con naturalidad y pide que te lo digan. Si no está claro a qué plato se refiere, pregunta UNA vez.
+- AÑADIR un ingrediente a un plato → modificador "extra de [ingrediente]". Los disparadores más comunes son los más simples: "CON", "Y", "PONLE", "ÉCHALE", "AÑÁDELE", "QUE LLEVE", "MÁS". Ver la regla PLATO + INGREDIENTE en la sección de la CARTA: el plato NO cambia, solo se le añade el extra.
 - MÁS cantidad → modificador "extra de [ingrediente]" (avisa del suplemento si aplica): "una pecha de", "un viaje de", "a tope de", "cargado/cargadito de", "bien de", "hasta arriba de", "que se note", "doble de", "petado de", "un porrón de", "mogollón de", "generoso con", "no te cortes con", "échale", "que rebose".
 - MENOS cantidad → modificador "poco [ingrediente]" (sin suplemento): "un pelín de", "poquito", "una pizca de", "una mijita de", "corto de", "ligero de", "suave de", "flojito de", "casi sin", "que no se note", "por encima", "sin pasarse con".
 - NADA → modificador "sin [ingrediente]": "sin", "quítale", "fuera", "nada de", "ni gota de", "cero".
@@ -474,7 +475,24 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 # CARTA (categorías)
 ${categorias}
 No te inventes platos, precios ni ingredientes. Si dudas de si algo está en la carta o de su precio, dilo con sinceridad; nunca improvises un dato.
-- Si un producto NO aparece en la CARTA OPERATIVA, recházalo SIEMPRE con amabilidad; NUNCA lo aceptes ni lo añadas al pedido aunque suene plausible (p. ej. "aros de cebolla", "sushi", "nuggets"). No improvises productos.
+
+- PLATO + INGREDIENTE = PLATO CON UN EXTRA (regla CRÍTICA, no la falles):
+  Cuando el cliente nombra un plato QUE SÍ ESTÁ en la carta y le añade un ingrediente con
+  "con", "y", "ponle", "échale", "añádele", "que lleve" o "más", NO es un plato distinto:
+  es ESE plato + un modificador "extra de [ingrediente]".
+    · "una pizza de pepperoni CON alcaparras"  → Diavola/pepperoni + extra de alcaparras
+    · "una margarita Y jamón"                   → Margherita + extra de jamón
+    · "una carbonara, PONLE bacon"              → Carbonara + extra de bacon
+    · "una prosciutto, ÉCHALE aceitunas"        → Prosciutto + extra de aceitunas
+  PROHIBIDO responder que "esa pizza no la tenemos" o buscar una pizza parecida cuando el
+  plato base SÍ existe. Separa siempre: primero el plato de la carta, después el extra.
+  Avisa del suplemento si ese extra lo tiene (calcular_total te lo dice).
+  Solo si el INGREDIENTE tampoco existe en la casa, dilo: el plato se mantiene y se
+  descarta únicamente ese extra.
+
+- Si un PLATO COMPLETO no aparece en la CARTA OPERATIVA y no es un plato de la carta con
+  un extra (regla de arriba), recházalo con amabilidad; NUNCA lo aceptes aunque suene
+  plausible (p. ej. "aros de cebolla", "sushi", "nuggets"). No improvises productos.
 
 ${(() => {
   try {
@@ -1990,6 +2008,22 @@ function estadoDelPerfil({ registrado, nombre, direccion, telefono, tipoEntrega,
   };
 }
 
+/**
+ * ¿El cliente ya ha DICHO su dirección en esta llamada?
+ *
+ * Caso real (Pepa, 06-08): dictó "Urbanización Altos del Rodeo, calle Río Volga,
+ * número 17" y en el turno siguiente Sarah le pidió que la confirmara otra vez.
+ * Si el dato ya está dado, el gate NO puede seguir considerándolo "pendiente".
+ */
+function direccionDadaEnLlamada(incomingMessages) {
+  const rxVia = /\b(calle|avenida|avda|c\/|plaza|paseo|camino|carretera|ctra|urbanizaci[óo]n|urb|barriada|residencial|edificio|bloque|portal)\b/i;
+  return (incomingMessages || []).some(m =>
+    m && m.role === "user" && m.content &&
+    rxVia.test(String(m.content)) &&
+    /\d/.test(String(m.content))          // una vía + un número: es una dirección
+  );
+}
+
 /** Cuántas veces ha preguntado ya el asistente por cada dato (del historial). */
 function vecesPedidoCadaDato(incomingMessages) {
   const rx = {
@@ -2019,28 +2053,39 @@ function directivaDatosDelCliente(estado) {
     "no puedes decirlo \"por privacidad\" o \"por teléfono\" (eso es mentira y no existe tal norma). " +
     "Si no tienes un dato, lo PIDES con naturalidad. Si el cliente pregunta qué datos tienes, dile la verdad.";
 
-  if (!estado.registrado) {
-    return "CLIENTE NUEVO (no está en la base de datos). " + HONESTIDAD + "\n" +
-      "1) ANTES de tomar los platos necesitas: teléfono, nombre" +
-      (estado.faltan.includes("dirección") ? " y dirección de entrega" : "") + ". Pídelos de uno en uno, con naturalidad.\n" +
-      "2) AL FINAL, después de confirmar el pedido, pregúntale UNA vez si quiere que guardemos sus datos " +
-      "para la próxima (save_profile_consent=true solo si dice que sí).";
-  }
-
+  // OJO AL ORDEN: estas dos constantes se declaran ANTES de cualquier return.
+  // Estaban debajo y el return de "cliente nuevo" las usaba → ReferenceError en
+  // runtime que `node --check` NO detecta (pasa la sintaxis y revienta en llamada).
+  //
   // La dirección guardada se CONFIRMA, no se pregunta. Sin esto el modelo hace las
   // dos cosas: primero "¿me confirmas la dirección?" y luego "¿te lo llevo a X?"
   // (llamada conv_2001kyz8, turnos 6 y 8).
-  const DIRECCION_GUARDADA = estado.tieneDireccion
-    ? "\nTIENES su dirección guardada. PROHIBIDO preguntarla abierta (\"¿a qué dirección?\", \"¿me confirmas la dirección?\"). " +
+  // Y "la de siempre" SOLO vale para una dirección que ya estaba en su FICHA: a una
+  // clienta nueva que acababa de dictarla se le preguntaba "¿te lo llevo a la calle
+  // de siempre?" — absurdo, y encima duplicado (caso real de Pepa, 06-08).
+  const DIRECCION_GUARDADA = (estado.tieneDireccion && estado.registrado)
+    ? "\nTIENES su dirección guardada de otras veces. PROHIBIDO preguntarla abierta (\"¿a qué dirección?\", \"¿me confirmas la dirección?\"). " +
       "Solo cabe CONFIRMARLA una vez con la fórmula \"¿Te lo llevo a [calle], la de siempre?\", diciendo únicamente el nombre de la calle. " +
       "Si ya la has confirmado o el cliente ya te la ha dicho en esta llamada, NO vuelvas a sacar el tema."
-    : "";
+    : estado.tieneDireccion
+      ? "\nEL CLIENTE YA TE HA DADO SU DIRECCIÓN EN ESTA LLAMADA. PROHIBIDO volver a pedírsela y PROHIBIDO decirle \"la de siempre\" o \"la calle de siempre\": " +
+        "es la primera vez que pide, no tiene dirección de siempre. Dala por buena y SIGUE con el pedido. " +
+        "Si de verdad no la has entendido, repítele lo que has anotado para que te lo corrija; no la pidas otra vez desde cero."
+      : "";
 
   // Datos por los que ya se preguntó 2 veces sin éxito: PROHIBIDO insistir más.
   const NO_INSISTIR = (estado.abandonados && estado.abandonados.length)
     ? "\nYA has preguntado DOS veces por: " + estado.abandonados.join(", ") + " y no ha habido manera. " +
       "PROHIBIDO volver a preguntarlo. SIGUE con el pedido sin ese dato; si hace falta, lo resuelves al final."
     : "";
+
+  if (!estado.registrado) {
+    return "CLIENTE NUEVO (no está en la base de datos). " + HONESTIDAD + "\n" +
+      "1) ANTES de tomar los platos necesitas: teléfono, nombre" +
+      (estado.faltan.includes("dirección") ? " y dirección de entrega" : "") + ". Pídelos de uno en uno, con naturalidad.\n" +
+      "2) AL FINAL, después de confirmar el pedido, pregúntale UNA vez si quiere que guardemos sus datos " +
+      "para la próxima (save_profile_consent=true solo si dice que sí)." + DIRECCION_GUARDADA + NO_INSISTIR;
+  }
 
   if (estado.completo) return (DIRECCION_GUARDADA + NO_INSISTIR).trim(); // solo los frenos
 
@@ -2069,7 +2114,9 @@ function registeredCustomerDirective(nombre, direccion) {
       "1) NUNCA le pidas el teléfono ni la dirección: YA los tienes.\n" +
       "2) NO te inventes un nombre y NO le llames \"cliente\", \"el\", \"señor\" ni nada parecido. Si necesitas el nombre para la comanda, pídeselo UNA vez con naturalidad (\"¿A nombre de quién lo pongo?\").\n" +
       "3) NO le preguntes si guardar sus datos: ya está registrado. Al enviar usa save_profile_consent=false.\n" +
-      "4) Si es a DOMICILIO, confirma la dirección diciendo SOLO el nombre de la calle" + (calleSN ? " (\"" + calleSN + "\")" : "") + ": \"¿Te lo llevo a " + (calleSN || "la calle de siempre") + ", la de siempre?\". NUNCA el número, el piso ni el portal.\n" +
+      "4) Si es a DOMICILIO, confirma la dirección diciendo SOLO el nombre de la calle: " +
+      (calleSN ? "\"¿Te lo llevo a " + calleSN + ", la de siempre?\"" : "\"¿Te lo llevo a la dirección de siempre?\"") +
+      ". NUNCA el número, el piso ni el portal.\n" +
       "5) Si es para RECOGER, NO menciones ninguna dirección.";
   }
   const calle = streetOnly(direccion); // SOLO la primera l\u00ednea (nombre de v\u00eda), sin n\u00famero/piso
@@ -2078,7 +2125,7 @@ function registeredCustomerDirective(nombre, direccion) {
     `2) NUNCA le preguntes si guardar sus datos ni pidas permiso: ya est\u00e1 registrado. Al enviar usa save_profile_consent=false.\n` +
     `3) RECON\u00d3CELE por su nombre al saludar: "Aqu\u00ed est\u00e1s, ${primerNombre}." (o equivalente natural). NO le llames "cliente".\n` +
     `4) AL HABLAR con \u00e9l dile SIEMPRE "${primerNombre}" (as\u00ed, tal cual). En el campo customer_name de submit_order pon su nombre COMPLETO: "${nombreValido}". No mezcles: hablando nunca sueltes el nombre y el apellido juntos en cada frase, suena a robot.\n` +
-    `5) Si el pedido es a DOMICILIO, confirma la direcci\u00f3n diciendo \u00daNICAMENTE el nombre de la calle (la primera l\u00ednea)${calle ? `, que es "${calle}"` : ""}: "\u00bfTe lo llevo a ${calle || "la calle de siempre"}, la de siempre?". NUNCA digas el n\u00famero, el piso, el portal ni el resto de la direcci\u00f3n. Si dice que s\u00ed, usa la direcci\u00f3n guardada completa internamente; si ha cambiado, p\u00eddele la nueva.\n` +
+    `5) Si el pedido es a DOMICILIO, confirma la direcci\u00f3n diciendo \u00daNICAMENTE ${calle ? `el nombre de la calle ("${calle}"): "\u00bfTe lo llevo a ${calle}, la de siempre?"` : `"\u00bfTe lo llevo a la direcci\u00f3n de siempre?"`}. NUNCA digas el n\u00famero, el piso, el portal ni el resto de la direcci\u00f3n. Si dice que s\u00ed, usa la direcci\u00f3n guardada completa internamente; si ha cambiado, p\u00eddele la nueva.\n` +
     `6) Si es para RECOGER, NO menciones ninguna direcci\u00f3n: la recogida es en el local.`;
 }
 
@@ -2262,6 +2309,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       nombre: _nombreCorregido || (sD && sD.registeredName),
       direccion: sD && sD.registeredAddress,
       telefono: telD,
+      // Si ya la ha dictado en esta llamada, la dirección NO está pendiente
+      // aunque todavía no se haya guardado en la sesión.
+      direccion: (sD && sD.registeredAddress) || (direccionDadaEnLlamada(incomingMessages) ? "dicha_en_llamada" : null),
       tipoEntrega: tipoDeEntrega(incomingMessages),
       yaPedidos: vecesPedidoCadaDato(incomingMessages)   // freno anti-insistencia
     });
@@ -2529,6 +2579,7 @@ module.exports = {
   directivaDatosDelCliente,
   tipoDeEntrega,
   vecesPedidoCadaDato,
+  direccionDadaEnLlamada,
   categoriasYaPedidas,
   nombreParaSaludar,
   turnoDeUsuarioVacio,
