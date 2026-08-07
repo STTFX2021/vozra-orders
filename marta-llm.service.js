@@ -408,7 +408,11 @@ ${comp.descuento_pct ? (comp.descuento_autorizado
     ? `\n# CLIENTE RECURRENTE (perfil guardado con su consentimiento previo)
 Este teléfono ya tiene un perfil.${nombreCli ? ` El cliente se llama ${nombreCli}.` : ""}${dirCli ? ` Dirección de reparto guardada: ${dirCli}.` : ""}
 - El caller ID o perfil ya le identifica: NO le pidas el teléfono.${nombreCli ? " Tampoco el nombre." : " Su nombre NO consta: pídeselo con naturalidad cuando haga falta (nunca le llames \"cliente\")."}
-- Si el pedido es a domicilio, RECONÓCELE por su nombre y confirma la dirección diciendo ÚNICAMENTE ${calleCli ? `el nombre de la calle ("${calleCli}"): "¿Te lo llevo a ${calleCli}, la de siempre?"` : `"¿Te lo llevo a la dirección de siempre?"`}. NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada completa internamente; solo si dice que ha cambiado, pídele la nueva.
+${calleCli
+  ? `- Si el pedido es a domicilio, RECONÓCELE por su nombre y confirma la dirección diciendo ÚNICAMENTE el nombre de la calle ("${calleCli}"): "¿Te lo llevo a ${calleCli}, la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada completa internamente; solo si dice que ha cambiado, pídele la nueva.`
+  : `- ESTE PERFIL NO TIENE NINGUNA DIRECCIÓN GUARDADA. Si es a domicilio, pídesela UNA vez con naturalidad ("¿A qué dirección te lo llevo?") y, en cuanto te la diga, DAS LA DIRECCIÓN POR BUENA Y SIGUES CON EL PEDIDO.
+  PROHIBIDO decirle "la de siempre", "la dirección de siempre" o "la habitual": no tiene ninguna dirección previa, así que esa frase no significa nada y le desconcierta.
+  PROHIBIDO volver a preguntarle la dirección o pedirle que te la confirme después de habérsela oído.`}
 - La dirección guardada sirve SOLO para DOMICILIO. Si el pedido es para RECOGER, NO preguntes, confirmes ni menciones ninguna dirección: la recogida es SIEMPRE en el local (${nombre}).
 - No vuelvas a pedir consentimiento para guardar datos: este perfil ya está registrado con consentimiento.
 - Usa esos datos guardados en la comanda salvo que el cliente los cambie en esta llamada.
@@ -529,7 +533,9 @@ ${(() => {
    - EN DOMICILIO SIN PERFIL FIABLE: primero identifica al cliente y después fija la dirección. Sigue estos pasos:
      PASO A) SOLO si caller ID está ausente, oculto, es inválido o no identifica un perfil, pide: "¡Perfecto! ¿Me dices un teléfono de contacto?".
      PASO B) Cuando el cliente dé un teléfono, llama a buscar_cliente antes de pedir dirección o nombre. Si el perfil ya llegó por caller ID, omite A y B.
-     PASO C) Si encontrado=true → reconócele por su nombre ("Aquí estás, [nombre].") sin volver a pedir teléfono ni nombre. Si es domicilio, confirma la dirección diciendo ÚNICAMENTE el nombre de la calle (la primera línea, ej. "Calle Alpandeire"): "¿Te lo llevo a [calle], la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada internamente; si ha cambiado, pídele la nueva.
+     PASO C) Si encontrado=true → reconócele por su nombre ("Aquí estás, [nombre].") sin volver a pedir teléfono ni nombre. Y en domicilio, distingue:
+       C.1) Si el perfil TRAE una dirección guardada → confírmala diciendo ÚNICAMENTE el nombre de la calle (la primera línea, ej. "Calle Alpandeire"): "¿Te lo llevo a [calle], la de siempre?". NUNCA digas el número, el piso, el portal ni el resto de la dirección. Si dice que sí, usa la dirección guardada internamente; si ha cambiado, pídele la nueva.
+       C.2) Si el perfil NO trae dirección guardada → pídesela UNA vez ("¿A qué dirección te lo llevo?") y, en cuanto te la diga, DALA POR BUENA Y SIGUE con el pedido. PROHIBIDO decirle "la de siempre" o "la habitual": no tiene ninguna dirección previa y esa frase no significa nada para él. PROHIBIDO pedirle que te la confirme después de habérsela oído.
      PASO D) Si encontrado=false → AHORA sí pídele la dirección completa: "¿A qué dirección te lo llevamos?".
      PASO E) Con la dirección ya fijada (confirmada o nueva), valida la zona de reparto y pasa a los platos.
    - PROHIBIDO pedir la dirección antes de tener el teléfono y haber consultado el perfil. Hacer que un cliente recurrente dicte una dirección que ya tenemos guardada es un ERROR grave: le hace perder tiempo y da sensación de que no le conocemos.
@@ -573,7 +579,7 @@ ${(() => {
 9. Tras submit_order, despídete en UNA sola frase, cálida y directa ("Perfecto, Samuel, tu pedido va a cocina. ¡Gracias!"). NUNCA digas "está en camino". NUNCA repitas fragmentos sueltos ni sonidos de relleno al cerrar: una sola despedida limpia, sin puntos suspensivos.
 
 # PRECIOS Y HERRAMIENTAS
-- RECONOCER AL CLIENTE: si el caller ID fiable ya devolvió un perfil, NO pidas teléfono ni nombre si consta. Si no hay caller ID fiable o no identifica un perfil, pide el teléfono y llama a buscar_cliente antes de pedir dirección o nombre. Cuando hay perfil y el pedido es domicilio, reconócele por su nombre ("Aquí estás, [nombre].") y confirma la dirección diciendo SOLO el nombre de la calle (la primera línea): "¿Te lo llevo a [calle], la de siempre?"; nunca digas el número, el piso, el portal ni el resto de la dirección. En recogida no menciones ninguna dirección. No vuelvas a pedir consentimiento a un cliente registrado.
+- RECONOCER AL CLIENTE: si el caller ID fiable ya devolvió un perfil, NO pidas teléfono ni nombre si consta. Si no hay caller ID fiable o no identifica un perfil, pide el teléfono y llama a buscar_cliente antes de pedir dirección o nombre. Cuando hay perfil y el pedido es domicilio, reconócele por su nombre ("Aquí estás, [nombre]."); si el perfil TRAE dirección guardada, confírmala diciendo SOLO el nombre de la calle (la primera línea): "¿Te lo llevo a [calle], la de siempre?", nunca el número, el piso ni el portal; y si NO trae dirección guardada, pídesela una vez, dala por buena y sigue, sin usar jamás "la de siempre". En recogida no menciones ninguna dirección. No vuelvas a pedir consentimiento a un cliente registrado.
 - Antes de decir cualquier total, llama SIEMPRE a calcular_total. No sumes de cabeza ni inventes importes.
 - EXTRAS CON SUPLEMENTO (OBLIGATORIO avisar del importe): cuando el cliente añada un extra o topping (burrata, jamón, gambas, etc.), responde PRIMERO breve y natural ("Hecho, te lo anoto.") SIN re-leer todo el pedido. Luego llama a calcular_total: si su respuesta trae el campo 'aviso_suplementos' o 'suplementos', DEBES decirle el importe de cada suplemento antes de confirmar, con naturalidad ("La burrata lleva un suplemento de seis euros, ¿te la pongo igualmente?"). NO te saltes ese aviso. Si calcular_total no devuelve suplementos, no menciones ningún importe.
 - BASE DE LA PIZZA: NO preguntes de forma estándar "¿base normal o sin gluten?" — asume SIEMPRE base normal y no lo menciones. Solo sacas el tema de la base sin gluten si el cliente menciona por su cuenta una alergia, celiaquía, gluten o "sin TACC". En ESE caso, ofrécesela y, si la quiere, avísale del suplemento de CUATRO EUROS CON CINCUENTA por pizza antes de darla por hecha ("La base sin gluten son cuatro euros con cincuenta más por pizza, ¿te la pongo así?"). Nunca la des por hecha sin haber dicho ese suplemento.
@@ -1333,6 +1339,48 @@ function deterministicUpsellOffer(order, incomingMessages) {
   return cat ? _FRASE_UPSELL[cat] : null;
 }
 
+// Mapa inverso: de la frase ofertada a la categoría, para saber DESPUÉS si el
+// cliente la ha cubierto.
+const _CATEGORIA_DE_FRASE = Object.fromEntries(
+  Object.entries(_FRASE_UPSELL).map(([cat, frase]) => [frase, cat])
+);
+
+/**
+ * BUG REAL 06-08 (llamada de Samuel). Sarah ofreció bebida, el cliente contestó
+ * "una Coca-Cola para cada pizza" — la mejor respuesta posible — y el gate la
+ * ignoró porque solo sabía leer "sí" y "no":
+ *     [agent] ¿Te pongo algo de beber?
+ *     [user]  Eh, sí, una Coca Cola para cada pizza, por favor.
+ *     [agent] Necesito saber si quieres añadir algo o seguimos con el pedido.
+ *     [user]  Sí, te he dicho una Coca-Cola para cada pizza, por favor.
+ *     [agent] Necesito saber si quieres añadir algo o seguimos con el pedido.
+ * En barra nadie responde "sí" a "¿algo de beber?": responde con la bebida.
+ * Si la categoría ofrecida YA está cubierta, el upsell está resuelto.
+ */
+function upsellYaCubierto(order, incomingMessages) {
+  const cat = _CATEGORIA_DE_FRASE[String((order && order.upsellOfferText) || "").trim()];
+  if (!cat) return false;
+  // Se pregunta por LA CATEGORÍA OFRECIDA, no por la siguiente de la cascada:
+  // comparar con siguienteUpsell() daba por cubierta la bebida solo porque
+  // faltaba el entrante, que va antes en la prioridad.
+  const yaHay = categoriasEnPedido(order);
+  for (const c of categoriasYaPedidas(incomingMessages)) yaHay.add(c);
+  return yaHay.has(cat);
+}
+
+/**
+ * Regla §4ter: ninguna directiva inyectada puede repetirse sin contador y sin
+ * límite. Cuenta cuántas veces se ha insistido con el upsell; a la segunda se
+ * abandona y el pedido sigue. Un upsell JAMÁS puede bloquear una venta.
+ */
+const _LIMITE_INSISTENCIA_UPSELL = 2;
+function vecesInsistidoUpsell(incomingMessages) {
+  const rx = /necesito saber si quieres a[ñn]adir algo|qu[eé] bebida o complemento quieres a[ñn]adir/i;
+  return (incomingMessages || [])
+    .filter(m => m && m.role === "assistant" && m.content && rx.test(String(m.content)))
+    .length;
+}
+
 function surchargeTotalMessage(order) {
   return `El pedido tiene ${formatEurosSpoken(order.quotedSurchargeTotal)} de suplementos en total. ¿Lo aceptas?`;
 }
@@ -1367,14 +1415,49 @@ function submitResultAction(result) {
   return "customer_confirmed";
 }
 
+/**
+ * BUG REAL 06-08 (llamada de Samuel): el cliente confirmó y Sarah repitió el
+ * resumen ENTERO, palabra por palabra:
+ *     [agent] Resumen: 1 Abruzzo, 1 Prosciutto & Funghi… ¿confirmas el pedido?
+ *     [user]  Sí, por favor.
+ *     [agent] Resumen: 1 Abruzzo, 1 Prosciutto & Funghi… ¿confirmas el pedido?
+ * La causa: se exigía igualdad EXACTA de cadena entre lo que dijo el asistente y
+ * `summaryText`. Basta un guion, un "&" por "y" o un espacio de más para que no
+ * case — y entonces la confirmación del cliente se tira a la basura.
+ *
+ * Lo que de verdad importa no es que el texto sea idéntico, sino que se le haya
+ * leído ESTE pedido (mismo fingerprint) y haya dicho que sí. Se compara por
+ * contenido normalizado, con un solapamiento alto.
+ */
+function _normalizaResumen(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/&/g, " y ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function mismoResumen(dicho, esperado) {
+  const a = _normalizaResumen(dicho);
+  const b = _normalizaResumen(esperado);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Solapamiento de tokens: el asistente puede adornar la frase, pero los
+  // productos y el total tienen que estar.
+  const tb = b.split(" ").filter(Boolean);
+  if (!tb.length) return false;
+  const sa = new Set(a.split(" ").filter(Boolean));
+  const comunes = tb.filter(t => sa.has(t)).length;
+  return comunes / tb.length >= 0.8;
+}
+
 function confirmationMatchesDeliveredSummary(messages, order) {
   if (!order || !order.summaryText || order.summaryFingerprint !== order.draftFingerprint) return false;
   const ms = (messages || []).filter(message => message && message.content);
   for (let i = ms.length - 2; i >= 0; i--) {
     if (ms[i].role !== "assistant" || !ms[i + 1] || ms[i + 1].role !== "user" || !esAfirmacionSimple(ms[i + 1].content)) continue;
-    const actual = String(ms[i].content).replace(/\s+/g, " ").trim();
-    const expected = String(order.summaryText).replace(/\s+/g, " ").trim();
-    if (actual === expected) return true;
+    if (mismoResumen(ms[i].content, order.summaryText)) return true;
   }
   return false;
 }
@@ -1385,6 +1468,15 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     return { ok: true, delivered: _sess.closureState !== "dispatching", order: _sess, reply: "", validation: {}, alreadyDone: true, endCall: true };
   }
   args = resolvePerPizzaQuantities(args, conversationMessages, _sess && _sess.draftItems);
+  // BUG REAL 07-08: el modelo rellenó `incidencia` en DOS llamadas en las que el
+  // cliente solo estaba pidiendo la cena, y el gate de abajo abortó el pedido
+  // ("No puedo enviar el pedido todavía…"). Una incidencia que el cliente nunca
+  // ha planteado no puede costarle una venta al local: si en la conversación no
+  // hay ni rastro de queja, se descarta el campo y el pedido sigue su curso.
+  if (args.incidencia && !quejaDePedidoEntregado(conversationMessages)) {
+    console.warn("[INCID] incidencia descartada: sin queja en la conversación | call=" + callId);
+    args = { ...args, incidencia: null };
+  }
   // Fail-closed económico: una incidencia nunca convierte el pedido en gratuito
   // si el restaurante no lo ha autorizado explícitamente en su perfil.
   if (args.incidencia && !freeReplacementAuthorized()) {
@@ -1527,6 +1619,21 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   order = updateOrderSession(callId, { estimatedTotal: order.quotedTotal });
 
   if (order.upsellState === "not_offered") {
+    // BUG REAL 07-08 (llamada de Pepa): el modelo ofrece el entrante por su
+    // cuenta siguiendo el prompt, sin pasar por aquí, así que el estado seguía
+    // en "not_offered". Al llamar luego a submit_order, el gate soltaba la MISMA
+    // oferta otra vez, después de que la clienta ya hubiera dicho que no:
+    //     [agent] ¿Quieres que te ponga algo para picar, un entrante…?
+    //     [user]  No, ponme cuatro Coca-Colas, por favor.
+    //     [agent] ¿Te pongo algo para picar, un entrante para compartir?
+    //     [user]  No, te he dicho que no, que con la bebida nada más.
+    // Si ya se ofreció en voz, se da por ofrecido y se pasa a leer la respuesta.
+    if (upsellAlreadyOffered(conversationMessages)) {
+      const yaOfrecido = recordUpsellOffer(callId, deterministicUpsellOffer(order, conversationMessages) || "");
+      if (yaOfrecido.ok) order = yaOfrecido.order;
+    }
+  }
+  if (order.upsellState === "not_offered") {
     const offer = deterministicUpsellOffer(order, conversationMessages);
     if (!offer) {
       // El cliente ya lleva entrante, bebida y postre: no hay nada que sugerir.
@@ -1541,7 +1648,15 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   }
   if (order.upsellState === "offered") {
     const answer = lastUserText(conversationMessages);
-    if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
+    // 1) El cliente ya ha cubierto la categoría ofrecida (dijo la bebida, el
+    //    entrante…). Es una aceptación, aunque no haya dicho "sí".
+    if (upsellYaCubierto(order, conversationMessages)) {
+      order = resolveUpsell(callId, "accepted").order;
+    // 2) Tope duro: no se insiste más de dos veces. Vender está por encima de
+    //    upsellear; un sugerido nunca puede dejar el pedido colgado.
+    } else if (vecesInsistidoUpsell(conversationMessages) >= _LIMITE_INSISTENCIA_UPSELL) {
+      order = resolveUpsell(callId, "rejected").order;
+    } else if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
       order = resolveUpsell(callId, "rejected").order;
     } else if (esAfirmacionSimple(answer)) {
       return { ok: false, delivered: false, order, validation, retryable: true,
@@ -1914,13 +2029,46 @@ function repitePreguntaAnterior(incomingMessages) {
  * de reposición NO era gratuito. Se detecta en código para inyectar la política
  * de compensación con recencia máxima, sin depender de que el modelo la recuerde.
  */
+// El problema en sí. "falta" va aparte: es la palabra que más falsos positivos
+// generaba (ver _RX_FALTA_INOCENTE).
+const _RX_PROBLEMA = /(fri[ao]s?|destroza|reventad|machacad|aplastad|derramad|volcad|rota|roto|mal\s+hech|crud[ao]|quemad|equivocad|no\s+es\s+lo\s+que\s+ped|otro\s+pedido\s+distinto|asquerosa|incomible|falta(?:ba|n|ban)?|nunca\s+lleg)/;
+
+// BUG REAL 07-08: estas frases NO son una queja y disparaban una incidencia con
+// reposición gratuita. Dos llamadas reales las produjeron:
+//   "Eh, no, no hace falta."      (rechazando un entrante)
+//   "Vale, ¿qué dato te falta?"   (preguntando qué le faltaba a Sarah)
+const _RX_FALTA_INOCENTE = /(hac[eií]a?\s+falta|hace\s+falta|te\s+falta|me\s+falta\s+(?:por|el\s+tel|un\s+dato)|qu[eé]\s+dato|alg[uú]n\s+dato)/;
+
+// La marca de que el pedido YA se entregó. Sin esto no hay queja posible: un
+// pedido que todavía se está tomando no ha podido llegar mal.
+const _RX_YA_ENTREGADO = /(me\s+ha\s+llegado|me\s+lleg[oó]|nos\s+ha\s+llegado|me\s+llegaron|me\s+trajeron|me\s+han\s+tra[ií]do|me\s+lo\s+trajo|acabo\s+de\s+recibir|he\s+recibido|el\s+repartidor|la\s+moto|el\s+pedido\s+de\s+(?:ayer|anoche|antes|hoy|esta\s+noche)|el\s+pedido\s+que\s+(?:hice|ped[ií])|lo\s+que\s+ped[ií]\s+(?:ayer|anoche|antes))/;
+
+/**
+ * ¿El cliente se está quejando de un pedido YA ENTREGADO que llegó mal?
+ *
+ * Caso real (02-08): "la comida me ha llegado fría y destrozada… la pizza está
+ * reventada". Sarah lo trató como queja genérica y llegó a decirle que el pedido
+ * de reposición NO era gratuito. Se detecta en código para inyectar la política
+ * de compensación con recencia máxima, sin depender de que el modelo la recuerde.
+ *
+ * BUG REAL 07-08 — POR QUÉ SE REESCRIBIÓ. La versión anterior concatenaba TODO
+ * el histórico del cliente y buscaba una palabra de problema y otra de pedido en
+ * ese pegote. Resultado: un "pizza" del turno 3 y un "no hace falta" del turno 9
+ * bastaban para inventarse una incidencia. Dos llamadas reales acabaron con un
+ * ticket de "Producto incorrecto" y una oferta de reposición GRATIS a clientes
+ * que solo estaban pidiendo la cena. Eso es dinero del local.
+ *
+ * Ahora hacen falta las dos cosas, y el problema se evalúa FRASE A FRASE:
+ *   1. una frase que describa un problema de verdad, y
+ *   2. alguna señal de que el pedido ya se entregó.
+ */
 function quejaDePedidoEntregado(incomingMessages) {
-  const t = (incomingMessages || [])
+  const frases = (incomingMessages || [])
     .filter(m => m && m.role === "user" && m.content)
-    .map(m => _normalizaFrase(m.content)).join(" ");
-  const problema = /(fri[ao]s?|destroza|reventad|machacad|aplastad|derramad|volcad|rota|roto|mal\s+hecha|cruda|quemada|falta|faltaba|no\s+lleg|equivocad|no\s+es\s+lo\s+que\s+ped|otro\s+pedido\s+distinto|asquerosa|incomible)/;
-  const pedido  = /(pedido|pizza|comida|encargo|la\s+cena|el\s+repartidor|la\s+moto|me\s+ha\s+llegado|me\s+trajeron|me\s+han\s+traido)/;
-  return problema.test(t) && pedido.test(t);
+    .map(m => _normalizaFrase(m.content));
+  const hayProblema = frases.some(f => f && !_RX_FALTA_INOCENTE.test(f) && _RX_PROBLEMA.test(f));
+  if (!hayProblema) return false;
+  return frases.some(f => f && _RX_YA_ENTREGADO.test(f));
 }
 
 /** Señales de que el cliente está enfadado (para no responderle como a un pedido normal). */
@@ -2556,6 +2704,10 @@ module.exports = {
   siguienteUpsell,
   categoriasEnPedido,
   deterministicUpsellOffer,
+  upsellYaCubierto,
+  vecesInsistidoUpsell,
+  mismoResumen,
+  confirmationMatchesDeliveredSummary,
   UPSELL_PRIORIDAD,
   stripConsentIfRegistered,
   streetOnly,
