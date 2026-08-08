@@ -2,7 +2,7 @@
 
 > **Este es el sitio único con todo Vozra PID.** Solo PID (pizzería La Locanda). Roomy Food vive aparte en `../roomy-food` con su propia memoria. El histórico cronológico está en `SESSION_LOG.md`; este fichero es SIEMPRE el presente.
 
-**Última actualización:** 2026-07-31
+**Última actualización:** 2026-08-08
 **Owner:** sam (STTFX2021 / sttfx2021@gmail.com)
 
 ---
@@ -18,7 +18,9 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Supabase:** proyecto `vozra` (`igdbkndadrrljbycfekh`, eu-west-2), schema `vozra_orders` (orders, customers, call_logs, demo_callbacks, providers, usage_monthly, incidents). También existe `vozra_control` (control plane, uso Roomy/multi-tenant).
 
 ## 3. ESTADO DE DESPLIEGUE
-- **Commit desplegado en producción = HEAD = `3b55b6b`** (02-08). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
+- **Commit desplegado en producción = HEAD = `2d44bea`** (08-08). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
+- Cadena 07/08-08: `ba788b7` → `ec63710` (dirección + plato con extra) → `86681e0` (incidencias fantasma) → `9ad667b` (mensaje ciego + alergia de acompañante) → **`2d44bea`** (el alérgeno deja de bloquear). Detalle en `NEXT_SESSION.md`.
+- ⚠️ Todo lo del 07/08-08 está desplegado pero **NO verificado en llamada real**. Las cinco pruebas están en `NEXT_SESSION.md`.
 - Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, colgar al despedirse, **prompt cacheable**, `/admin/test-call` y **webhooks fail-closed**.
 - Cadena reciente: `…1e4e435` → `bb6288a` → `888767c` → `c93f4db` → `1844f06` → `bf2e5be` → **`84f8e94`** (HEAD).
 - ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo; `node --check` fallaba). Arreglado en `002a590`. **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
@@ -41,7 +43,18 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Webhook de Twilio (`/whatsapp/incoming`): fail-closed en producción.** En Railway se **ignora** `TWILIO_SKIP_SIGNATURE` y se **exige** `TWILIO_AUTH_TOKEN` (antes ambas dejaban el webhook abierto). La URL a firmar se construye con `x-forwarded-proto` (detrás del proxy `req.protocol` da `http` y Twilio firma `https`). Comparación con `timingSafeEqual`. Test: `test-webhook-security-20260731.cjs`.
 - **Turnstile:** `turnstileSecret()` acepta `TURNSTILE_SECRET` (canónico) y alias, incluido el literal `"Secret key"` que pone Cloudflare — así estaba en Railway y por eso la demo web daba 503. Sigue fail-closed.
 
-## 4ter. REGLA DE ORO DEL CEREBRO (aprendida a base de bucles, 01/02-08)
+## 4ter. REGLA DE ORO DEL CEREBRO (aprendida a base de bucles, 01/02-08 y 07/08-08)
+
+### La regla vigente (dictada por el owner el 08-08, PENDIENTE DE IMPLEMENTAR)
+> "Solo se pregunta **una vez** una misma pregunta. Solo se puede volver a preguntar si no
+> se entiende algo."
+
+Sustituye a los topes ad hoc (2, 3 intentos) repartidos por gates. Diseño acordado: un
+**guardián único** por el que pasa todo retorno bloqueante, con registro por llamada. Si la
+pregunta ya se hizo, solo se repite con turno vacío o ininteligible; si no, **se libera y se
+avanza**. Y un mensaje que no dice QUÉ falta **no sale**. Ver `NEXT_SESSION.md` PENDIENTE #1.
+
+### Lo que ya está implementado
 **Ninguna directiva inyectada puede repetirse sin contador y sin límite.** Todos los bucles de la sesión del 01-08 tenían la misma causa: una orden reinyectada en cada turno sin memoria de si ya se había cumplido (aviso de suplemento, nombre del cliente, gate de datos, dirección). Antes de añadir cualquier `messages.push({role:"system"…})` nuevo: ¿cómo sé que ya se cumplió, y cuál es el tope de veces que puede sonar?
 - Implementado: `vecesPedidoCadaDato()` (tope 2 por dato), `suplementoYaAvisado()`, `upsellOffered` en sesión, `repitePreguntaAnterior()`, `turnoDeUsuarioVacio()`.
 - **Un dato que falta NUNCA puede bloquear la llamada**: a las 2 veces se deja de pedir y se sigue.
@@ -50,6 +63,17 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Nunca trocear un dato del cliente**: el nombre va COMPLETO a la comanda (`nombreParaSaludar()` solo acorta nombres formales tipo "Samuel Tineo").
 
 ## 5. Fixes aplicados (detalle en SESSION_LOG)
+- **07/08-08 (desplegado, hasta `2d44bea`):** cuatro rondas nacidas de transcripciones
+  reales. (a) "la calle de siempre, la de siempre" a clienta nueva y dirección pedida dos
+  veces; PLATO + INGREDIENTE = plato + extra. (b) **Incidencias fantasma**: `falta` en el
+  detector de quejas sobre el histórico concatenado hacía que "no hace falta" generase un
+  ticket de "Producto incorrecto" y una **reposición gratis**; reescrito frase a frase y con
+  señal obligatoria de entrega previa, más red de seguridad que descarta la `incidencia`
+  inventada por el modelo. (c) `mensajeDeBloqueo()` — el gate dice QUÉ falta en vez de "un
+  dato pendiente"; `alergiaEsDeTercero()` — la alergia del acompañante va a la comanda pero
+  **no a la ficha del titular**. (d) **El alérgeno deja de bloquear** (ver §7). Tests nuevos:
+  `test-llamadas-20260806` (11), `test-bucle-upsell-20260807` (31). Herramientas: `VERIFICAR.bat`
+  y `SUBIR.bat` (PowerShell no acepta `&&` y el owner acababa en `system32`).
 - **01/02-08 (desplegado, hasta `3b55b6b`):** anti-bucle determinista, gate de datos del cliente (revisar BD antes de la comanda, pedir solo lo que falta, consentimiento solo a cliente nuevo y al final), regla de honestidad, persistencia inmediata de correcciones, dirección guardada que se confirma en vez de preguntarse, upsell que no ofrece lo que ya está en el pedido, nombre compuesto sin trocear y silencio del cliente sin repetir resumen. Tests nuevos: `test-antibucle-20260801` (12), `test-nombre-corregido-20260801` (13), `test-datos-cliente-20260801` (12), `test-perfil-nuevo-20260801` (9), `test-redundancias-20260801` (9), `test-nombre-compuesto-20260802` (12). Endpoints de diagnóstico `/admin/test-call/probe` y `/admin/test-call/autopsia`.
 - **31-07 tarde-2 (desplegado, `bf2e5be` + `84f8e94`):** endpoint `/admin/test-call` (llamada saliente de prueba) y **cierre de dos agujeros**: webhook de Twilio abierto en producción (SKIP_SIGNATURE + fail-open sin token) y Turnstile que no se leía por el nombre de la variable. Ver §4bis.
 - **31-07 tarde (desplegado, `c93f4db`):** **prompt cacheable** — cola dinámica (horario + perfil recurrente) movida al final del system prompt, `prompt_cache_key` en el payload de OpenAI y log `in=/cached=/out=` para verificar la caché en Railway. Prefijo estable 69 → 11.206 tokens. Test `test-prompt-cache-20260731.cjs` (6). Además: higiene de `.git` (lock huérfano de `geometric-repack` limpiado con `git gc --prune=now`).
@@ -62,10 +86,43 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 ## 6. Ontología de alérgenos (montada, vacía)
 `backend/allergen-ontology.service.js`: `ONTOLOGY = {}`. Enganche listo (`classifyAllergen`, `hasOntologyData`). Cuando el restaurante dé por plato qué alérgeno es topping retirable vs intrínseco, rellenar el mapa → la carta que ve Sarah lo muestra y deja de deducir. Interino: Sarah deduce de la descripción.
 
-## 7. Decisión de producto vigente (alergias)
+## 7. Decisión de producto vigente (alergias) — DECIDIDA DOS VECES, NO LA REVIERTAS
 Se **anota** la alergia (kitchenNote) y se **asesora** al cliente. Si el alérgeno es un topping retirable → se ofrece quitarlo y **el pedido continúa y se confirma**. Si es intrínseco → se recomienda otro plato. **NO hay gate de bloqueo/revisión** (descartado por el owner el 28-07). No se afirma "100% seguro".
 
+**Literal del owner (08-08), al reafirmarla:**
+> "para los alérgenos tenemos que advertir que están ahí, asesorar y recomendar otros platos
+> u opciones si se pueden eliminar, pero **el cliente manda**: si dice que lo quiere así, se
+> hace así. Siempre respeta la decisión del cliente, y en el ticket que manda a cocina pone
+> el alérgeno como ya hace."
+
+⚠️ **HISTORIA QUE NO DEBE REPETIRSE.** El 03-08 este gate se reintrodujo bajo el nombre
+"autoridad determinista de alérgenos" (`ALLERGEN_CONFLICT_PENDING` como *error* bloqueante),
+con tests que lo protegían — uno afirmaba que si el cliente dice *"al final déjala como
+viene"* el pedido debe **rechazarse**. Provocó bucles de cuatro turnos en llamadas reales
+(Abruzzo con langostinos, 07-08) y costó una sesión entera deshacerlo (`2d44bea`).
+
+**Cómo está implementado ahora:**
+- `order-validator.service.js`: el conflicto pendiente es **warning**, no error. `requiredAction`
+  no propaga `resolve_allergen_conflict`. Se expone `allergenAdvisory`.
+- `marta-llm.service.js` / `computeQuote`: el alérgeno no frena el cálculo; sale por
+  `aviso_alergeno` con la instrucción completa ("decide el cliente, si lo quiere así se lo
+  tomas"). **Sin ese canal, al quitar el bloqueo Sarah se queda sin enterarse del alérgeno.**
+- El cruce alergia↔plato (incluidas las dos mitades de un half_and_half y los extras
+  añadidos) se sigue haciendo igual: **determinismo ≠ bloquear**. El código decide siempre
+  avisar; lo que ya no hace es decidir por el cliente.
+
 ## 8. Deuda técnica conocida
+- **FAIL-OPEN de Supabase (08-08, sin arreglar).** `customer-store.js` → `getCustomerByPhone`
+  hace `if (!p || !isEnabled()) return null;` ANTES del try/catch, así que `throwOnError:true`
+  no se alcanza nunca sin credenciales. Si Supabase se cae en producción, **todos los clientes
+  registrados pasan a tratarse como nuevos, en silencio**, y el fail-closed del cerebro ("No he
+  podido consultar tu perfil de forma segura") no llega a dispararse.
+- **`order_count` a 0** para todos los clientes pese a decenas de pedidos: no se incrementa.
+- **`half_and_half` puede no validar**: el id compuesto no pasa `validateItems`. Salió a la luz
+  al quitar el bloqueo de alérgenos (antes el `ok:false` venía del alérgeno y tapaba esto). Sin
+  verificar si rompe en llamadas reales.
+- **`reposicion_gratis` en `false`**: la política de compensación está construida y probada pero
+  dormida. Es dinero del local; la enciende el owner, no se hace por iniciativa propia.
 - Tests cubren motor legacy (`order-slot-filler`) + contrato del prompt; el camino real (`generateMartaReply`) no se testea con el LLM en vivo.
 - Mono-tenant de facto (`la-locanda` hardcodeado en varios sitios).
 - Endpoints sin auth: queda **`/kitchen/ack`** (el webhook de Twilio y el LLM ya son fail-closed en producción). PII en logs y en `orders_fallback/` (32 pedidos en texto plano).
