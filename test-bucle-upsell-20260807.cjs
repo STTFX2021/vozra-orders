@@ -32,6 +32,8 @@ const {
   mismoResumen,
   confirmationMatchesDeliveredSummary,
   quejaDePedidoEntregado,
+  mensajeDeBloqueo,
+  alergiaEsDeTercero,
   upsellAlreadyOffered,
   buildSystemPrompt,
   siguienteUpsell
@@ -218,6 +220,75 @@ test("CASO REAL: perfil SIN dirección guardada nunca dice 'la de siempre'", () 
 test("perfil CON dirección guardada sí conserva la fórmula", () => {
   const p = buildSystemPrompt(undefined, { name: "Samuel", address: { raw: "Calle Alpandeire 3" } });
   assert.ok(/Calle Alpandeire, la de siempre/.test(p), "un habitual pierde el reconocimiento");
+});
+
+// ── F. Un gate que no dice QUÉ falta es un bucle garantizado ────────────────
+// CASO REAL 07-08: "Antes de resumir necesito resolver un dato pendiente del
+// pedido" repetido CUATRO veces. El bloqueo era correcto (Abruzzo con
+// langostinos + alergia a marisco en ficha), pero el mensaje no lo decía.
+test("CASO REAL: el bloqueo por alérgeno dice el plato, el ingrediente y la alergia", () => {
+  const msg = mensajeDeBloqueo({ allergenConflicts: [{
+    status: "pending", classification: "removable",
+    itemName: "Abruzzo", component: "langostinos", declaredAs: "marisco"
+  }]});
+  assert.ok(/Abruzzo/.test(msg), "no dice de qué plato habla");
+  assert.ok(/langostinos/.test(msg), "no dice el ingrediente");
+  assert.ok(/marisco/.test(msg), "no dice la alergia");
+  assert.ok(!/un dato pendiente/i.test(msg), "sigue siendo el mensaje ciego del bucle");
+});
+
+test("si el alérgeno NO se puede quitar, se recomienda otro plato", () => {
+  const msg = mensajeDeBloqueo({ allergenConflicts: [{
+    status: "pending", classification: "intrinsic",
+    itemName: "Frutti di Mare", component: "mejillones", declaredAs: "marisco"
+  }]});
+  assert.ok(/no se puede quitar/i.test(msg) && /otro plato/i.test(msg));
+});
+
+test("cada dato que falta se nombra en concreto", () => {
+  for (const [code, esperado] of [
+    ["MISSING_ADDRESS_NUMBER", /N[ÚU]MERO/],
+    ["MISSING_PHONE", /tel[ée]fono/i],
+    ["MISSING_NAME", /nombre/i],
+    ["MISSING_ITEMS", /vac[íi]o/i],
+    ["ITEM_NOT_IN_MENU", /no est[áa] en la carta/i]
+  ]) {
+    const msg = mensajeDeBloqueo({ errors: [{ code, message: "x" }] });
+    assert.ok(esperado.test(msg), "el código " + code + " no se explica: " + msg);
+    assert.ok(!/un dato pendiente/i.test(msg), "cae en el mensaje ciego: " + code);
+  }
+});
+
+// ── G. La alergia del acompañante NO se queda en la ficha del titular ───────
+// CASO REAL: "tengo un amigo con alergia a los langostinos" dejó "marisco" en
+// la ficha de Samuel. Dos días después, su Abruzzo quedó bloqueada.
+test("CASO REAL: 'tengo un amigo con alergia' es de un TERCERO", () => {
+  assert.strictEqual(
+    alergiaEsDeTercero("Eh, tengo un amigo con alergia a los langostinos y al marisco, ¿vale?"),
+    true, "la alergia del amigo se guardaría otra vez en la ficha del titular");
+});
+
+test("otros acompañantes también se reconocen", () => {
+  for (const f of [
+    "mi mujer es alérgica a los frutos secos",
+    "mi hijo tiene alergia al huevo",
+    "una de las que viene no puede tomar gluten",
+    "es para mi pareja, que no puede tomar lactosa"
+  ]) assert.strictEqual(alergiaEsDeTercero(f), true, "no lo ve como de tercero: " + f);
+});
+
+test("si la alergia es SUYA, sí va a la ficha", () => {
+  for (const f of [
+    "soy alérgico al marisco",
+    "yo soy celíaco",
+    "tengo alergia a los frutos secos",
+    "tengo intolerancia a la lactosa"
+  ]) assert.strictEqual(alergiaEsDeTercero(f), false, "dejaría de guardar SU alergia: " + f);
+});
+
+test("una frase normal no se confunde con una alergia ajena", () => {
+  assert.strictEqual(alergiaEsDeTercero("ponme una pizza para mi amigo"), true);
+  assert.strictEqual(alergiaEsDeTercero("quiero dos pizzas"), false);
 });
 
 // ── E. El modelo ya ofreció en voz ──────────────────────────────────────────

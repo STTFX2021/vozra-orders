@@ -307,6 +307,26 @@ function detectRemovedAllergies(messages, knownAllergies = []) {
   });
 }
 
+/**
+ * ¿La alergia que acaba de declarar es SUYA o de un acompañante?
+ *
+ * BUG REAL 07-08. Samuel dijo "tengo un amigo con alergia a los langostinos y
+ * al marisco" y "marisco" se guardó en SU ficha para siempre. Consecuencia: dos
+ * días después pidió una Abruzzo (lleva langostinos), el gate la bloqueó, y la
+ * llamada se fue en un bucle de cuatro turnos. En sala la alergia es del
+ * comensal, no de quien llama: se anota SIEMPRE en la comanda de ese pedido,
+ * pero solo se guarda en la ficha si el alérgico es el titular del teléfono.
+ */
+const _RX_ALERGIA_DE_TERCERO = /\b(mi|un|una|el|la)\s+(amig[oa]|colega|compa[ñn]er[oa]|novi[oa]|parej[a]|marid[o]|mujer|espos[oa]|hij[oa]|madre|padre|herman[oa]|suegr[oa]|cu[ñn]ad[oa]|primo|prima|invitad[oa]|acompa[ñn]ante)\b|\bpara\s+(él|ella|ellos|ellas|mi\s+\w+)\b|\bun[oa]\s+de\s+(ellos|ellas|l[oa]s\s+que|mis)\b|\bviene\s+con\s+|\b(l[oa]s?\s+que|quien)\s+viene\b/i;
+
+function alergiaEsDeTercero(texto) {
+  const t = String(texto || "");
+  if (!t) return false;
+  // "yo soy alérgico" gana siempre: si dice que es suya, es suya.
+  if (/\b(yo\s+soy|soy)\s+al[eé]rgic|\b(tengo|mi)\s+(una\s+)?(alergia|intolerancia)\s+(a|al)\b(?!.*\b(amig|hij|mujer|marid|herman|madre|padre))/i.test(t)) return false;
+  return _RX_ALERGIA_DE_TERCERO.test(t);
+}
+
 async function synchronizeAllergiesForTurn(callId, messages, phone) {
   const session = getOrCreateOrderSession(callId);
   const saved = (session.registeredRestrictions && session.registeredRestrictions.allergies) || session.persistedAllergies || [];
@@ -333,7 +353,18 @@ async function synchronizeAllergiesForTurn(callId, messages, phone) {
     const order = setAllergyPersistence(callId, "failed", { error: "missing_phone", allergies: current });
     return { ok: false, changed: true, requiredAction: "resolve_allergy_persistence", reason: "missing_phone", order };
   }
-  const write = await updateCustomerAllergies({ phone, addAllergies: additions, removeAllergies: removed });
+  // La alergia de un acompañante protege ESTE pedido pero no se graba en la
+  // ficha del titular: si no, le arrastra la restricción de por vida.
+  const deTercero = alergiaEsDeTercero(lastUserText(messages));
+  const aGuardar = deTercero ? [] : additions;
+  if (deTercero && additions.length) {
+    console.log("[ALERGIA] de acompañante, solo en la comanda (no va a la ficha): " + additions.join(", "));
+  }
+  if (!aGuardar.length && !removed.length) {
+    const order = setAllergyPersistence(callId, "solo_en_comanda", { allergies: current });
+    return { ok: true, changed: true, added: additions, removed, soloEnComanda: true, order };
+  }
+  const write = await updateCustomerAllergies({ phone, addAllergies: aGuardar, removeAllergies: removed });
   if (!write || write.ok !== true) {
     const order = setAllergyPersistence(callId, "failed", { error: (write && (write.reason || write.error)) || "allergy_write_failed", allergies: current });
     return { ok: false, changed: true, requiredAction: "resolve_allergy_persistence", reason: order.allergyPersistenceError, order };
@@ -1407,6 +1438,48 @@ function validationRequiredAction(validation) {
   return error ? error.requiredAction : null;
 }
 
+/**
+ * BUG REAL 07-08 (llamada de Samuel): Sarah repitió CUATRO veces "Antes de
+ * resumir necesito resolver un dato pendiente del pedido", sin decir cuál:
+ *     [user]  ¿Cuál? Dime.
+ *     [agent] Antes de resumir necesito resolver un dato pendiente del pedido.
+ *     [user]  Tienes mi nombre, mi teléfono, mi dirección y mi pedido. ¿Qué tienes que resolver?
+ *     [agent] Antes de resumir necesito resolver un dato pendiente del pedido.
+ * El bloqueo era correcto (la Abruzzo lleva langostinos y él tenía anotada
+ * alergia a marisco), pero el mensaje no lo decía, así que ni el cliente ni el
+ * modelo podían resolverlo. Un gate que no dice QUÉ falta es un bucle garantizado.
+ */
+function mensajeDeBloqueo(validation) {
+  const v = validation || {};
+  const conflicto = (v.allergenConflicts || []).find(c => c && c.status === "pending");
+  if (conflicto) {
+    const plato = conflicto.itemName || "ese plato";
+    const ingr  = conflicto.component || (conflicto.allergenLabel || "").toLowerCase();
+    const alerg = conflicto.declaredAs || conflicto.allergenLabel || "tu alergia";
+    return conflicto.classification === "removable"
+      ? `La ${plato} lleva ${ingr} y consta alergia a ${alerg}. Pregúntale si se lo quitamos o si prefiere otro plato, y sigue en cuanto te conteste.`
+      : `La ${plato} lleva ${ingr} y no se puede quitar, y consta alergia a ${alerg}. Recomiéndale otro plato de la carta.`;
+  }
+  const err = (v.errors || []).find(e => e && e.code);
+  const porCodigo = {
+    MISSING_ADDRESS_NUMBER: "Falta el NÚMERO de la calle. Pídeselo: solo el número.",
+    MISSING_ADDRESS:        "Falta la dirección de entrega. Pídesela UNA vez y dala por buena.",
+    MISSING_PHONE:          "Falta el teléfono de contacto. Pídeselo UNA vez.",
+    PHONE_LENGTH:           "El teléfono no tiene los dígitos que debería. Pídeselo otra vez, con calma.",
+    PHONE_PREFIX:           "El teléfono no parece válido. Pídeselo otra vez, con calma.",
+    MISSING_NAME:           "Falta el nombre para la comanda. Pregúntale UNA vez a nombre de quién lo pone.",
+    MISSING_ITEMS:          "El pedido está vacío. Pregúntale qué quiere pedir.",
+    ITEM_NOT_IN_MENU:       "Hay un producto que no está en la carta. Dile cuál es y ofrécele el más parecido que SÍ exista.",
+    ITEM_UNAVAILABLE:       "Hay un producto que hoy no está disponible. Dile cuál y ofrécele una alternativa.",
+    ITEM_PRICE_MISSING:     "Hay un producto sin precio en la carta. Ofrécele una alternativa parecida.",
+    GLUTEN_NO_GF_BASE:      "No hay base sin gluten para ese plato. Explícaselo y recomiéndale otro.",
+    HIGH_QUANTITY:          "La cantidad es muy alta. Confírmasela una vez antes de seguir."
+  };
+  if (err && porCodigo[err.code]) return porCodigo[err.code];
+  if (err && err.message) return String(err.message) + " Resuélvelo con el cliente y sigue.";
+  return "Antes de resumir necesito resolver un dato pendiente del pedido.";
+}
+
 function submitResultAction(result) {
   const requiredAction = (result && result.requiredAction) || validationRequiredAction(result && result.validation);
   if (requiredAction) return requiredAction;
@@ -1596,9 +1669,7 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
       ok: false,
       delivered: false,
       order,
-      reply: requiredAction === "resolve_allergen_conflict"
-        ? "Antes de confirmar necesito resolver el ingrediente relacionado con tu alergia."
-        : "No puedo enviar el pedido todavía porque falta algún dato. Vamos a completarlo y lo confirmamos.",
+      reply: mensajeDeBloqueo(validation),
       validation,
       requiredAction: requiredAction || "validation_failed",
       validationFailed: true,
@@ -2611,7 +2682,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           const action = quoteOut.requiredAction || "validation_failed";
           const reply = action === "resolve_order_type"
             ? "Antes de calcular y resumir necesito saber si es para recoger o a domicilio."
-            : "Antes de resumir necesito resolver un dato pendiente del pedido.";
+            : mensajeDeBloqueo(quoteOut.validation || quoteOut);
           return { reply, dispatched: false, action, requiredAction: action };
         }
         const quotedSession = getOrCreateOrderSession(callId);
@@ -2704,6 +2775,8 @@ module.exports = {
   siguienteUpsell,
   categoriasEnPedido,
   deterministicUpsellOffer,
+  mensajeDeBloqueo,
+  alergiaEsDeTercero,
   upsellYaCubierto,
   vecesInsistidoUpsell,
   mismoResumen,
