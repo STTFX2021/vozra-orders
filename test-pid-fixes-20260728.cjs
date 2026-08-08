@@ -58,11 +58,15 @@ test("F1 regla de apoyo retirable/intrínseco presente", () => {
 test("F1 no afirmar 100% seguro por su cuenta", () => {
   assert.ok(/NO afirmes que un plato es 100% seguro/i.test(prompt));
 });
-test("F1 el gate bloquea solo el conflicto retirable pendiente", () => {
+// POLÍTICA DEL OWNER (28-07, reafirmada el 08-08): el alérgeno se ADVIERTE y se
+// ASESORA, pero NO bloquea — decide el cliente. Este test exigía lo contrario.
+test("F1 el conflicto retirable se AVISA, no bloquea", () => {
   const pendingItem = mapToolItem({ menu_item_id: "pizza_abruzzo", quantity: 1 });
   const pendingOrder = validateOrder({ items: [pendingItem], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["langostinos"] });
-  assert.strictEqual(pendingOrder.ok, false, "un conflicto pendiente debe bloquear");
-  assert.strictEqual(pendingOrder.requiredAction, "resolve_allergen_conflict");
+  assert.strictEqual(pendingOrder.ok, true, "el alérgeno vuelve a tumbar el pedido");
+  assert.strictEqual(pendingOrder.requiredAction, null);
+  assert.ok(pendingOrder.allergenConflicts.some(c => c.status === "pending"),
+    "sin conflicto detectado no se podría advertir al cliente ni anotarlo en la comanda");
 
   const resolvedItem = mapToolItem({ menu_item_id: "pizza_abruzzo", quantity: 1, modifiers: [{ type: "remove", value: "langostinos" }] });
   const resolvedOrder = validateOrder({ items: [resolvedItem], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["langostinos"] });
@@ -227,12 +231,20 @@ test("F7 mitad y mitad: precio = la pizza MÁS CARA", () => {
   assert.strictEqual(estimateTotal({ items: [item] }).estimatedTotal, expected, "el total no coincide");
   assert.ok(/mitad/i.test(item.displayName), "el nombre no indica 'mitad'");
 });
-test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades y aplica el gate", () => {
+test("F7 mitad y mitad: cruza las alergias de LAS DOS mitades y las avisa", () => {
   const item = mapToolItem({ half_and_half: ["pizza_abruzzo", "pizza_margherita"], quantity: 1 });
   const v = validateOrder({ items: [item], orderType: "pickup", customerName: "Ana", phone: "622333444", allergies: ["marisco"] });
   assert.strictEqual(v.flags.requiresKitchenReview, true, "no detectó el marisco de la mitad Abruzzo");
-  assert.strictEqual(v.ok, false, "el conflicto retirable pendiente debe bloquear");
-  assert.strictEqual(v.requiredAction, "resolve_allergen_conflict");
+  assert.ok(v.allergenConflicts.some(c => c.status === "pending"),
+    "la mitad con marisco tiene que generar aviso");
+  // Se advierte, pero decide el cliente: EL ALÉRGENO no detiene el pedido.
+  // (Se comprueba el alérgeno en concreto, no `ok` global: un half_and_half
+  // puede fallar otras validaciones del ítem, y eso es harina de otro costal.)
+  assert.ok(!(v.errors || []).some(e => e.code === "ALLERGEN_CONFLICT_PENDING"),
+    "el alérgeno vuelve a ser un error bloqueante");
+  assert.strictEqual(v.requiredAction, null, "sigue exigiendo resolver el alérgeno");
+  assert.ok((v.warnings || []).some(w => w.code === "ALLERGEN_CONFLICT_PENDING"),
+    "el aviso tiene que quedar para advertir y para el ticket de cocina");
 });
 
 // ── DIRECCIÓN DE DOMICILIO (número) + "una por pizza"/"piso" ──────────────────

@@ -434,15 +434,28 @@ function validateOrder(order) {
   // 4. Alérgenos cross-check
   const { allergenConflicts, dietaryFlags, requiresKitchenReview, allergyRisk, requiredAction } = crossCheckAllergens(order);
 
-  // Los conflictos retirables pendientes son estado operativo, no una sugerencia
-  // para el modelo. Bloquean confirmación y dispatch hasta que el modificador de
-  // retirada aparezca en el pedido. La evaluación es pura e idempotente.
+  // POLÍTICA DEL OWNER (28-07, reafirmada el 08-08): EL ALÉRGENO NO BLOQUEA.
+  //
+  // "advertir que están ahí, asesorar y recomendar otros platos u opciones si se
+  //  pueden eliminar, pero el cliente manda: si dice que lo quiere así, se hace
+  //  así. Siempre se respeta la decisión del cliente, y en el ticket que va a
+  //  cocina se pone el alérgeno, como ya hace." — sam, 2026-08-08
+  //
+  // Esto ya estaba decidido el 28-07 y escrito en PROJECT_STATE §7 ("NO hay gate
+  // de bloqueo/revisión"). El 03-08 se reintrodujo como "autoridad determinista"
+  // y volvió a bloquear: un conflicto pendiente tiraba el pedido con
+  // ALLERGEN_CONFLICT_PENDING aunque el cliente hubiera dicho "déjala como
+  // viene". Caso real 07-08: Abruzzo con langostinos → cuatro turnos en bucle y
+  // pedido sin cerrar.
+  //
+  // Ahora es WARNING: se advierte y se asesora en la conversación, el conflicto
+  // viaja al ticket de cocina, y el pedido SIGUE. Nuestro trabajo es informar,
+  // no decidir por el cliente.
   const pendingAllergenConflicts = allergenConflicts.filter(conflict => conflict.status === "pending");
   if (pendingAllergenConflicts.length) {
-    errors.push({
+    warnings.push({
       code: "ALLERGEN_CONFLICT_PENDING",
-      message: "Hay un ingrediente alergénico retirable pendiente de resolver.",
-      requiredAction: "resolve_allergen_conflict",
+      message: "Ingrediente alergénico presente: hay que advertirlo y ofrecer quitarlo o cambiar de plato. Decide el cliente.",
       conflictIds: pendingAllergenConflicts.map(conflict => conflict.conflictId)
     });
   }
@@ -490,12 +503,20 @@ function validateOrder(order) {
     });
   }
 
+  // `requiredAction` NO propaga "resolve_allergen_conflict": el alérgeno se
+  // advierte y se asesora, pero no detiene el pedido (ver bloque de arriba).
+  // El conflicto sigue viajando en `allergenConflicts` y en los warnings, que es
+  // lo que alimenta la advertencia al cliente y la nota del ticket de cocina.
+  const requiredActionSinAlergenos =
+    requiredAction === "resolve_allergen_conflict" ? null : requiredAction;
+
   return {
     ok: errors.length === 0,
     errors,
     warnings,
     allergenConflicts,
-    requiredAction,
+    requiredAction: requiredActionSinAlergenos,
+    allergenAdvisory: allergenConflicts.filter(c => c && c.status === "pending"),
     dietaryFlags,
     flags,
     estimatedTotal,

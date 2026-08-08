@@ -621,9 +621,9 @@ ${(() => {
 - CANDADO DE ACTIVACIÓN (léelo primero): TODA esta sección se activa ÚNICA y EXCLUSIVAMENTE si el cliente ha DECLARADO por su cuenta una alergia, intolerancia, celiaquía o restricción en ESTA llamada (p. ej. "soy alérgico a algo", "soy celíaco", "no puedo tomar lactosa", "sin gluten"). Si NO ha declarado ninguna, aplica estas cuatro prohibiciones: NO preguntes si tiene alergias; NO menciones alergias en el resumen; NO ofrezcas base sin gluten; NO adviertas sobre alérgenos de forma proactiva. Tampoco menciones que un plato "lleva nata, queso o gluten" ni recites ingredientes proactivamente. Pedir una pizza con extra de queso, beicon u orégano NO es declarar una alergia: anótalo y sigue, sin advertencias. Soltar una alerta de alérgenos que nadie ha pedido confunde al cliente y es un ERROR.
 - Si el cliente menciona cualquier alergia o intolerancia, trátalo como prioritario. No minimices ni asumas que un plato es seguro.
 - SINÓNIMOS que debes reconocer: "sin TACC", "TACC" o "apto celíacos" = SIN GLUTEN (celiaquía); "sin lácteos" = sin lactosa. Trátalos como la alergia/intolerancia correspondiente y aplícales la misma política de seguridad.
-- REGLA MADRE: el código cruza pedido y alergias. Si calcular_total devuelve requiredAction="resolve_allergen_conflict", resuelve ese ingrediente antes del resumen; no confirmes ni envíes hasta que desaparezca la acción pendiente.
+- REGLA MADRE (decisión del dueño, no la discutas): el código cruza pedido y alergias y te avisa en allergenAdvisory. Tu trabajo es ADVERTIR, ASESORAR y RECOMENDAR — NUNCA decidir por el cliente ni bloquearle el pedido. Avisas UNA vez de que ese plato lleva el alérgeno, le ofreces quitarlo si se puede o le recomiendas otro plato, y **MANDA LO QUE ÉL DIGA**: si te dice que lo quiere igual, se lo tomas, lo confirmas y lo envías sin insistir ni repetir el aviso. El alérgeno queda anotado en la comanda para cocina. PROHIBIDO negarle el pedido, condicionarlo o volver a sacar el tema después de que haya decidido.
 - CÓMO AVISAR (CRÍTICO): NUNCA empieces el aviso con "Oye" ni con ninguna muletilla, y NUNCA le repitas como si fuera un descubrimiento algo que el cliente ACABA de declarar. Ve directa y con naturalidad. CRUZA la alergia contra los platos pedidos. Si un plato contiene ese alérgeno:
-  · RETIRABLE (la CARTA OPERATIVA lo marca "(se puede quitar)") → ofrece quitar el ingrediente. Si acepta, añade el modificador "sin [ingrediente]" una sola vez. Si no, cambia o retira el plato antes del resumen.
+  · RETIRABLE (la CARTA OPERATIVA lo marca "(se puede quitar)") → ofrece quitar el ingrediente. Si acepta, añade el modificador "sin [ingrediente]" una sola vez. Si prefiere el plato TAL CUAL, se lo tomas igual y lo anotas: es su decisión, no le pongas pegas ni se lo preguntes dos veces.
   · INTRÍNSECO (no marcado: el alérgeno va en la masa, la base o la salsa) → dile con naturalidad que ese plato lo lleva y, si quieres, RECOMIÉNDALE otro plato equivalente sin ese alérgeno. Pero si el cliente prefiere ESE mismo plato, SE LO TOMAS y anotas la alergia. NUNCA se lo niegues.
   · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
   · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE. Si NO lo marca, es INTRÍNSECO. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
@@ -1063,11 +1063,16 @@ function computeQuote(args, conversationMessages = [], callId = null) {
   const orderTypeValid = args && ["pickup", "delivery"].includes(args.order_type);
 
   let productIntegrity = validateItems({ items });
+  // El alérgeno NO bloquea el cálculo ni el pedido (política del owner 28-07,
+  // reafirmada el 08-08): se advierte, se asesora y decide el cliente. El
+  // conflicto viaja como aviso para que Sarah lo diga, no como freno.
+  const avisoAlergeno = authority.requiredAction === "resolve_allergen_conflict";
   const quoteValidation = {
-    ok: productIntegrity.errors.length === 0 && authority.requiredAction !== "resolve_allergen_conflict" && orderTypeValid,
-    errors: [...productIntegrity.errors], requiredAction: authority.requiredAction
+    ok: productIntegrity.errors.length === 0 && orderTypeValid,
+    errors: [...productIntegrity.errors],
+    requiredAction: avisoAlergeno ? null : authority.requiredAction,
+    allergenAdvisory: (authority.allergenConflicts || []).filter(c => c && c.status === "pending")
   };
-  if (authority.requiredAction) quoteValidation.errors.push({ code: "ALLERGEN_CONFLICT_PENDING", requiredAction: authority.requiredAction });
   if (!orderTypeValid) quoteValidation.errors.push({ code: args && args.order_type ? "INVALID_ORDER_TYPE" : "MISSING_ORDER_TYPE", requiredAction: "resolve_order_type" });
 
   if (session && !informationalOnly) {
@@ -1115,6 +1120,21 @@ function computeQuote(args, conversationMessages = [], callId = null) {
     out.suplementos = suplementos;
     out.aviso_suplementos = "AVISA al cliente del importe de estos suplementos ANTES de confirmar: " +
       suplementos.map(s => s.extra + " +" + s.importe_eur + " euros").join("; ") + ".";
+  }
+  // AVISO DE ALÉRGENO (no bloquea, informa). Al dejar de ser un error bloqueante,
+  // esta es la ÚNICA vía por la que Sarah se entera de que hay que advertir.
+  const avisosAlergeno = (authority.allergenConflicts || []).filter(c => c && c.status === "pending");
+  if (avisosAlergeno.length) {
+    out.allergenAdvisory = avisosAlergeno;
+    out.aviso_alergeno = "ADVIERTE UNA vez y ASESORA, sin bloquear el pedido: " +
+      avisosAlergeno.map(c =>
+        "la " + (c.itemName || "pizza") + " lleva " + (c.component || c.allergenLabel) +
+        " y consta alergia a " + (c.declaredAs || c.allergenLabel) +
+        (c.classification === "removable"
+          ? " (se puede quitar: ofrécele quitarlo)"
+          : " (no se puede quitar: recomiéndale otro plato)")
+      ).join("; ") +
+      ". DECIDE EL CLIENTE: si dice que lo quiere así, se lo tomas, lo confirmas y lo envías sin insistir. Queda anotado en la comanda para cocina.";
   }
   if (promo.totalDiscount > 0) {
     out.total_sin_descuento_eur = estimatedTotal;
