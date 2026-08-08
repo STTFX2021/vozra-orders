@@ -298,9 +298,31 @@ function lastUserText(messages) {
   return last ? String(last.content) : "";
 }
 
+/**
+ * REGLA DEL OWNER (08-08, explicada dos veces): QUITAR UN INGREDIENTE DEL PLATO
+ * NO ES BORRAR LA ALERGIA DE LA FICHA. Son cosas distintas y el mismo verbo.
+ *
+ *   "¿le podéis quitar los langostinos?"  → modificador de cocina. La ficha NO se toca.
+ *   "ya no soy alérgico al marisco"       → SÍ se borra de la ficha.
+ *
+ * BUG REAL 08-08: el cliente pidió quitar los langostinos de la pizza y Sarah
+ * respondió "He eliminado esa alergia de tu ficha". Se perdió un dato de seguridad
+ * alimentaria por una petición de cocina.
+ *
+ * La ficha solo cambia cuando el cliente lo notifica EXPLÍCITAMENTE: así queda
+ * registrado y podemos advertirle la próxima vez que pida algo que lo contenga.
+ */
+const _RX_QUITAR_DEL_PLATO = /(de la pizza|de la pasta|del plato|de mi pizza|en la pizza|sin ellos|sin ella|sin ellas|sin el|de encima|por encima|de la salsa|del risotto)/;
+const _RX_BAJA_EXPLICITA = /(ya no (?:tengo|soy|es)|no soy alerg|no tengo alergia|estaba mal apuntad|apuntad[oa] mal|es un error|era un error|(?:quita|elimina|borra)[a-z]*\s+(?:esa|la|mi)?\s*(?:alergia|intolerancia)|de (?:mi|la) ficha)/;
+
 function detectRemovedAllergies(messages, knownAllergies = []) {
   const text = lastUserText(messages).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  if (!/(ya no (?:tengo|soy)|quita|elimina|borra|no soy alerg|estaba mal apuntad)/.test(text)) return [];
+  // Si habla del PLATO, jamás se toca la ficha, aunque diga "quita".
+  if (_RX_QUITAR_DEL_PLATO.test(text)) return [];
+  // Y para tocarla hace falta que lo diga EXPRESAMENTE. "quita" a secas no basta:
+  // era el disparador que borró la alergia de un cliente que solo pedía la pizza
+  // sin langostinos.
+  if (!_RX_BAJA_EXPLICITA.test(text)) return [];
   return (knownAllergies || []).filter(allergy => {
     const normalized = String(allergy).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
     return normalized && text.includes(normalized);
@@ -627,6 +649,12 @@ ${(() => {
   · INTRÍNSECO (no marcado: el alérgeno va en la masa, la base o la salsa) → dile con naturalidad que ese plato lo lleva y, si quieres, RECOMIÉNDALE otro plato equivalente sin ese alérgeno. Pero si el cliente prefiere ESE mismo plato, SE LO TOMAS y anotas la alergia. NUNCA se lo niegues.
   · Si el propio cliente YA te pidió quitar ese ingrediente, hazlo sin más y anótalo; no lo conviertas en un problema.
   · CÓMO SABER si es retirable o intrínseco: si la CARTA OPERATIVA marca ese alérgeno con "(se puede quitar)", es RETIRABLE. Si NO lo marca, es INTRÍNSECO. Como apoyo mental: lo que se pone por encima (un topping) es retirable; la masa, la base y la salsa no lo son.
+- CÓMO SE RESUELVE EN COCINA (regla del dueño, sirve para TODOS los alérgenos, no solo el marisco):
+  · TOPPING (va por encima: langostinos, gambas, marisco, jamón, frutos secos, queso…) → NO SE PONE Y PUNTO. Añades el modificador "sin [ingrediente]", se lo dices con naturalidad ("Te la preparo sin langostinos") y SIGUES con el pedido. No es un problema, es cómo se hace en cocina todos los días.
+  · SALSA O BASE con el alérgeno (una pasta, un risotto o una pizza cuya SALSA lo lleva) → SE SUSTITUYE por otra salsa o base de la carta que NO lleve ese alérgeno. Cuál depende del alérgeno: si es MARISCO, salsa de tomate; si es LÁCTEO/nata, salsa de tomate; si es GLUTEN, base sin gluten (4,50 € de suplemento). Elige la alternativa equivalente que la CARTA OPERATIVA permita. Se lo ofreces sin dramatismo: "Te la hago con [alternativa] en vez de [lo que lleva] y te la puedes comer tranquilo, ¿te parece?". Con eso el problema está resuelto y sigues.
+  · SOLO si no hay forma de sustituirlo ni de quitarlo, le recomiendas otro plato equivalente.
+  · Y siempre, decida lo que decida, el alérgeno queda anotado en la comanda para cocina.
+- QUITAR UN INGREDIENTE ≠ QUITAR LA ALERGIA DE SU FICHA. Si dice "quítale los langostinos", "sin gambas" o "que no lleve marisco", es COCINA: añades el modificador y sigues, y su alergia SIGUE guardada. La ficha solo se toca si dice EXPRESAMENTE que ya no es alérgico o que estaba mal apuntada — así queda registrada y podemos advertirle la próxima vez que pida algo que la contenga.
 - Deja SIEMPRE constancia en kitchenNote, formato: "ALERGIA: [alérgeno] (platos: [afectados])". Menciónala también en el resumen final para que el cliente sepa que queda anotada.
 - NO afirmes que un plato es 100% seguro. Tras resolver cualquier requiredAction pendiente, conserva la alergia y la modificación en la comanda para cocina.
 
@@ -858,7 +886,7 @@ const ALLERGY_REMOVE_TOOL = {
   type: "function",
   function: {
     name: "eliminar_alergia_guardada",
-    description: "Elimina una alergia GUARDADA del perfil del cliente. Llámala INMEDIATAMENTE en cuanto el cliente diga que ya NO tiene esa alergia o que estaba mal apuntada. Borra la alergia del perfil (base de datos) y deja de tenerla en cuenta durante el resto de la llamada. Tras llamarla, NO vuelvas a mencionar esa alergia ni a avisar de sus ingredientes.",
+    description: "Elimina una alergia GUARDADA del PERFIL del cliente (base de datos). Llámala SOLO si el cliente dice EXPRESAMENTE que ya no tiene esa alergia o que estaba mal apuntada: \"ya no soy alérgico\", \"eso estaba mal apuntado\", \"bórrala de mi ficha\". PROHIBIDO llamarla cuando pide quitar un INGREDIENTE del plato — \"quítale los langostinos\", \"sin gambas\", \"que no lleve marisco\" — eso es una modificación de cocina y su alergia SIGUE VIGENTE: para eso añade el modificador \"sin [ingrediente]\" al plato y no toques la ficha. Ante la duda, NO la llames y pregunta.",
     parameters: {
       type: "object",
       properties: {
@@ -2479,7 +2507,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         extra += yaAlergia
           ? "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): YA se las mencionaste antes en esta llamada, NO lo repitas. Se siguen anotando en el pedido autom\u00e1ticamente."
           : "\nALERGIAS GUARDADAS (" + _alg.join(", ") + "): menci\u00f3nalo UNA sola vez con naturalidad (\"te tengo apuntada la alergia a " + _alg.join(", ") + "\"), no se las preguntes; quedan anotadas autom\u00e1ticamente.";
-        extra += " Si el cliente dice que YA NO tiene esa alergia o que estaba mal apuntada, llama INMEDIATAMENTE a la herramienta eliminar_alergia_guardada con esa alergia (NO esperes a submit_order). A partir de ese momento deja de mencionarla y NO avises de sus ingredientes.";
+        extra += " OJO, SON DOS COSAS DISTINTAS: (a) si pide QUITAR EL INGREDIENTE del plato (\"quítale los langostinos\", \"sin gambas\") es una modificación de COCINA: añade el modificador \"sin [ingrediente]\", dile que se lo preparan así y SIGUE con el pedido. Su alergia NO se toca, sigue en su ficha. (b) SOLO si dice EXPRESAMENTE que ya no es alérgico o que estaba mal apuntada, llama a eliminar_alergia_guardada. Confundir (a) con (b) le borra un dato de seguridad: ante la duda, trátalo como (a).";
       }
       messages.push({ role: "system", content: extra });
     }
@@ -2797,6 +2825,7 @@ module.exports = {
   deterministicUpsellOffer,
   mensajeDeBloqueo,
   alergiaEsDeTercero,
+  detectRemovedAllergies,
   upsellYaCubierto,
   vecesInsistidoUpsell,
   mismoResumen,

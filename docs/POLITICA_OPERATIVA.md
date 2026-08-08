@@ -55,10 +55,56 @@ Vozra gestiona pedidos: **asesora e informa** por si el cliente no sabe que el p
 lleva ese alérgeno. Si aun así lo acepta, es su decisión y su riesgo. Nuestro trabajo es
 **advertir y asesorar**, no decidir por él.
 
-- Se anota siempre en la comanda
-- Si el alérgeno es un topping retirable → se ofrece quitarlo y el pedido sigue
-- Si es intrínseco al plato → se recomienda otro
+### El flujo completo (explicado por sam el 08-08)
+
+1. **Advertimos** — si el cliente no se ha dado cuenta de que ese plato lo lleva.
+2. **Ofrecemos quitar el ingrediente** y con eso el problema está resuelto.
+3. **El cliente decide.** Si lo quiere igual, se le sirve.
+4. **Siempre** queda anotado en la comanda para cocina.
+
+### Cómo se resuelve en cocina — vale para TODOS los alérgenos
+
+El ejemplo es el marisco, pero la regla se extiende a cualquiera:
+
+| Dónde está el alérgeno | Qué se hace |
+|---|---|
+| **Topping** (va por encima: langostinos, gambas, frutos secos, queso…) | **No se pone y punto.** Modificador "sin [ingrediente]" y a seguir |
+| **Salsa o base** (una pasta, un risotto o una pizza cuya salsa lo lleva) | **Se sustituye** por otra salsa o base de la carta sin ese alérgeno |
+| No se puede ni quitar ni sustituir | Se recomienda otro plato equivalente |
+
+**La sustitución depende del alérgeno.** La salsa de tomate es el ejemplo del marisco, no
+la respuesta a todo: marisco → salsa de tomate; nata/lácteo → salsa de tomate; gluten →
+base sin gluten (+4,50 €). Se elige la alternativa equivalente que la carta permita.
+
+Esto no es un drama ni un caso excepcional: es cómo se trabaja en cocina todos los días.
+Se dice con naturalidad —*"te la hago con salsa de tomate y te la puedes comer tranquilo"*—
+y se sigue con el pedido.
+
+### Base sin gluten
+
+**No se ofrece de oficio.** Solo cuando el cliente pregunta si hay algo sin gluten, o
+menciona que tiene alergia o intolerancia al gluten / es celíaco / "sin TACC". En ese caso
+se le ofrece, avisando del suplemento de 4,50 € por pizza antes de darla por hecha.
+
+### QUITAR UN INGREDIENTE ≠ BORRAR LA ALERGIA DE LA FICHA
+
+**Es el mismo verbo para dos cosas opuestas, y confundirlas destruye un dato de seguridad.**
+
+- *"¿le podéis quitar los langostinos?"* → **cocina**. Modificador "sin langostinos", se
+  sigue con el pedido, y **su alergia sigue guardada en la ficha**.
+- *"ya no soy alérgico al marisco"* / *"eso estaba mal apuntado"* → **ficha**. Ahí sí se
+  borra, porque lo ha notificado explícitamente.
+
+> La ficha no cambia porque el cliente pida una pizza sin un ingrediente. Solo cambia
+> cuando él lo dice expresamente. De esa manera queda registrado en el sistema y le
+> podemos advertir la próxima vez si intenta pedir algo que lo contenga. — sam, 08-08
+
+**Bug real que motivó esta regla (08-08):** el cliente pidió quitar los langostinos de su
+pizza y Sarah respondió *"He eliminado esa alergia de tu ficha"*. Perdió el dato.
+
+### Otras reglas
 - Nunca se afirma "es 100% seguro"
+- Ningún alérgeno bloquea el pedido (ver `PROJECT_STATE.md` §7)
 
 ---
 
