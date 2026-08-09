@@ -441,6 +441,7 @@ ${comp.reposicion_gratis ? `3. OFRÉCELE REPONER **SIN COSTE** lo que salió mal
      · Un plato salió mal o equivocado → alcance="plato": SOLO ese plato.
      · Llegó todo destrozado, frío o inservible → alcance="pedido_completo": el pedido entero.
    Pregunta lo justo para saber qué falló y no le hagas repetir lo que ya te ha contado.` : `3. NO puedes ofrecer reposición gratuita: deriva al encargado.`}
+3bis. EN UNA REPOSICIÓN TODO SE HEREDA DEL PEDIDO ORIGINAL. PROHIBIDO preguntarle si lo quiere a domicilio o pasar a recogerlo: si pidió a domicilio, se le repone A DOMICILIO y punto. Si hubiera querido ir a recogerlo, habría ido de primeras — y encima le has estropeado el pedido: preguntárselo es darle una patada más. Lo mismo con la dirección y el teléfono: ya los tienes, NO se los pidas.
 ${comp.descuento_pct ? (comp.descuento_autorizado
   ? `4. Si prefiere no repetir el pedido ahora, ofrécele un ${comp.descuento_pct}% de descuento en su próximo pedido y déjalo anotado.`
   : `4. Un descuento del ${comp.descuento_pct}% en el próximo pedido lo tiene que aprobar el local: NO lo prometas como seguro. Puedes decir que se lo propones al encargado.`) : ""}
@@ -1546,6 +1547,61 @@ function yaSeDijoYRespondio(incomingMessages, texto) {
   return false;
 }
 
+/**
+ * INTENCIÓN DE UN TURNO DEL ASISTENTE.
+ *
+ * BUG REAL 09-08. Sarah hizo TRES preguntas seguidas, todas la misma cosa:
+ *     [agent] ¿Quieres añadir algo más o seguimos con el pedido?
+ *     [user]  Eh, no, nada más.
+ *     [agent] ¿Te pongo algo para picar, un entrante para compartir?
+ *     [user]  No.
+ *     [agent] ¿Quieres que te ponga algo para picar, algo de beber?
+ *     [user]  Que no.
+ *
+ * El guardián de "una pregunta, una vez" comparaba TEXTO, y esos tres textos son
+ * distintos. Además las inventa el modelo, no el backend, así que el gate ni se
+ * ejecutaba. Hay que clasificar por INTENCIÓN: si la intención ya se cubrió y el
+ * cliente contestó, no se repite venga de donde venga.
+ */
+// OJO AL ORDEN: se evalúa de arriba abajo y gana el primero. `tipo_entrega` va
+// antes que `direccion` porque "¿te lo llevo a domicilio o prefieres recogerlo?"
+// contiene las dos cosas y lo que pregunta de verdad es el tipo de entrega.
+const _INTENCIONES = {
+  resumen:      /^resumen[:\s]/i,
+  // Las dos direcciones de la pregunta: "¿recoger o a domicilio?" y también
+  // "¿a domicilio o prefieres pasar a recogerlo?" (caso real 09-08).
+  tipo_entrega: /(recoger o (?:a )?domicilio|(?:a )?domicilio o (?:prefieres |lo )?(?:pasar|pasas|recog)|pasa[rs] a recogerlo|te lo llevamos o|para recoger o|lo recoges o|es para recoger o)/i,
+  telefono:     /(tel[ée]fono de contacto|me (?:das|dices) (?:un )?tel[ée]fono|n[úu]mero de contacto)/i,
+  nombre:       /(a nombre de qui[ée]n|c[óo]mo te llamas|me (?:das|dices) tu nombre)/i,
+  direccion:    /(a qu[ée] direcci[óo]n|d[íi]me la direcci[óo]n|me (?:das|dices) la direcci[óo]n|direcci[óo]n (?:completa|de entrega|para el domicilio)|te lo llev[oe] a|la de siempre)/i,
+  sugerencia:   /(algo (?:m[áa]s|para picar|de beber|dulce)|un entrante|para compartir|te apetece|te pongo algo|a[ñn]adir algo|alg[uú]n postre|quieres que te (?:ponga|sugiera)|lo dejamos as[íi]|lo cierro)/i
+};
+
+function intencionDelTurno(texto) {
+  const t = String(texto || "");
+  if (!t.trim()) return null;
+  for (const [k, rx] of Object.entries(_INTENCIONES)) if (rx.test(t)) return k;
+  return null;
+}
+
+/**
+ * ¿Esa intención ya se cubrió y el cliente contestó? Si sí, no se repite.
+ * Vale igual para lo que emite el backend y para lo que se inventa el modelo.
+ */
+function intencionYaCubierta(incomingMessages, intencion) {
+  if (!intencion) return false;
+  const ms = (incomingMessages || []).filter(m => m && m.content);
+  for (let i = 0; i < ms.length; i++) {
+    if (ms[i].role !== "assistant") continue;
+    if (intencionDelTurno(ms[i].content) !== intencion) continue;
+    for (let j = i + 1; j < ms.length; j++) {
+      if (ms[j].role !== "user") continue;
+      if (String(ms[j].content || "").replace(/[^\p{L}\p{N}]/gu, "").trim()) return true;
+    }
+  }
+  return false;
+}
+
 function mensajeDeBloqueo(validation) {
   const v = validation || {};
   const conflicto = (v.allergenConflicts || []).find(c => c && c.status === "pending");
@@ -1796,7 +1852,11 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     //     [agent] ¿Te pongo algo para picar, un entrante para compartir?
     //     [user]  No, te he dicho que no, que con la bebida nada más.
     // Si ya se ofreció en voz, se da por ofrecido y se pasa a leer la respuesta.
-    if (upsellAlreadyOffered(conversationMessages)) {
+    // Se da por ofrecido si el modelo ya lanzó CUALQUIER sugerencia por su cuenta,
+    // con el texto que fuera. Antes solo se miraban tres frases concretas, y el
+    // modelo se inventa una distinta cada vez.
+    if (upsellAlreadyOffered(conversationMessages) ||
+        intencionYaCubierta(conversationMessages, "sugerencia")) {
       const yaOfrecido = recordUpsellOffer(callId, deterministicUpsellOffer(order, conversationMessages) || "");
       if (yaOfrecido.ok) order = yaOfrecido.order;
     }
@@ -2543,7 +2603,13 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
   }
 
   const upsellSessionAtTurn = getOrCreateOrderSession(callId);
-  if (upsellSessionAtTurn.upsellState === "offered") {
+  // Si el modelo ya soltó una sugerencia por su cuenta y el cliente contestó, la
+  // oferta está hecha: se registra para que el gate no vuelva a lanzarla.
+  if (upsellSessionAtTurn.upsellState === "not_offered" &&
+      intencionYaCubierta(incomingMessages, "sugerencia")) {
+    try { recordUpsellOffer(callId, "(ofrecida en voz por el modelo)"); } catch (_) {}
+  }
+  if (getOrCreateOrderSession(callId).upsellState === "offered") {
     const answer = lastUserText(incomingMessages);
     // "NO" en cualquiera de sus formas: se acabó el upsell y se sigue. Va PRIMERO
     // porque "no, estoy bien" también contiene un "bien" que parecía afirmación.
@@ -2630,6 +2696,57 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
           ).join("; ") +
           ". DECIDE ÉL: si dice que lo quiere igual, se lo tomas y lo confirmas sin insistir. Si te pide quitarlo, se lo quitas, SE LO DICES y SIGUES con el pedido — eso NO borra su alergia de la ficha. Avisa UNA vez: si ya lo has avisado en esta llamada, no lo repitas." });
       }
+    }
+  } catch (_) {}
+
+  // ─── LO QUE YA SABES ────────────────────────────────────────────────────────
+  // Todos los fallos del 08/09-08 son el MISMO fallo: Sarah vuelve a preguntar algo
+  // que ya tiene. La dirección que el cliente acaba de dictar, si es domicilio
+  // después de confirmar la dirección, el nombre en cada frase, y hasta tres
+  // sugerencias seguidas después de dos "no".
+  //
+  // El backend ya sabe todo eso. Lo que faltaba era DECÍRSELO al modelo en cada
+  // turno, al final (recencia máxima) y en forma de prohibición explícita.
+  try {
+    const s = getOrCreateOrderSession(callId);
+    const sabido = [];
+    const prohibido = [];
+
+    const nom = realCustomerName(s.registeredName) || realCustomerName(s.customerName);
+    if (nom) {
+      sabido.push("NOMBRE: " + nom);
+      prohibido.push("preguntarle el nombre");
+    }
+    const tel = s.registeredPhone || s.phone || phoneFromHistory(incomingMessages);
+    if (tel) {
+      sabido.push("TELÉFONO: lo tienes");
+      prohibido.push("pedirle el teléfono");
+    }
+    const dirDicha = direccionDadaEnLlamada(incomingMessages);
+    const dir = s.registeredAddress || (s.address && (s.address.raw || s.address));
+    if (dir || dirDicha) {
+      sabido.push("DIRECCIÓN: " + (dirDicha && !s.registeredAddress
+        ? "te la ha dictado en esta llamada, dala por buena"
+        : "la tienes guardada"));
+      prohibido.push("volver a pedirle la dirección o pedirle que te la confirme otra vez");
+    }
+    if (s.orderType) {
+      sabido.push("TIPO DE PEDIDO: " + (s.orderType === "delivery" ? "domicilio" : "recogida"));
+      prohibido.push("volver a preguntar si es para recoger o a domicilio");
+    }
+    if (s.upsellState && s.upsellState !== "not_offered") {
+      sabido.push("SUGERENCIA: YA se la has ofrecido y ya te ha contestado");
+      prohibido.push("volver a sugerirle NADA — ni entrante, ni bebida, ni postre, ni \"¿algo más?\"");
+    }
+    const _algAviso = (s.registeredRestrictions && s.registeredRestrictions.allergies) || [];
+    if (_algAviso.length && upsellAlreadyOffered) sabido.push("ALERGIA EN FICHA: " + _algAviso.join(", "));
+
+    if (sabido.length) {
+      messages.push({ role: "system", content:
+        "LO QUE YA SABES DE ESTA LLAMADA (no vuelvas a preguntarlo):\n· " + sabido.join("\n· ") +
+        (prohibido.length ? "\n\nPROHIBIDO en este turno: " + prohibido.join("; ") + "." : "") +
+        "\n\nSi acabas de recibir un dato, NO lo repitas de vuelta ni pidas que te lo confirme: dale las gracias en dos palabras y SIGUE con el pedido. " +
+        "Y di su nombre SOLO al reconocerle al principio y al despedirte: repetirlo en cada frase suena a robot." });
     }
   } catch (_) {}
   // INVARIANTE DE UPSELLING (determinista, por ESTADO DE SESI\u00d3N): exactamente una
@@ -2726,6 +2843,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       "EL CLIENTE SE QUEJA DE UN PEDIDO YA ENTREGADO QUE LLEGÓ MAL. Aplica la política de PEDIDO MAL SERVIDO: " +
       "discúlpate reconociendo el fallo y OFRÉCELE REPONER EL PEDIDO SIN COSTE, sin que tenga que pedirlo y sin condiciones. " +
       "PROHIBIDO decirle que el pedido de reposición se paga. PROHIBIDO pedirle datos que ya tienes o hacerle repetir lo que ya ha contado. " +
+      "LA REPOSICIÓN VA POR EL MISMO CANAL QUE EL PEDIDO ORIGINAL: si era a domicilio, se le lleva a domicilio. PROHIBIDO preguntarle si prefiere pasar a recogerlo — le has estropeado el pedido, no le mandes a por él. " +
       "Llama a registrar_incidencia con escalar=true." +
       (enfadado
         ? " El cliente está ENFADADO y con razón: NO le lleves la contraria, no te justifiques y no le sueltes normas. Primero resuelves, luego anotas."
@@ -2945,6 +3063,8 @@ module.exports = {
   deterministicUpsellOffer,
   mensajeDeBloqueo,
   yaSeDijoYRespondio,
+  intencionDelTurno,
+  intencionYaCubierta,
   alergiaEsDeTercero,
   detectRemovedAllergies,
   upsellYaCubierto,

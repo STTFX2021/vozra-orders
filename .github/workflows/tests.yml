@@ -1,31 +1,70 @@
-name: Vozra Orders regression tests
+name: Vozra PID — tests
+
+# Restaurado el 2026-08-09. El repo se quedó sin CI el 29-06 y durante seis semanas
+# todo entró a producción por push directo sin que nada lo comprobara. En esa ventana
+# se revirtió una decisión de negocio (el alérgeno dejó de bloquear el pedido) y no
+# saltó ninguna alarma: se descubrió en una llamada real, con el cliente al teléfono.
+# Ver docs/memory/HISTORIAL_REGRESIONES.md
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
-    branches-ignore:
-      - main
-
-permissions:
-  contents: read
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Instalar dependencias
+        run: npm ci || npm install
 
-      - name: Run phases 4, 5, 6 and prompt regression
+      # Lo primero: un fichero roto tumba el backend entero. Pasó el 31-07 con un
+      # backtick dentro del prompt (que es un template literal): el módulo dejó de
+      # cargar y se desplegó así.
+      - name: Sintaxis de los ficheros críticos
+        run: |
+          for f in marta-llm.service.js \
+                   elevenlabs-llm.routes.js \
+                   order-validator.service.js \
+                   order-call-session.store.js \
+                   customer-store.js; do
+            [ -f "$f" ] && node --check "$f" && echo "  ok  $f"
+          done
+
+      - name: Suite completa
         run: npm test
+
+      # Los tests nacidos de llamadas reales. Cada uno reproduce un fallo que un
+      # cliente sufrió de verdad al teléfono.
+      - name: Tests de llamadas reales
+        run: |
+          fail=0
+          for t in test-si-no-y-aviso-*.cjs \
+                   test-alergia-ficha-vs-plato-*.cjs \
+                   test-bucle-upsell-*.cjs \
+                   test-llamadas-*.cjs \
+                   test-upsell-cascada-*.cjs \
+                   test-antibucle-*.cjs \
+                   test-nombre-*.cjs \
+                   test-datos-cliente-*.cjs \
+                   test-perfil-nuevo-*.cjs \
+                   test-redundancias-*.cjs \
+                   test-compensacion-*.cjs \
+                   test-allergy-remove-*.cjs \
+                   test-end-call-*.cjs \
+                   test-prompt-cache-*.cjs; do
+            [ -f "$t" ] || continue
+            echo "── $t"
+            node "$t" || fail=1
+          done
+          exit $fail

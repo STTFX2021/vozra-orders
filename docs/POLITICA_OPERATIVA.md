@@ -19,6 +19,18 @@
 **El ticket a cocina lleva ARRIBA DEL TODO** una alerta con: que no se cobra, el
 teléfono del cliente para llamarle, qué pasó, y si pide reembolso.
 
+### La reposición va por el mismo canal que el original (regla de sam, 09-08)
+
+**Si pidió a domicilio, se le repone a domicilio. No se le pregunta.**
+
+> "Después de hacer un pedido a domicilio y jodérselo, lo último que se le pregunta
+> al cliente es si quiere pasarse a recogerlo. Te pegas patadas en el culo como
+> negocio para reparar ese pedido: si hubiera querido ir él a recogerlo, habría ido
+> de primeras." — sam
+
+Lo mismo con la dirección y el teléfono: ya están en el pedido original. Volver a
+pedirlos, después de haberla cagado, es una segunda bofetada.
+
 **Si pide que le devuelvan el dinero:** Sarah NO lo autoriza, procesa ni ejecuta, pero
 tampoco se escuda en las normas. Registra la incidencia, alerta al manager y dice, con
 sus palabras: que ella gestiona pedidos y quien conserva la decisión final es el encargado
