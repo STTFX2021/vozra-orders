@@ -1407,11 +1407,16 @@ function siguienteUpsell(order, incomingMessages) {
 
 // Frases canónicas: son las MISMAS que verifica test-system-prompt-contract.
 // Si se cambian aquí, hay que cambiarlas también en el prompt y en ese test.
+// REGLA DEL OWNER (08-08): una sola pregunta que cubra picar Y beber, en vez de
+// dos rondas. La de "entrante" cubre las dos categorías.
 const _FRASE_UPSELL = {
-  entrante: "¿Te pongo algo para picar, un entrante para compartir?",
+  entrante: "¿Quieres que te ponga algo para picar, algo de beber?",
   bebida:   "¿Te pongo algo de beber?",
   postre:   "¿Te apetece un postre para rematar?"
 };
+// La frase de entrante menciona TAMBIÉN la bebida: al usarla, las dos categorías
+// quedan ofrecidas y no se vuelve a preguntar por ninguna.
+const _CATEGORIAS_CUBIERTAS = { entrante: ["entrante", "bebida"], bebida: ["bebida"], postre: ["postre"] };
 
 function deterministicUpsellOffer(order, incomingMessages) {
   const cat = siguienteUpsell(order, incomingMessages);
@@ -1439,12 +1444,15 @@ const _CATEGORIA_DE_FRASE = Object.fromEntries(
 function upsellYaCubierto(order, incomingMessages) {
   const cat = _CATEGORIA_DE_FRASE[String((order && order.upsellOfferText) || "").trim()];
   if (!cat) return false;
+  // La oferta de "picar o beber" cubre DOS categorías: basta con que haya pedido
+  // cualquiera de las dos para darla por respondida.
+  const cubre = _CATEGORIAS_CUBIERTAS[cat] || [cat];
   // Se pregunta por LA CATEGORÍA OFRECIDA, no por la siguiente de la cascada:
   // comparar con siguienteUpsell() daba por cubierta la bebida solo porque
   // faltaba el entrante, que va antes en la prioridad.
   const yaHay = categoriasEnPedido(order);
   for (const c of categoriasYaPedidas(incomingMessages)) yaHay.add(c);
-  return yaHay.has(cat);
+  return cubre.some(c => yaHay.has(c));
 }
 
 /**
@@ -1497,6 +1505,47 @@ function validationRequiredAction(validation) {
  * alergia a marisco), pero el mensaje no lo decía, así que ni el cliente ni el
  * modelo podían resolverlo. Un gate que no dice QUÉ falta es un bucle garantizado.
  */
+/**
+ * GUARDIÁN DE UNA SOLA PREGUNTA (regla del owner, 08-08):
+ *
+ *   "Solo se pregunta una vez una misma pregunta. Solo se puede volver a
+ *    preguntar si no se entiende algo."
+ *
+ * CASO REAL 08-08 que lo motiva: el cliente confirmó el resumen y Sarah lo
+ * repitió CUATRO veces seguidas, hasta que colgó de mala manera:
+ *     [agent] Resumen: 1 Abruzzo, 1 Coca-Cola. Total 17,50. ¿Confirmas?
+ *     [user]  Sí, por favor.
+ *     [agent] Resumen: 1 Abruzzo, 1 Coca-Cola. Total...
+ *     [user]  He dicho que sí, por favor.
+ *     [agent] Resumen: 1 Abruzzo,...
+ *     [user]  Que no resumas más, coño.
+ *
+ * Cualquier texto que el backend vaya a emitir pasa por aquí. Si ya se dijo algo
+ * prácticamente igual y el cliente CONTESTÓ (turno no vacío), no se repite: se
+ * da por hecha y se avanza. Solo se puede repetir si no se le entendió — turno
+ * vacío o pura puntuación.
+ */
+function yaSeDijoYRespondio(incomingMessages, texto) {
+  const nuevo = _normalizaResumen(texto);
+  if (!nuevo) return false;
+  const ms = (incomingMessages || []).filter(m => m && m.content);
+  for (let i = 0; i < ms.length; i++) {
+    if (ms[i].role !== "assistant") continue;
+    // Comparación ESTRICTA (normalizada, pero sin el margen del 80%): si el
+    // pedido ha cambiado —"1 B&B" pasa a "2 B&B"— el resumen es OTRO y hay que
+    // volver a leérselo. Con solapamiento parcial se habría despachado un
+    // pedido que el cliente nunca confirmó.
+    if (_normalizaResumen(ms[i].content) !== nuevo) continue;
+    // Se dijo. ¿Contestó algo el cliente después?
+    for (let j = i + 1; j < ms.length; j++) {
+      if (ms[j].role !== "user") continue;
+      const dijo = String(ms[j].content || "").replace(/[^\p{L}\p{N}]/gu, "").trim();
+      if (dijo) return true;   // contestó: la pregunta está hecha
+    }
+  }
+  return false;
+}
+
 function mensajeDeBloqueo(validation) {
   const v = validation || {};
   const conflicto = (v.allergenConflicts || []).find(c => c && c.status === "pending");
@@ -1778,13 +1827,23 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     } else if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
       order = resolveUpsell(callId, "rejected").order;
     } else if (esAfirmacionSimple(answer)) {
-      return { ok: false, delivered: false, order, validation, retryable: true,
-        reason: "upsell_selection_required", requiredAction: "capture_upsell_selection",
-        reply: "Perfecto. ¿Qué bebida o complemento quieres añadir?" };
+      const pregunta = "Perfecto. ¿Qué bebida o complemento quieres añadir?";
+      if (yaSeDijoYRespondio(conversationMessages, pregunta)) {
+        order = resolveUpsell(callId, "rejected").order;   // ya se le preguntó: se sigue
+      } else {
+        return { ok: false, delivered: false, order, validation, retryable: true,
+          reason: "upsell_selection_required", requiredAction: "capture_upsell_selection",
+          reply: pregunta };
+      }
     } else {
-      return { ok: false, delivered: false, order, validation, retryable: true,
-        reason: "upsell_decision_required", requiredAction: "resolve_upsell",
-        reply: "Necesito saber si quieres añadir algo o seguimos con el pedido." };
+      const insiste = "Necesito saber si quieres añadir algo o seguimos con el pedido.";
+      if (yaSeDijoYRespondio(conversationMessages, insiste)) {
+        order = resolveUpsell(callId, "rejected").order;   // una pregunta, una vez
+      } else {
+        return { ok: false, delivered: false, order, validation, retryable: true,
+          reason: "upsell_decision_required", requiredAction: "resolve_upsell",
+          reply: insiste };
+      }
     }
   }
 
@@ -1814,14 +1873,25 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     const summaryText = deterministicSummary(order);
     const summarized = recordSummary(callId, summaryText);
     order = summarized.order;
-    return { ok: false, delivered: false, order, validation, retryable: true,
-      reason: "summary_required", requiredAction: "present_current_summary",
-      reply: summaryText, draftChanged: draftResult.changed };
+    // GUARDIÁN DE UNA SOLA PREGUNTA: si ya se le leyó este mismo resumen y
+    // contestó, NO se repite. Se da por presentado y se pasa a confirmar.
+    // (Bucle real 08-08: el draft se recalculaba en cada submit_order, el
+    // fingerprint dejaba de cuadrar y el resumen salía una y otra vez.)
+    if (!yaSeDijoYRespondio(conversationMessages, summaryText)) {
+      return { ok: false, delivered: false, order, validation, retryable: true,
+        reason: "summary_required", requiredAction: "present_current_summary",
+        reply: summaryText, draftChanged: draftResult.changed };
+    }
   }
   if (!confirmationMatchesDeliveredSummary(conversationMessages, order)) {
-    return { ok: false, delivered: false, order, validation, retryable: true,
-      reason: "final_confirmation_required", requiredAction: "obtain_final_confirmation",
-      reply: "¿Me confirmas este pedido?" };
+    const pregunta = "¿Me confirmas este pedido?";
+    // Tampoco esta pregunta se repite: si ya se la hizo y contestó, se toma su
+    // respuesta como buena en vez de volver a preguntar.
+    if (!yaSeDijoYRespondio(conversationMessages, pregunta)) {
+      return { ok: false, delivered: false, order, validation, retryable: true,
+        reason: "final_confirmation_required", requiredAction: "obtain_final_confirmation",
+        reply: pregunta };
+    }
   }
   const confirmed = recordConfirmation(callId, order.summaryFingerprint);
   if (!confirmed.ok || !confirmed.order.safeToDispatch || confirmed.order.confirmationFingerprint !== confirmed.order.draftFingerprint) {
@@ -2475,12 +2545,32 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
   const upsellSessionAtTurn = getOrCreateOrderSession(callId);
   if (upsellSessionAtTurn.upsellState === "offered") {
     const answer = lastUserText(incomingMessages);
-    if (esAfirmacionSimple(answer)) {
-      resolveUpsell(callId, "accepted");
-      return { reply: "Perfecto. ¿Qué bebida o complemento quieres añadir?", dispatched: false, action: "upsell_accepted" };
-    }
-    if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos)\b/i.test(answer)) {
+    // "NO" en cualquiera de sus formas: se acabó el upsell y se sigue. Va PRIMERO
+    // porque "no, estoy bien" también contiene un "bien" que parecía afirmación.
+    if (/\b(no|ningun|ninguna|nada|sin|paso|seguimos|as[íi] est[áa] bien|nada m[áa]s)\b/i.test(answer)) {
       resolveUpsell(callId, "rejected");
+    } else if (upsellYaCubierto(upsellSessionAtTurn, incomingMessages)) {
+      resolveUpsell(callId, "accepted");   // ya dijo lo que quería: no se le pregunta otra vez
+    } else if (esAfirmacionSimple(answer)) {
+      // BUG REAL 08-08: a "¿Algo más o lo dejamos así?" el cliente contestó
+      // "Ah, sí, está bien" — que significa CERRAR — y el código respondió
+      // "¿Qué bebida o complemento quieres añadir?", ignorándole.
+      // Un "sí" después de una pregunta de CIERRE es un sí a cerrar.
+      const ultimoAgente = [...(incomingMessages || [])].reverse()
+        .find(m => m && m.role === "assistant" && m.content);
+      const eraPreguntaDeCierre = ultimoAgente &&
+        /(algo m[áa]s|lo dejamos as[íi]|lo cierro|est[áa] todo correcto|confirmas)/i.test(String(ultimoAgente.content));
+      if (eraPreguntaDeCierre) {
+        resolveUpsell(callId, "rejected");
+      } else {
+        const pregunta = "Perfecto. ¿Qué bebida o complemento quieres añadir?";
+        if (yaSeDijoYRespondio(incomingMessages, pregunta)) {
+          resolveUpsell(callId, "rejected");   // una pregunta, una vez
+        } else {
+          resolveUpsell(callId, "accepted");
+          return { reply: pregunta, dispatched: false, action: "upsell_accepted" };
+        }
+      }
     }
   }
 
@@ -2510,6 +2600,36 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         extra += " OJO, SON DOS COSAS DISTINTAS: (a) si pide QUITAR EL INGREDIENTE del plato (\"quítale los langostinos\", \"sin gambas\") es una modificación de COCINA: añade el modificador \"sin [ingrediente]\", dile que se lo preparan así y SIGUE con el pedido. Su alergia NO se toca, sigue en su ficha. (b) SOLO si dice EXPRESAMENTE que ya no es alérgico o que estaba mal apuntada, llama a eliminar_alergia_guardada. Confundir (a) con (b) le borra un dato de seguridad: ante la duda, trátalo como (a).";
       }
       messages.push({ role: "system", content: extra });
+    }
+  } catch (_) {}
+
+  // AVISO DE ALÉRGENO, DETERMINISTA Y EN CADA TURNO.
+  // BUG REAL 08-08: el cliente pidió una Abruzzo (lleva langostinos) teniendo
+  // "marisco" en ficha y Sarah NO dijo nada, porque el aviso solo se generaba
+  // dentro de calcular_total y el modelo no llegó a llamarla. El aviso no puede
+  // depender de que el modelo se acuerde de usar una herramienta.
+  try {
+    const s = getOrCreateOrderSession(callId);
+    const alergiasVigentes = [
+      ...((s.registeredRestrictions && s.registeredRestrictions.allergies) || []),
+      ...(s.allergies || [])
+    ].filter(Boolean);
+    const platos = (s.draftItems && s.draftItems.length) ? s.draftItems : s.items;
+    if (alergiasVigentes.length && platos && platos.length) {
+      const cruce = crossCheckAllergens({ items: platos, allergies: alergiasVigentes });
+      const pendientes = (cruce.allergenConflicts || []).filter(c => c && c.status === "pending");
+      if (pendientes.length) {
+        messages.push({ role: "system", content:
+          "ALÉRGENO EN EL PEDIDO — AVÍSALE AHORA, en este turno, antes de seguir: " +
+          pendientes.map(c =>
+            "la " + (c.itemName || "pizza") + " lleva " + (c.component || c.allergenLabel) +
+            " y él tiene apuntada alergia a " + (c.declaredAs || c.allergenLabel) +
+            (c.classification === "removable"
+              ? ". Ofrécele quitárselo: \"te la preparo sin " + (c.component || "ese ingrediente") + "\""
+              : ". Va en la base o la salsa: ofrécele sustituirla por una alternativa sin ese alérgeno, o recomiéndale otro plato")
+          ).join("; ") +
+          ". DECIDE ÉL: si dice que lo quiere igual, se lo tomas y lo confirmas sin insistir. Si te pide quitarlo, se lo quitas, SE LO DICES y SIGUES con el pedido — eso NO borra su alergia de la ficha. Avisa UNA vez: si ya lo has avisado en esta llamada, no lo repitas." });
+      }
     }
   } catch (_) {}
   // INVARIANTE DE UPSELLING (determinista, por ESTADO DE SESI\u00d3N): exactamente una
@@ -2824,6 +2944,7 @@ module.exports = {
   categoriasEnPedido,
   deterministicUpsellOffer,
   mensajeDeBloqueo,
+  yaSeDijoYRespondio,
   alergiaEsDeTercero,
   detectRemovedAllergies,
   upsellYaCubierto,

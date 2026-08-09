@@ -92,11 +92,14 @@ test("la frase de bebida es la CANÓNICA del contrato del prompt", () => {
   assert.strictEqual(deterministicUpsellOffer(pedido("starters"), []), "¿Te pongo algo de beber?");
 });
 
-test("la oferta ya no menciona las tres categorías a la vez", () => {
+test("la oferta no enumera el menú entero (el postre queda para después)", () => {
+  // REGLA DEL OWNER (08-08): una sola pregunta que cubra picar Y beber. Antes
+  // eran dos rondas y el cliente tenía que decir "no" dos veces. Lo que sigue
+  // prohibido es soltarle las TRES categorías de golpe.
   const frase = deterministicUpsellOffer(pedido("pizza_rossa"), []);
-  const menciones = ["bebida|beber", "postre", "entrante|picar"]
-    .filter(rx => new RegExp(rx, "i").test(frase)).length;
-  assert.strictEqual(menciones, 1, "sigue soltando el menú entero: " + frase);
+  assert.ok(/picar/i.test(frase) && /beber/i.test(frase),
+    "la oferta ya no cubre picar y beber a la vez: " + frase);
+  assert.ok(!/postre/i.test(frase), "suelta el menú entero: " + frase);
 });
 
 // ── El prompt refleja la misma regla ───────────────────────────────────────

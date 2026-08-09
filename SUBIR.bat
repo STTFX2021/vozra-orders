@@ -10,7 +10,7 @@ echo ============================================================
 echo.
 
 echo --- 1/4 TESTS DE LAS ULTIMAS LLAMADAS ---
-for %%F in (test-alergia-ficha-vs-plato-20260808.cjs test-bucle-upsell-20260807.cjs test-llamadas-20260806.cjs test-upsell-cascada-20260806.cjs) do (
+for %%F in (test-si-no-y-aviso-20260808.cjs test-alergia-ficha-vs-plato-20260808.cjs test-bucle-upsell-20260807.cjs test-llamadas-20260806.cjs test-upsell-cascada-20260806.cjs) do (
   if exist "%%F" (
     call node "%%F"
     if errorlevel 1 goto :fallo
