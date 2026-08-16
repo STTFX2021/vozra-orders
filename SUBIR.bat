@@ -9,7 +9,14 @@ echo  CARPETA: %CD%
 echo ============================================================
 echo.
 
-echo --- 1/4 TESTS DE LAS ULTIMAS LLAMADAS ---
+echo --- 1/4a LLAMADAS COMPLETAS (conversacionales) ---
+for %%F in (test-conversacional-*.cjs) do (
+  call node "%%F"
+  if errorlevel 1 goto :fallo
+)
+echo.
+
+echo --- 1/4b TESTS DE LAS ULTIMAS LLAMADAS ---
 for %%F in (test-si-no-y-aviso-20260808.cjs test-alergia-ficha-vs-plato-20260808.cjs test-bucle-upsell-20260807.cjs test-llamadas-20260806.cjs test-upsell-cascada-20260806.cjs) do (
   if exist "%%F" (
     call node "%%F"

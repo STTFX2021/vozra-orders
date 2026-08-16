@@ -28,7 +28,7 @@ const { buildTextTicket } = require("./kitchen-ticket-builder.service.js");
 const { enqueuePrint } = require("./print-queue.store.js");
 const { getProvider, getKitchenStatus } = require("./provider-profile.config.js");
 const { sendCustomerConfirmation } = require("./customer-notify.service.js");
-const { upsertOrder, countIncidentsByPhone } = require("./supabase-store.js");
+const { upsertOrder, countIncidentsByPhone, findOrdersByPhone } = require("./supabase-store.js");
 const { getCustomerByPhone, upsertCustomer, updateCustomerAllergies } = require("./customer-store.js");
 const { checkDeliveryAddress } = require("./delivery-zone.service.js");
 const { applyPromotions, listActivePromotions } = require("./promotions.service.js");
@@ -494,6 +494,8 @@ Tomar el pedido correcto, completo y seguro, confirmarlo UNA vez y enviarlo a co
 - NO preguntes por opciones que el cliente no ha pedido (tipo de base, tamaños, extras): asume siempre lo estándar y sigue. Solo preguntas por una variante si el cliente la menciona o si es imprescindible para completar el pedido.
 - ANTI-BUCLE GENERAL: NUNCA repitas la misma pregunta dos veces seguidas. Si tras preguntar una vez el cliente no lo aclara, toma la opción por defecto más razonable y CONTINÚA con el pedido; el cliente podrá corregirte. Nunca te quedes atascada insistiendo en lo mismo.
 - Frases cortas, una pregunta cada vez. Habla como una persona, no como un menú.
+- EL NOMBRE, CON MEDIDA: di su nombre SOLO al reconocerle al principio y al despedirte. En medio de la conversación NO lo uses: "Perfecto, Samuel" en cada frase suena a robot y cansa. Regla del dueño (09-08).
+- CUANDO TE DAN UN DATO, DA LAS GRACIAS Y SIGUE: si te acaba de decir la dirección, el teléfono o lo que sea, NO se lo repitas de vuelta ni le pidas que te lo confirme. Un "gracias" corto y al siguiente paso.
 - NO repitas cada plato según lo apuntas. Toma el pedido con fluidez y confirma UNA sola vez al final.
 - NO recites los ingredientes de un plato cuando el cliente lo pide. Simplemente anótalo y sigue ("Marchando.", "Vale, anotado."). Solo dices los ingredientes si el cliente PREGUNTA por ellos ("¿qué lleva?", "¿qué tiene?", "¿cuáles son los ingredientes?", "¿lleva X?" o cualquier expresión parecida); entonces sí los enumeras con claridad. La ÚNICA excepción es una alerta de alérgeno (ver SEGURIDAD POR ALÉRGENOS): si el cliente ha declarado alergia, avisas del ingrediente peligroso aunque no pregunte.
 - ALTERNATIVAS NATURALES permitidas: "Perfecto.", "Vale.", "Marchando.", "Hecho.", "Genial.", "Estupendo.", "Claro.", "Muy bien.", "De acuerdo.", "Anotado.", "Listo.", "Sin problema.", "Te lo apunto.", "Queda cambiado." o "Vamos con ello.".
@@ -1117,7 +1119,7 @@ function computeQuote(args, conversationMessages = [], callId = null) {
   // Sin total no hay resumen autorizado. El modelo recibe la acción requerida,
   // pero el estado y el bloqueo los decide el código.
   if (!quoteValidation.ok) {
-    return {
+    const parcial = {
       ok: false,
       total_eur: null,
       informationalOnly,
@@ -1125,6 +1127,32 @@ function computeQuote(args, conversationMessages = [], callId = null) {
       errors: quoteValidation.errors,
       allergenConflicts: authority.allergenConflicts.filter(conflict => conflict.status === "pending")
     };
+    // LOS AVISOS NO ESPERAN AL TOTAL. Al principio de una llamada todavía no se
+    // sabe si es domicilio o recogida, así que el quote sale inválido — pero el
+    // cliente YA ha pedido la burrata o ya consta su alergia. Si los avisos se
+    // quedan aquí dentro, no se le dice nada hasta mucho después (o nunca).
+    // Avisar del sobrecoste o de un alérgeno no depende de saber el tipo de pedido.
+    try {
+      const sup = (deterministicQuote(items, args) || {}).surcharges || [];
+      if (sup.length) {
+        parcial.suplementos = sup;
+        parcial.aviso_suplementos = "AVISA al cliente del importe de estos suplementos ANTES de confirmar: " +
+          sup.map(s => s.extra + " +" + s.importe_eur + " euros").join("; ") + ".";
+      }
+    } catch (_) {}
+    if (parcial.allergenConflicts.length) {
+      parcial.allergenAdvisory = parcial.allergenConflicts;
+      parcial.aviso_alergeno = "ADVIERTE UNA vez y ASESORA, sin bloquear el pedido: " +
+        parcial.allergenConflicts.map(c =>
+          "la " + (c.itemName || "pizza") + " lleva " + (c.component || c.allergenLabel) +
+          " y consta alergia a " + (c.declaredAs || c.allergenLabel) +
+          (c.classification === "removable"
+            ? " (se puede quitar: ofrécele quitarlo)"
+            : " (no se puede quitar: recomiéndale otro plato)")
+        ).join("; ") +
+        ". DECIDE EL CLIENTE: si dice que lo quiere así, se lo tomas y lo confirmas sin insistir.";
+    }
+    return parcial;
   }
 
   const calculated = deterministicQuote(items, args);
@@ -1574,7 +1602,11 @@ const _INTENCIONES = {
   telefono:     /(tel[ée]fono de contacto|me (?:das|dices) (?:un )?tel[ée]fono|n[úu]mero de contacto)/i,
   nombre:       /(a nombre de qui[ée]n|c[óo]mo te llamas|me (?:das|dices) tu nombre)/i,
   direccion:    /(a qu[ée] direcci[óo]n|d[íi]me la direcci[óo]n|me (?:das|dices) la direcci[óo]n|direcci[óo]n (?:completa|de entrega|para el domicilio)|te lo llev[oe] a|la de siempre)/i,
-  sugerencia:   /(algo (?:m[áa]s|para picar|de beber|dulce)|un entrante|para compartir|te apetece|te pongo algo|a[ñn]adir algo|alg[uú]n postre|quieres que te (?:ponga|sugiera)|lo dejamos as[íi]|lo cierro)/i
+  // OJO: "¿qué te apetece pedir?" es la pregunta de QUÉ QUIERE, no una sugerencia.
+  // Marcarla como sugerencia (bug del 09-08) daba el upsell por ofrecido antes de
+  // que hubiera pedido nada, y su "sí, quiero un Abruzzo" se leía como "sí, añade
+  // algo" → "¿Qué bebida o complemento quieres añadir?" sin venir a cuento.
+  sugerencia:   /(algo (?:m[áa]s|para picar|de beber|dulce)|un entrante|para compartir|te apetece (?:algo|un|una)|te pongo algo|a[ñn]adir algo|alg[uú]n postre|quieres que te (?:ponga|sugiera)|lo dejamos as[íi]|lo cierro)/i
 };
 
 function intencionDelTurno(texto) {
@@ -1588,12 +1620,18 @@ function intencionDelTurno(texto) {
  * ¿Esa intención ya se cubrió y el cliente contestó? Si sí, no se repite.
  * Vale igual para lo que emite el backend y para lo que se inventa el modelo.
  */
+// Una intención puede quedar cubierta por OTRA que la implica. Si el cliente ya
+// ha confirmado a qué dirección se le lleva el pedido, preguntarle después si es
+// para recoger es absurdo — pasó en la llamada de la reposición del 08-08.
+const _IMPLICA = { tipo_entrega: ["direccion"] };
+
 function intencionYaCubierta(incomingMessages, intencion) {
   if (!intencion) return false;
+  const equivalentes = [intencion, ...(_IMPLICA[intencion] || [])];
   const ms = (incomingMessages || []).filter(m => m && m.content);
   for (let i = 0; i < ms.length; i++) {
     if (ms[i].role !== "assistant") continue;
-    if (intencionDelTurno(ms[i].content) !== intencion) continue;
+    if (!equivalentes.includes(intencionDelTurno(ms[i].content))) continue;
     for (let j = i + 1; j < ms.length; j++) {
       if (ms[j].role !== "user") continue;
       if (String(ms[j].content || "").replace(/[^\p{L}\p{N}]/gu, "").trim()) return true;
@@ -1699,12 +1737,11 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
   // ("No puedo enviar el pedido todavía…"). Una incidencia que el cliente nunca
   // ha planteado no puede costarle una venta al local: si en la conversación no
   // hay ni rastro de queja, se descarta el campo y el pedido sigue su curso.
-  if (args.incidencia && !quejaDePedidoEntregado(conversationMessages)) {
-    console.warn("[INCID] incidencia descartada: sin queja en la conversación | call=" + callId);
-    args = { ...args, incidencia: null };
-  }
   // Fail-closed económico: una incidencia nunca convierte el pedido en gratuito
   // si el restaurante no lo ha autorizado explícitamente en su perfil.
+  // VA PRIMERO: si el local no autoriza reposiciones, cualquier incidencia se
+  // deriva al encargado, haya o no rastro de queja. Descartarla antes dejaba el
+  // pedido seguir como uno normal y se saltaba esta puerta.
   if (args.incidencia && !freeReplacementAuthorized()) {
     return {
       ok: false,
@@ -1715,6 +1752,17 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
       retryable: false,
       reason: "free_replacement_not_authorized"
     };
+  }
+  // BUG REAL 07-08: el modelo rellenó `incidencia` en DOS llamadas en las que el
+  // cliente solo estaba pidiendo la cena, y el pedido se abortaba ("No puedo
+  // enviar el pedido todavía…"). Una incidencia que nadie ha planteado no puede
+  // costarle una venta al local: si en la conversación no hay ni rastro de queja,
+  // se descarta el campo y el pedido sigue su curso.
+  // VA DESPUÉS del fail-closed: primero se comprueba la autorización económica,
+  // porque con reposiciones NO autorizadas toda incidencia debe ir al encargado.
+  if (args.incidencia && !quejaDePedidoEntregado(conversationMessages)) {
+    console.warn("[INCID] incidencia descartada: sin queja en la conversación | call=" + callId);
+    args = { ...args, incidencia: null };
   }
   // Cliente YA reconocido en esta llamada (por caller ID o buscar_cliente): su
   // perfil ya existe con consentimiento previo. PROHIBIDO re-guardar o re-preguntar.
@@ -2114,6 +2162,175 @@ function buildModelMessages(provider, incomingMessages, profile = null) {
 // entrecomilladas o con puntos suspensivos tipo "Entiendo...", "¡Claro!.") antes de
 // enviarla a ElevenLabs. No toca respuestas normales (probado). Belt-and-suspenders
 // por si el modelo se salta la regla del prompt.
+// ─── "LO MISMO DE SIEMPRE" ───────────────────────────────────────────────────
+/**
+ * BUG REAL 08-09. Un habitual llamó pidiendo reposición y dijo "quiero lo mismo".
+ * Sarah no sabe qué es "lo mismo": no consulta el pedido anterior. La llamada se
+ * quedó dando vueltas y —lo peor— sin productos concretos NO HAY NADA QUE CRUZAR
+ * CONTRA SUS ALERGIAS, así que tampoco le avisó de los langostinos.
+ *
+ * Es la frase más natural del mundo en una pizzería de barrio: "ponme lo de
+ * siempre". Si Sarah no la entiende, no parece que conozca al cliente.
+ */
+const _RX_LO_MISMO = /\b(lo\s+mismo(?:\s+(?:de\s+siempre|que\s+(?:siempre|la\s+[uú]ltima|el\s+otro\s+d[íi]a)))?|lo\s+de\s+siempre|(?:mi|el)\s+pedido\s+(?:habitual|de\s+siempre)|(?:como|igual\s+que)\s+(?:siempre|la\s+[uú]ltima\s+vez|el\s+otro\s+d[íi]a)|lo\s+de\s+(?:ayer|la\s+[uú]ltima\s+vez|siempre))\b/i;
+
+// "Es lo mismo QUE TE HE DICHO antes" no pide su pedido habitual: está aclarando
+// algo de esta misma llamada. Lo peor que pasaría es leerle un pedido viejo que
+// no viene a cuento, pero se afina igual.
+const _RX_LO_MISMO_FALSO = /lo\s+mismo\s+que\s+(?:te\s+)?(?:he\s+dicho|dije|acabo|estoy)/i;
+
+function pidioLoMismo(incomingMessages) {
+  const t = lastUserText(incomingMessages);
+  if (_RX_LO_MISMO_FALSO.test(t)) return false;
+  return _RX_LO_MISMO.test(t);
+}
+
+/**
+ * Recupera el último pedido REAL del cliente y lo deja legible para el modelo.
+ * Devuelve null si no hay historial (cliente nuevo, o Supabase caído): en ese
+ * caso Sarah pregunta con naturalidad, nunca se inventa un pedido.
+ */
+async function ultimoPedidoDe(phone) {
+  if (!phone) return null;
+  try {
+    const r = await findOrdersByPhone(phone, 3);
+    if (!r || !r.ok || !Array.isArray(r.orders) || !r.orders.length) return null;
+    // El más reciente que llegara a cocina de verdad.
+    const bueno = r.orders.find(o => o && Array.isArray(o.items) && o.items.length) || null;
+    if (!bueno) return null;
+    const items = bueno.items.map(i => ({
+      menu_item_id: i.id || i.menu_item_id || null,
+      quantity: i.quantity || 1,
+      displayName: i.displayName || i.name || i.menu_item_id || "producto",
+      modifiers: i.modifiers || []
+    })).filter(i => i.menu_item_id);
+    if (!items.length) return null;
+    return {
+      fecha: String(bueno.created_at || "").slice(0, 10),
+      items,
+      texto: items.map(i => (i.quantity > 1 ? i.quantity + " " : "") + i.displayName).join(", ")
+    };
+  } catch (e) {
+    console.error("[LO-MISMO] no se pudo leer el historial | " + e.message);
+    return null;
+  }
+}
+
+// ─── NÚMEROS HABLADOS ────────────────────────────────────────────────────────
+// Sarah dice los importes en letras ("treinta y dos euros"), así que para poder
+// vigilar lo que sale por la voz hay que saber leerlos.
+const _NUM_ES = {
+  cero:0, un:1, uno:1, una:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7,
+  ocho:8, nueve:9, diez:10, once:11, doce:12, trece:13, catorce:14, quince:15,
+  dieciseis:16, diecisiete:17, dieciocho:18, diecinueve:19, veinte:20,
+  veintiuno:21, veintiuna:21, veintidos:22, veintitres:23, veinticuatro:24,
+  veinticinco:25, veintiseis:26, veintisiete:27, veintiocho:28, veintinueve:29,
+  treinta:30, cuarenta:40, cincuenta:50, sesenta:60, setenta:70, ochenta:80,
+  noventa:90, cien:100, ciento:100, doscientos:200, trescientos:300,
+  cuatrocientos:400, quinientos:500
+};
+const _NUM_ES_PATRON = Object.keys(_NUM_ES).join("|") + "|y";
+
+/** "treinta y dos euros con cincuenta" → 32.5 · "17,50 euros" → 17.5 · si no, null */
+function importeHablado(texto) {
+  const t = String(texto || "").toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const cifra = t.match(/(\d{1,3})(?:[.,](\d{1,2}))?\s*(?:€|euros?)/);
+  if (cifra) {
+    const cent = cifra[2] ? Number((cifra[2] + "0").slice(0, 2)) : 0;
+    return Number(cifra[1]) + cent / 100;
+  }
+  const partes = t.split(/\s+con\s+/);
+  const suma = txt => {
+    const pal = txt.replace(/[^a-z\s]/g, " ").split(/\s+/).filter(w => w && w !== "y");
+    if (!pal.length || !pal.every(w => w in _NUM_ES)) return null;
+    return pal.reduce((a, w) => a + _NUM_ES[w], 0);
+  };
+  const enteros = suma(partes[0].replace(/\s*euros?\s*/g, " "));
+  if (enteros == null) return null;
+  const cents = partes[1] != null ? suma(partes[1].replace(/\s*c[eé]ntimos?\s*/g, " ")) : 0;
+  return enteros + (cents || 0) / 100;
+}
+
+/**
+ * GUARDIÁN DE SALIDA — lo que sale por la voz lo decide EL CÓDIGO, no el modelo.
+ *
+ * "Se buscó el fallo, que era que teníamos que endurecer las reglas e incorporarlas
+ *  en el runtime, para que la LLM de gpt-4.1-mini no pueda decidir qué regla aplica
+ *  o no: simplemente nuestra LLM customizada decide todo."          — sam, 09-08
+ *
+ * Hasta ahora el backend decidía CUÁNDO se puede avanzar, pero no QUÉ se dice. El
+ * modelo redactaba libre y a veces se saltaba las reglas del prompt. Prueba
+ * irrefutable, caso real 09-08: el código calculó 17,50 € (Abruzzo 15 + Coca-Cola
+ * 2,50) y por la voz salió "El total es treinta y dos euros". No fue un fallo de
+ * cálculo: el modelo se lo inventó.
+ *
+ * Este guardián corrige la respuesta ANTES del TTS:
+ *   1. Un importe que no cuadra con el total calculado → se corrige o se calla.
+ *   2. Una pregunta cuya intención YA está cubierta → se elimina.
+ *   3. Con el pedido ya despachado → solo pasa la despedida.
+ */
+function guardianDeSalida(texto, callId, incomingMessages) {
+  let t = String(texto || "");
+  if (!t.trim()) return t;
+  let order = null;
+  try { order = getOrCreateOrderSession(callId); } catch (_) { return t; }
+  if (!order) return t;
+
+  // ── 1. NINGÚN IMPORTE QUE NO VENGA DEL CÓDIGO ────────────────────────────
+  // El total solo puede ser el que calculó deterministicQuote. Si el modelo dice
+  // otro, se sustituye; y si aún no hay total calculado, no se dice ninguno.
+  //
+  // OJO: hay que cazarlo EN LETRAS. Sarah habla, no escribe: el caso real fue
+  // "El total es TREINTA Y DOS euros" con 17,50 calculado. Un guardián que solo
+  // mirase dígitos no habría servido para nada.
+  const real = order.quotedTotal != null ? order.quotedTotal
+             : (order.estimatedTotal != null ? order.estimatedTotal : null);
+  const rxImporte = new RegExp(
+    "((?:\\d{1,3}(?:[.,]\\d{1,2})?|(?:" + _NUM_ES_PATRON + ")(?:\\s+(?:" + _NUM_ES_PATRON + "))*)" +
+    "\\s*(?:€|euros?)(?:\\s+con\\s+(?:\\d{1,2}|(?:" + _NUM_ES_PATRON + ")(?:\\s+(?:" + _NUM_ES_PATRON + "))*))?)", "gi");
+  t = t.replace(rxImporte, (bloque) => {
+    const dicho = importeHablado(bloque);
+    if (dicho == null) return bloque;
+    if (real == null) {
+      console.warn("[SALIDA] importe inventado sin total calculado | call=" + callId + " | dijo=" + dicho);
+      return "";
+    }
+    if (Math.abs(dicho - real) < 0.01) return bloque;
+    console.warn("[SALIDA] importe corregido | call=" + callId + " | dijo=" + dicho + " | real=" + real);
+    return formatEurosSpoken(real);
+  });
+
+  // ── 2. NADA DE PREGUNTAS YA RESPONDIDAS ──────────────────────────────────
+  // Se trocea en frases y se cae cualquier pregunta cuya intención ya se cubrió.
+  const frases = t.split(/(?<=[.?!])\s+/).filter(Boolean);
+  const quedan = frases.filter(f => {
+    if (!/\?/.test(f)) return true;                       // solo se filtran preguntas
+    const intencion = intencionDelTurno(f);
+    if (!intencion || intencion === "resumen") return true;
+    if (!intencionYaCubierta(incomingMessages, intencion)) return true;
+    console.warn("[SALIDA] pregunta repetida eliminada (" + intencion + ") | call=" + callId);
+    return false;
+  });
+  // Si al filtrar no queda nada es que TODO el turno era una pregunta ya
+  // respondida — el caso más común, no la excepción: "¿Quieres que te lo lleve a
+  // domicilio o prefieres recogerlo?" después de haber confirmado la dirección.
+  // Antes esto no se filtraba (solo se miraba si había más de una frase) y por eso
+  // seguía saliendo por la voz.
+  t = quedan.length ? quedan.join(" ") : "Perfecto, seguimos.";
+
+  // ── 3. DESPACHADO = SE ACABÓ ─────────────────────────────────────────────
+  // Con el pedido ya en cocina no se resume, ni se sugiere, ni se pregunta nada:
+  // caso real 09-08, siguió hablando tres turnos DESPUÉS de "va a cocina".
+  if (["dispatched", "farewell_sent", "ended"].includes(order.closureState)) {
+    if (/^resumen[:\s]/i.test(t.trim()) || intencionDelTurno(t) === "sugerencia") {
+      console.warn("[SALIDA] turno post-despacho silenciado | call=" + callId);
+      return "¿Necesitas algo más?";
+    }
+  }
+  return t.replace(/\s{2,}/g, " ").trim();
+}
+
 function sanitizeReply(text) {
   if (!text) return text;
   const original = String(text).trim();
@@ -2286,11 +2503,21 @@ const _RX_PROBLEMA = /(fri[ao]s?|destroza|reventad|machacad|aplastad|derramad|vo
 // reposición gratuita. Dos llamadas reales las produjeron:
 //   "Eh, no, no hace falta."      (rechazando un entrante)
 //   "Vale, ¿qué dato te falta?"   (preguntando qué le faltaba a Sarah)
-const _RX_FALTA_INOCENTE = /(hac[eií]a?\s+falta|hace\s+falta|te\s+falta|me\s+falta\s+(?:por|el\s+tel|un\s+dato)|qu[eé]\s+dato|alg[uú]n\s+dato)/;
+const _RX_FALTA_INOCENTE = /(hac[eií]a?\s+falta|hace\s+falta|te\s+falta|me\s+falta\s+(?:por|el\s+tel|un\s+dato)|qu[eé]\s+(?:me\s+)?falta|qu[eé]\s+dato|alg[uú]n\s+dato)/;
 
 // La marca de que el pedido YA se entregó. Sin esto no hay queja posible: un
 // pedido que todavía se está tomando no ha podido llegar mal.
-const _RX_YA_ENTREGADO = /(me\s+ha\s+llegado|me\s+lleg[oó]|nos\s+ha\s+llegado|me\s+llegaron|me\s+trajeron|me\s+han\s+tra[ií]do|me\s+lo\s+trajo|acabo\s+de\s+recibir|he\s+recibido|el\s+repartidor|la\s+moto|el\s+pedido\s+de\s+(?:ayer|anoche|antes|hoy|esta\s+noche)|el\s+pedido\s+que\s+(?:hice|ped[ií])|lo\s+que\s+ped[ií]\s+(?:ayer|anoche|antes))/;
+// Señal de que el pedido YA se entregó. OJO: tiene que cubrir tanto "ME ha
+// llegado" como "EL PEDIDO ha llegado" — la segunda forma se quedó fuera en la
+// reescritura del 08-08 y dejó de detectarse "el pedido ha llegado frío", que es
+// una queja de manual.
+const _RX_YA_ENTREGADO = /((?:me|nos|le)\s+(?:ha[n]?\s+)?lleg[oóa]|(?:el\s+)?pedido\s+(?:ha\s+)?lleg[oóa]|(?:la\s+)?(?:comida|cena|pizza|pasta)\s+(?:ha\s+)?lleg[oóa]|ha\s+llegado|lleg[oó]\s+(?:fri|mal|tarde|destroz|rot)|me\s+trajeron|me\s+han\s+tra[ií]do|me\s+lo\s+trajo|acabo\s+de\s+recibir|he\s+recibido|el\s+repartidor|la\s+moto|el\s+pedido\s+de\s+(?:ayer|anoche|antes|hoy|esta\s+noche)|el\s+pedido\s+que\s+(?:hice|ped[ií])|lo\s+que\s+ped[ií]\s+(?:ayer|anoche|antes)|(?:del|en\s+el)\s+pedido|\b(?:ven[ií]an?|vino|vinieron|estaba|estaban|sab[ií]a)\b)/;
+// Los verbos en PASADO ("la pizza VENÍA aplastada", "la comida ESTABA cruda")
+// también dicen que ya se entregó. No hay riesgo de falso positivo: la función
+// exige ADEMÁS una palabra de problema, y "estaba pensando en pedir" no la tiene.
+// "del pedido" cuenta como entrega: "me falta una pizza DEL PEDIDO" solo se dice
+// de algo que ya te han traído. Las preguntas ("¿qué falta del pedido?") quedan
+// fuera por _RX_FALTA_INOCENTE.
 
 /**
  * ¿El cliente se está quejando de un pedido YA ENTREGADO que llegó mal?
@@ -2699,6 +2926,32 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     }
   } catch (_) {}
 
+  // ─── "PONME LO DE SIEMPRE" ──────────────────────────────────────────────────
+  // Se resuelve contra su último pedido REAL. Sin productos concretos no se puede
+  // cruzar nada contra sus alergias: por eso el 08-09 no le avisó de los langostinos.
+  try {
+    if (pidioLoMismo(incomingMessages)) {
+      const s = getOrCreateOrderSession(callId);
+      const tel = s.registeredPhone || s.phone || phoneFromHistory(incomingMessages) || callerPhone;
+      const anterior = await ultimoPedidoDe(tel);
+      if (anterior) {
+        try { updateOrderSession(callId, { pedidoAnterior: anterior.items }); } catch (_) {}
+        messages.push({ role: "system", content:
+          "HA PEDIDO \"LO MISMO\". Su último pedido" +
+          (anterior.fecha ? " (" + anterior.fecha + ")" : "") + " fue: " + anterior.texto + ". " +
+          "DÍSELO y pídele que lo confirme: \"La última vez pediste " + anterior.texto +
+          ". ¿Te pongo lo mismo?\". Si dice que sí, anota ESOS productos y sigue el flujo normal " +
+          "(incluido el cruce con sus alergias). Si quiere cambiar algo, parte de ahí. " +
+          "PROHIBIDO inventarte lo que pidió." });
+      } else {
+        messages.push({ role: "system", content:
+          "HA PEDIDO \"LO MISMO\" pero NO hay un pedido anterior que consultar. " +
+          "Dilo con naturalidad y pídele que te lo diga (\"Pues no me sale tu último pedido, " +
+          "¿qué te pongo?\"). PROHIBIDO inventarte un pedido anterior." });
+      }
+    }
+  } catch (_) {}
+
   // ─── LO QUE YA SABES ────────────────────────────────────────────────────────
   // Todos los fallos del 08/09-08 son el MISMO fallo: Sarah vuelve a preguntar algo
   // que ya tiene. La dirección que el cliente acaba de dictar, si es domicilio
@@ -3030,7 +3283,15 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     }
 
     // 3) Texto normal
-    const reply = stripConsentIfRegistered(sanitizeReply((msg && msg.content && msg.content.trim()) ? msg.content.trim() : "Perdona, ¿me lo repites? No te he entendido bien."), callId);
+    // El guardián va ANTES de sanitizeReply: primero se corrige el CONTENIDO
+    // (importes inventados, preguntas ya respondidas, turnos post-despacho) y
+    // después se limpia la FORMA (muletillas). Este es el único punto por el que
+    // sale texto redactado libremente por el modelo.
+    const bruto = (msg && msg.content && msg.content.trim())
+      ? msg.content.trim()
+      : "Perdona, ¿me lo repites? No te he entendido bien.";
+    const reply = stripConsentIfRegistered(
+      sanitizeReply(guardianDeSalida(bruto, callId, incomingMessages)), callId);
     // Si en ESTA respuesta se ha hecho la oferta de upselling, persistir el flag en
     // sesión para que el próximo turno no vuelva a ofrecer (una sola vez por pedido).
     try { if (_upsellSession && upsellAlreadyOffered([{ role: "assistant", content: reply }])) _upsellSession.upsellOffered = true; } catch (_) {}
@@ -3065,6 +3326,10 @@ module.exports = {
   yaSeDijoYRespondio,
   intencionDelTurno,
   intencionYaCubierta,
+  guardianDeSalida,
+  importeHablado,
+  pidioLoMismo,
+  ultimoPedidoDe,
   alergiaEsDeTercero,
   detectRemovedAllergies,
   upsellYaCubierto,

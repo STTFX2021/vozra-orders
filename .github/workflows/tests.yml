@@ -44,12 +44,27 @@ jobs:
       - name: Suite completa
         run: npm test
 
+      # Llamadas COMPLETAS, turno a turno, siguiendo docs/FLUJO_CANONICO.md.
+      # Un cliente que declara una alergia, cuelga, y vuelve a llamar días después:
+      # aquí se ve si la recuerda, si advierte y si le ofrece la alternativa.
+      - name: Llamadas completas (conversacionales)
+        run: |
+          fail=0
+          for t in test-conversacional-*.cjs; do
+            [ -f "$t" ] || continue
+            echo "── $t"
+            node "$t" || fail=1
+          done
+          exit $fail
+
       # Los tests nacidos de llamadas reales. Cada uno reproduce un fallo que un
       # cliente sufrió de verdad al teléfono.
       - name: Tests de llamadas reales
         run: |
           fail=0
-          for t in test-si-no-y-aviso-*.cjs \
+          for t in test-total-y-cierre-*.cjs \
+                   test-lo-que-ya-sabes-*.cjs \
+                   test-si-no-y-aviso-*.cjs \
                    test-alergia-ficha-vs-plato-*.cjs \
                    test-bucle-upsell-*.cjs \
                    test-llamadas-*.cjs \

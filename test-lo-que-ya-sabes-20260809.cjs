@@ -58,6 +58,23 @@ test("CASO REAL: tras contestar a la primera, la segunda ya está cubierta", () 
     "vuelve a sugerirle después de que haya dicho que no");
 });
 
+test("CASO REAL: '¿qué te apetece pedir?' NO es una sugerencia", () => {
+  // Bug del 09-08: se marcaba como upsell ofrecido antes de que el cliente
+  // hubiera pedido nada, y su "sí, me gustaría un Abruzzo" se leía como
+  // "sí, añádeme algo" → "¿Qué bebida o complemento quieres añadir?".
+  for (const f of [
+    "¿Quieres empezar a decirme qué te apetece pedir?",
+    "¿Qué te apetece pedir?",
+    "Muy bien, ¿qué te gustaría pedir?"
+  ]) assert.notStrictEqual(intencionDelTurno(f), "sugerencia",
+       "confunde la pregunta del pedido con un upsell: " + f);
+});
+
+test("pero '¿te apetece un postre?' SÍ es sugerencia", () => {
+  assert.strictEqual(intencionDelTurno("¿Te apetece un postre para rematar?"), "sugerencia");
+  assert.strictEqual(intencionDelTurno("¿Te apetece algo dulce?"), "sugerencia");
+});
+
 test("sin respuesta del cliente, la sugerencia NO cuenta como hecha", () => {
   assert.strictEqual(
     intencionYaCubierta([A("¿Te pongo algo de beber?")], "sugerencia"), false);
