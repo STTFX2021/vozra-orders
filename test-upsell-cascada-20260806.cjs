@@ -79,11 +79,23 @@ test("si el item no trae categoría, se lee de lo que dijo el cliente", () => {
 
 // ── Las frases ─────────────────────────────────────────────────────────────
 test("cada categoría tiene su frase y NO enumera productos", () => {
-  assert.ok(/picar|entrante/i.test(deterministicUpsellOffer(pedido("pizza_rossa"), [])));
-  assert.ok(/beber/i.test(deterministicUpsellOffer(pedido("starters"), [])));
-  assert.ok(/postre/i.test(deterministicUpsellOffer(pedido("starters", "beverages"), [])));
-  // No debe listar marcas ni productos concretos en bebida
-  assert.ok(!/coca|cola|fanta|cerveza/i.test(deterministicUpsellOffer(pedido("starters"), [])));
+  // 16-08: la frase del hueco ENTRANTE ya NO dice "picar/entrante". El owner la
+  // cambió a la canónica de una sola pregunta ("...una bebida o un postre"),
+  // así que aquí se comprueba lo que de verdad es invariante: que cada hueco
+  // devuelve una frase propia, distinta, y que ninguna enumera marcas.
+  const fEntrante = deterministicUpsellOffer(pedido("pizza_rossa"), []);
+  const fBebida   = deterministicUpsellOffer(pedido("starters"), []);
+  const fPostre   = deterministicUpsellOffer(pedido("starters", "beverages"), []);
+
+  assert.ok(/bebida.*postre/i.test(fEntrante), "el hueco entrante no usa la frase canónica del owner");
+  assert.ok(/beber/i.test(fBebida));
+  assert.ok(/postre/i.test(fPostre));
+  assert.strictEqual(new Set([fEntrante, fBebida, fPostre]).size, 3, "dos huecos comparten frase");
+
+  // Ninguna oferta puede listar marcas ni productos concretos
+  for (const f of [fEntrante, fBebida, fPostre]) {
+    assert.ok(!/coca|cola|fanta|cerveza|tiramis|panna/i.test(f), "la oferta enumera productos: " + f);
+  }
 });
 
 test("la frase de bebida es la CANÓNICA del contrato del prompt", () => {
@@ -93,13 +105,11 @@ test("la frase de bebida es la CANÓNICA del contrato del prompt", () => {
 });
 
 test("la oferta no enumera el menú entero (el postre queda para después)", () => {
-  // REGLA DEL OWNER (08-08): una sola pregunta que cubra picar Y beber. Antes
-  // eran dos rondas y el cliente tenía que decir "no" dos veces. Lo que sigue
-  // prohibido es soltarle las TRES categorías de golpe.
+  // REGLA DEL OWNER (16-08): UNA sola pregunta de upsell por llamada, con su
+  // frase: "¿Quieres acompañar tu pedido con una bebida o un postre?".
+  // Antes eran hasta tres rondas y el cliente tenía que decir "no" tres veces.
   const frase = deterministicUpsellOffer(pedido("pizza_rossa"), []);
-  assert.ok(/picar/i.test(frase) && /beber/i.test(frase),
-    "la oferta ya no cubre picar y beber a la vez: " + frase);
-  assert.ok(!/postre/i.test(frase), "suelta el menú entero: " + frase);
+  assert.strictEqual(frase, "¿Quieres acompañar tu pedido con una bebida o un postre?");
 });
 
 // ── El prompt refleja la misma regla ───────────────────────────────────────

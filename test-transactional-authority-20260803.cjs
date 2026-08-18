@@ -139,7 +139,13 @@ async function confirmSummary(callId, args, flow) {
   assert.strictEqual(missingType.order.orderType, null);
   const invalidType = await marta.handleSubmitOrder("invalid-type", { ...baseArgs("600000003"), order_type: "takeaway_maybe" });
   assert.strictEqual(invalidType.requiredAction, "resolve_order_type");
-  assert.strictEqual(invalidType.order.orderType, "takeaway_maybe");
+  // 16-08: el valor fuera del enum ya NO se guarda en la ficha. Antes se
+  // conservaba tal cual ("takeaway_maybe") por diagnóstico, pero un orderType con
+  // basura es truthy y engaña a cualquier `if (session.orderType)`. Ahora se
+  // normaliza a null y el rastro va al log ([GATE] order_type fuera del enum).
+  // LO QUE DE VERDAD PROTEGE ESTE TEST es la línea de arriba: un tipo inválido
+  // NUNCA pasa el gate. Eso no ha cambiado.
+  assert.strictEqual(invalidType.order.orderType, null);
   assert.strictEqual(effectCount(), typeEffects, "tipo ausente/inválido produjo efectos");
   const pickupSummary = await summaryFor("valid-pickup", baseArgs("600000004"));
   assert.strictEqual((await confirmSummary("valid-pickup", baseArgs("600000004"), pickupSummary)).ok, true);

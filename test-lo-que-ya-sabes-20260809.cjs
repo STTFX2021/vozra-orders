@@ -10,7 +10,7 @@
  *     [user]  Eh, no, nada más.
  *     [agent] ¿Te pongo algo para picar, un entrante para compartir?
  *     [user]  No.
- *     [agent] ¿Quieres que te ponga algo para picar, algo de beber?
+ *     [agent] ¿Quieres acompañar tu pedido con una bebida o un postre?
  *     [user]  Que no.
  *
  * Y en la misma llamada, dos síntomas del MISMO fallo (preguntar lo que ya tiene):
@@ -43,7 +43,7 @@ test("CASO REAL: las tres frases distintas son todas 'sugerencia'", () => {
   for (const f of [
     "¿Quieres añadir algo más o seguimos con el pedido?",
     "¿Te pongo algo para picar, un entrante para compartir?",
-    "¿Quieres que te ponga algo para picar, algo de beber?",
+    "¿Quieres acompañar tu pedido con una bebida o un postre?",
     "¿Te apetece un postre para rematar?",
     "¿Algo más o lo dejamos así?"
   ]) assert.strictEqual(intencionDelTurno(f), "sugerencia", "no la clasifica: " + f);
@@ -56,6 +56,23 @@ test("CASO REAL: tras contestar a la primera, la segunda ya está cubierta", () 
   ];
   assert.strictEqual(intencionYaCubierta(conv, "sugerencia"), true,
     "vuelve a sugerirle después de que haya dicho que no");
+});
+
+test("INVARIANTE: la frase de upsell que se emite SE RECONOCE como sugerencia", () => {
+  // Trampa real del 16-08: se cambió la frase del upsell y el detector dejó de
+  // reconocerla, así que el sistema no sabía que la oferta estaba hecha y la
+  // habría repetido. Si mañana se cambia otra vez, este test lo caza.
+  const { deterministicUpsellOffer } = require("./marta-llm.service.js");
+  for (const pedido of [
+    { items: [{ category: "pizza_rossa" }] },
+    { items: [{ category: "starters" }] },
+    { items: [{ category: "starters" }, { category: "beverages" }] }
+  ]) {
+    const frase = deterministicUpsellOffer(pedido, []);
+    if (!frase) continue;
+    assert.strictEqual(intencionDelTurno(frase), "sugerencia",
+      "el backend emite una oferta que su propio detector no reconoce: " + frase);
+  }
 });
 
 test("CASO REAL: '¿qué te apetece pedir?' NO es una sugerencia", () => {

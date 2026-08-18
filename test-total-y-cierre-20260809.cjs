@@ -103,7 +103,7 @@ test("un total CORRECTO no se toca", () => {
 
 test("CASO REAL: una pregunta ya respondida no llega a la voz", () => {
   const call = "guard-3";
-  const conv = [A("¿Te pongo algo para picar, algo de beber?"), U("No, nada más.")];
+  const conv = [A("¿Quieres acompañar tu pedido con una bebida o un postre?"), U("No, nada más.")];
   const salida = marta.guardianDeSalida(
     "Perfecto. ¿Quieres añadir algo más o seguimos con el pedido?", call, conv);
   assert.ok(!/algo m[áa]s/i.test(salida),

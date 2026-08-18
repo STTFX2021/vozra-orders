@@ -139,8 +139,8 @@ const oferta = marta.deterministicUpsellOffer({ items: [{ category: "pizza_speci
 conv1.push(A(oferta));
 conv1.push(U("No, nada más."));
 
-paso("la sugerencia pregunta por picar Y por beber a la vez", () => {
-  assert.ok(/picar/i.test(oferta) && /beber/i.test(oferta), "sigue habiendo dos rondas: " + oferta);
+paso("la sugerencia es UNA sola y cubre bebida y postre (regla del owner 16-08)", () => {
+  assert.strictEqual(oferta, "¿Quieres acompañar tu pedido con una bebida o un postre?");
 });
 
 paso("dicho que no, la sugerencia queda cerrada y no se repite", () => {

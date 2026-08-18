@@ -1091,7 +1091,20 @@ function computeQuote(args, conversationMessages = [], callId = null) {
     .filter(value => { const key = value.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; });
   const authority = crossCheckAllergens({ items, allergies });
   const informationalOnly = isInformationalProductQuery(conversationMessages);
-  const orderTypeValid = args && ["pickup", "delivery"].includes(args.order_type);
+
+  // BUG REAL 16-08. El cliente dijo "a domicilio" en su PRIMERA frase, confirmó la
+  // dirección, y Sarah le soltó TRES VECES "Antes de calcular y resumir necesito
+  // saber si es para recoger o a domicilio". Esa frase la emite ESTE código, no el
+  // modelo: `orderTypeValid` solo miraba `args.order_type` — lo que el modelo
+  // incluye en ESA llamada a la herramienta — e ignoraba que el dato ya estaba en
+  // la sesión. El backend le estaba pidiendo al modelo un dato que él mismo tenía.
+  //
+  // REGLA: solo se pregunta lo que NO está en ningún sitio. Lo que manda el modelo
+  // tiene prioridad (puede ser una corrección del cliente), pero si no lo manda se
+  // usa lo guardado.
+  const orderTypeEfectivo = resolverDeSesion(args, session, conversationMessages, "order_type");
+  const orderTypeValid = ["pickup", "delivery"].includes(orderTypeEfectivo);
+  if (orderTypeValid && args) args = { ...args, order_type: orderTypeEfectivo };
 
   let productIntegrity = validateItems({ items });
   // El alérgeno NO bloquea el cálculo ni el pedido (política del owner 28-07,
@@ -1108,7 +1121,7 @@ function computeQuote(args, conversationMessages = [], callId = null) {
 
   if (session && !informationalOnly) {
     applyDraftSnapshot(callId, {
-      items, orderType: args.order_type || null,
+      items, orderType: orderTypeEfectivo || null,
       address: args.address ? { raw: args.address } : session.address,
       allergies, paymentMethod: args.payment_method || session.paymentMethod
     });
@@ -1439,13 +1452,14 @@ function siguienteUpsell(order, incomingMessages) {
 // REGLA DEL OWNER (08-08): una sola pregunta que cubra picar Y beber, en vez de
 // dos rondas. La de "entrante" cubre las dos categorías.
 const _FRASE_UPSELL = {
-  entrante: "¿Quieres que te ponga algo para picar, algo de beber?",
+  entrante: "¿Quieres acompañar tu pedido con una bebida o un postre?",
   bebida:   "¿Te pongo algo de beber?",
   postre:   "¿Te apetece un postre para rematar?"
 };
-// La frase de entrante menciona TAMBIÉN la bebida: al usarla, las dos categorías
-// quedan ofrecidas y no se vuelve a preguntar por ninguna.
-const _CATEGORIAS_CUBIERTAS = { entrante: ["entrante", "bebida"], bebida: ["bebida"], postre: ["postre"] };
+// La frase del owner menciona BEBIDA y POSTRE: al usarla, las tres categorías
+// quedan ofrecidas de una vez y no se vuelve a preguntar por ninguna. Una sola
+// pregunta de upsell por llamada, como pidió (16-08).
+const _CATEGORIAS_CUBIERTAS = { entrante: ["entrante", "bebida", "postre"], bebida: ["bebida"], postre: ["postre"] };
 
 function deterministicUpsellOffer(order, incomingMessages) {
   const cat = siguienteUpsell(order, incomingMessages);
@@ -1598,7 +1612,10 @@ const _INTENCIONES = {
   resumen:      /^resumen[:\s]/i,
   // Las dos direcciones de la pregunta: "¿recoger o a domicilio?" y también
   // "¿a domicilio o prefieres pasar a recogerlo?" (caso real 09-08).
-  tipo_entrega: /(recoger o (?:a )?domicilio|(?:a )?domicilio o (?:prefieres |lo )?(?:pasar|pasas|recog)|pasa[rs] a recogerlo|te lo llevamos o|para recoger o|lo recoges o|es para recoger o)/i,
+  // Incluye la frase EXACTA que emite el backend cuando falta el tipo de pedido.
+  // Sin esto, el guardián no reconocía su propio mensaje y lo dejaba pasar (bucle
+  // real del 16-08, tres veces seguidas).
+  tipo_entrega: /(recoger o (?:a )?domicilio|(?:a )?domicilio o (?:prefieres |lo )?(?:pasar|pasas|recog)|pasa[rs] a recogerlo|te lo llevamos o|para recoger o|lo recoges o|es para recoger o|necesito saber si es para recoger)/i,
   telefono:     /(tel[ée]fono de contacto|me (?:das|dices) (?:un )?tel[ée]fono|n[úu]mero de contacto)/i,
   nombre:       /(a nombre de qui[ée]n|c[óo]mo te llamas|me (?:das|dices) tu nombre)/i,
   direccion:    /(a qu[ée] direcci[óo]n|d[íi]me la direcci[óo]n|me (?:das|dices) la direcci[óo]n|direcci[óo]n (?:completa|de entrega|para el domicilio)|te lo llev[oe] a|la de siempre)/i,
@@ -1606,7 +1623,11 @@ const _INTENCIONES = {
   // Marcarla como sugerencia (bug del 09-08) daba el upsell por ofrecido antes de
   // que hubiera pedido nada, y su "sí, quiero un Abruzzo" se leía como "sí, añade
   // algo" → "¿Qué bebida o complemento quieres añadir?" sin venir a cuento.
-  sugerencia:   /(algo (?:m[áa]s|para picar|de beber|dulce)|un entrante|para compartir|te apetece (?:algo|un|una)|te pongo algo|a[ñn]adir algo|alg[uú]n postre|quieres que te (?:ponga|sugiera)|lo dejamos as[íi]|lo cierro)/i
+  // OJO: si se cambia la frase de _FRASE_UPSELL hay que asegurarse de que SIGUE
+  // encajando aquí. El 16-08 se cambió a "¿Quieres acompañar tu pedido con una
+  // bebida o un postre?" y dejó de reconocerse como sugerencia: el sistema ya no
+  // sabía que la oferta estaba hecha y la habría repetido.
+  sugerencia:   /(acompa[ñn]ar tu pedido|una bebida o un postre|algo (?:m[áa]s|para picar|de beber|dulce)|un entrante|para compartir|te apetece (?:algo|un|una)|te pongo algo|a[ñn]adir algo|alg[uú]n postre|quieres que te (?:ponga|sugiera)|lo dejamos as[íi]|lo cierro)/i
 };
 
 function intencionDelTurno(texto) {
@@ -1785,7 +1806,10 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     return { ok: true, delivered: true, order: _sess || null, reply: "", validation: {}, alreadyDone: true };
   }
   const items = (args.items || []).map(mapToolItem).filter(Boolean);
-  const orderType = ["delivery", "pickup"].includes(args.order_type) ? args.order_type : (args.order_type || null);
+  // Mismo criterio que en computeQuote: si el modelo no manda el dato pero el
+  // backend lo tiene, se usa el que hay. No se le pregunta al cliente algo que ya
+  // ha dicho (bucle real del 16-08).
+  const orderType = resolverDeSesion(args, _sess, conversationMessages, "order_type");
   // Alergias del pedido = las declaradas en esta llamada UNIDAS a las que el cliente
   // tiene guardadas en su perfil. Determinista: van SIEMPRE al ticket aunque el modelo
   // no las repita ("lo tenías que tener apuntado en la base de datos").
@@ -2162,6 +2186,77 @@ function buildModelMessages(provider, incomingMessages, profile = null) {
 // entrecomilladas o con puntos suspensivos tipo "Entiendo...", "¡Claro!.") antes de
 // enviarla a ElevenLabs. No toca respuestas normales (probado). Belt-and-suspenders
 // por si el modelo se salta la regla del prompt.
+// ─── EL BACKEND NO PIDE LO QUE YA TIENE ──────────────────────────────────────
+/**
+ * BUG REAL 16-08, y es el patrón que ha causado la mitad de los bucles:
+ *
+ *     [user]  Me gustaría hacer un pedido A DOMICILIO.
+ *     [agent] Aquí estás, Samuel. ¿Te lo llevo a Calle Alpandeire, la de siempre?
+ *     [user]  Sí, por favor.
+ *     [agent] ¿Qué te gustaría pedir PARA TU DOMICILIO?
+ *     [user]  [cuatro pizzas]
+ *     [agent] Antes de calcular necesito saber si es para recoger o a domicilio.  ← ×3
+ *
+ * El backend TENÍA el dato: el cliente lo dijo, se confirmó la dirección y hasta
+ * Sarah lo repitió. Pero los gates solo miraban lo que el modelo les pasaba en esa
+ * llamada concreta a la herramienta. Si el modelo lo omitía, el backend preguntaba.
+ * Y volvía a omitirlo. Bucle cerrado, y el que lo cerraba era nuestro código.
+ *
+ * Prioridad: lo que manda el modelo AHORA (puede ser una corrección del cliente)
+ * → lo guardado en la sesión → lo que se deduce de la conversación → null.
+ * Solo se pregunta cuando no está en NINGUNO de los tres sitios.
+ */
+/** ¿Esta dirección tiene algo dentro? Un `{}` no es una dirección. */
+function direccionConContenido(dir) {
+  if (!dir) return false;
+  if (typeof dir === "string") return !!dir.trim();
+  return Object.values(dir).some(p => p != null && String(p).trim());
+}
+
+function resolverDeSesion(args, session, incomingMessages, campo) {
+  const s = session || {};
+  const a = args || {};
+  switch (campo) {
+    case "order_type": {
+      if (["pickup", "delivery"].includes(a.order_type)) return a.order_type;
+      // El modelo ha mandado algo que NO está en el enum ("takeaway_maybe"). No se
+      // guarda en la ficha del pedido (basura en sesión rompe cualquier `if
+      // (session.orderType)` de más abajo), pero SÍ se deja rastro: si esto se
+      // repite en producción es que el prompt de la herramienta está mal.
+      if (a.order_type != null && a.order_type !== "") {
+        console.warn("[GATE] order_type fuera del enum, se ignora | recibido=" + JSON.stringify(a.order_type));
+      }
+      if (["pickup", "delivery"].includes(s.orderType)) return s.orderType;
+      // Confirmar una dirección de entrega ES decir que es a domicilio. OJO: la
+      // sesión inicializa `address` como un OBJETO VACÍO, no como null, así que
+      // comprobar `if (s.address)` marcaba TODOS los pedidos como domicilio,
+      // recogidas incluidas. Hay que mirar que tenga contenido de verdad.
+      if (direccionConContenido(s.address) || direccionConContenido(s.registeredAddress)) {
+        return "delivery";
+      }
+      // OJO: tipoDeEntrega() habla en castellano ("domicilio"/"recoger"), no en
+      // los códigos internos. Comparar sin traducir no casaba NUNCA, así que un
+      // cliente que decía "a domicilio" sin dirección guardada acababa en el
+      // mismo bucle.
+      const t = tipoDeEntrega ? tipoDeEntrega(incomingMessages) : null;
+      if (t === "domicilio") return "delivery";
+      if (t === "recoger")   return "pickup";
+      return null;
+    }
+    case "phone":
+      return a.phone || s.phone || s.registeredPhone || phoneFromHistory(incomingMessages) || null;
+    case "customer_name":
+      return realCustomerName(a.customer_name) || realCustomerName(s.customerName)
+          || realCustomerName(s.registeredName) || null;
+    case "address": {
+      const dir = [a.address, s.address, s.registeredAddress].find(direccionConContenido) || null;
+      return dir ? (dir.raw || dir) : null;
+    }
+    default:
+      return a[campo] != null ? a[campo] : (s[campo] != null ? s[campo] : null);
+  }
+}
+
 // ─── "LO MISMO DE SIEMPRE" ───────────────────────────────────────────────────
 /**
  * BUG REAL 08-09. Un habitual llamó pidiendo reposición y dijo "quiero lo mismo".
@@ -2304,10 +2399,17 @@ function guardianDeSalida(texto, callId, incomingMessages) {
   // ── 2. NADA DE PREGUNTAS YA RESPONDIDAS ──────────────────────────────────
   // Se trocea en frases y se cae cualquier pregunta cuya intención ya se cubrió.
   const frases = t.split(/(?<=[.?!])\s+/).filter(Boolean);
+  // Se filtra por INTENCIÓN, no por signo de interrogación. Los mensajes que
+  // emite el propio backend piden datos SIN preguntar ("Antes de calcular y
+  // resumir necesito saber si es para recoger o a domicilio."): acaban en punto,
+  // y por eso se colaban tres veces seguidas pese a estar ya respondidos.
   const quedan = frases.filter(f => {
-    if (!/\?/.test(f)) return true;                       // solo se filtran preguntas
     const intencion = intencionDelTurno(f);
     if (!intencion || intencion === "resumen") return true;
+    // Tiene que ser una petición de dato: o lleva "?", o el backend dice que lo
+    // necesita. Una frase informativa que mencione la dirección no se toca.
+    const pideAlgo = /\?/.test(f) || /necesito saber|me falta|d[íi]me|me dices/i.test(f);
+    if (!pideAlgo) return true;
     if (!intencionYaCubierta(incomingMessages, intencion)) return true;
     console.warn("[SALIDA] pregunta repetida eliminada (" + intencion + ") | call=" + callId);
     return false;
@@ -3157,9 +3259,16 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       // Despedida INSTANTÁNEA: usamos la respuesta ya redactada por handleSubmitOrder
       // en vez de otra llamada a OpenAI. Quita el round-trip más sensible (justo al
       // confirmar) → sin pausa ni "ruidito de pensando" de ElevenLabs, sin quedarse pillada.
-      const reply = stripConsentIfRegistered(sanitizeReply((result && result.reply && result.reply.trim())
+      // El guardián va TAMBIÉN aquí. Hasta el 16-08 solo vigilaba lo que redactaba
+      // el modelo, y los mensajes de los gates salían sin revisar: por ahí se coló
+      // "Antes de calcular necesito saber si es para recoger o a domicilio" tres
+      // veces seguidas. El guardián sabía que esa pregunta ya estaba respondida,
+      // pero ni la veía.
+      const _brutoGate = (result && result.reply && result.reply.trim())
         ? result.reply.trim()
-        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!"), callId);
+        : "¡Perfecto! Tu pedido queda confirmado y va a cocina. ¡Gracias y hasta luego!";
+      const reply = stripConsentIfRegistered(
+        sanitizeReply(guardianDeSalida(_brutoGate, callId, incomingMessages)), callId);
       const requiredAction = (result && result.requiredAction) || validationRequiredAction(result && result.validation);
       const action = submitResultAction(result);
       return {

@@ -44,17 +44,17 @@ const A = c => ({ role: "assistant", content: c });
 const U = c => ({ role: "user", content: c });
 const pedido = (...cats) => ({ items: cats.map(c => ({ category: c })) });
 
-const OFERTA = "¿Quieres que te ponga algo para picar, algo de beber?";
+const OFERTA = "¿Quieres acompañar tu pedido con una bebida o un postre?";
 const RESUMEN = "Resumen: 1 Abruzzo, 1 Coca-Cola. Total 17 euros con 50. ¿Está todo correcto y confirmas el pedido?";
 
 console.log("══ SÍ y NO: que se entiendan a la primera ════════");
 
 // ── LA FRASE NUEVA (pedida por el owner) ────────────────────────────────────
-test("REGLA DEL OWNER: la oferta pregunta por picar Y por beber a la vez", () => {
+test("REGLA DEL OWNER: la oferta es la frase que él dictó (16-08)", () => {
   const frase = deterministicUpsellOffer(pedido("pizza_rossa"), []);
   assert.strictEqual(frase, OFERTA);
-  assert.ok(/picar/i.test(frase) && /beber/i.test(frase),
-    "sigue habiendo dos rondas de upsell en vez de una");
+  assert.ok(/bebida/i.test(frase) && /postre/i.test(frase),
+    "sigue habiendo varias rondas de upsell en vez de una: " + frase);
 });
 
 test("esa oferta cubre entrante Y bebida: con pedir una, está respondida", () => {
@@ -101,7 +101,7 @@ test("el prompt sabe que 'algo más' y 'lo dejamos así' son preguntas de cierre
                    "¿Está todo correcto y confirmas el pedido?"]) {
     assert.ok(rx.test(f), "no reconoce la pregunta de cierre: " + f);
   }
-  assert.ok(!rx.test("¿Quieres que te ponga algo para picar, algo de beber?"),
+  assert.ok(!rx.test("¿Quieres acompañar tu pedido con una bebida o un postre?"),
     "confundiría la oferta con una pregunta de cierre");
 });
 
