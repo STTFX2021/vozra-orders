@@ -17,7 +17,7 @@ for %%F in (test-conversacional-*.cjs) do (
 echo.
 
 echo --- 1/4b TESTS DE LAS ULTIMAS LLAMADAS ---
-for %%F in (test-si-no-y-aviso-20260808.cjs test-alergia-ficha-vs-plato-20260808.cjs test-bucle-upsell-20260807.cjs test-llamadas-20260806.cjs test-upsell-cascada-20260806.cjs) do (
+for %%F in (test-si-no-y-aviso-20260808.cjs test-alergia-ficha-vs-plato-20260808.cjs test-bucle-upsell-20260807.cjs test-llamadas-20260806.cjs test-upsell-cascada-20260806.cjs test-total-y-cierre-20260809.cjs test-lo-que-ya-sabes-20260809.cjs) do (
   if exist "%%F" (
     call node "%%F"
     if errorlevel 1 goto :fallo

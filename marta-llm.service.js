@@ -1256,15 +1256,29 @@ async function computeLookup(args) {
 
 // Valida la zona de reparto (tool validar_direccion).
 // FAIL-OPEN: ante fallo técnico devuelve "desconocido" para no perder la venta.
-async function computeZone(args) {
+// Huella de una direccion, para saber si un veredicto de zona sigue siendo valido.
+// Sin esto, un "dentro de zona" de una direccion ANTERIOR dejaria colar la nueva.
+function _huellaDireccion(dir) {
+  const raw = !dir ? "" : (typeof dir === "string" ? dir : (dir.raw || Object.values(dir).filter(Boolean).join(" ")));
+  return String(raw).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function computeZone(args, callId = null) {
   const address = args && args.address;
   let z;
   try { z = await checkDeliveryAddress(address, "la-locanda"); }
   catch (e) {
     console.error("[ZONA] error | " + e.message);
+    // Fail-OPEN deliberado: un fallo de geocodificacion no puede costar una venta.
+    // Solo un "out_of_zone" explicito bloquea (ver zonaFueraDeReparto).
+    if (callId) updateOrderSession(callId, { zoneStatus: "unknown", zoneAddress: _huellaDireccion(address) });
     return { dentro_de_zona: "desconocido", motivo: "error_tecnico" };
   }
   const map = { in_zone: true, out_of_zone: false, unknown: "desconocido" };
+  // El veredicto queda GUARDADO junto a la direccion sobre la que se calculo, para
+  // que el gate de submit_order no dependa de que el modelo lo recuerde ni lo repita.
+  if (callId) updateOrderSession(callId, { zoneStatus: z.status, zoneAddress: _huellaDireccion(address) });
   return {
     dentro_de_zona: map[z.status],
     distancia_km:   z.distanceKm,
@@ -1358,7 +1372,7 @@ async function toolOutput(tc, conversationMessages = [], callId = null) {
   try { a = JSON.parse((tc.function && tc.function.arguments) || "{}"); } catch (_) { a = {}; }
   if (name === "calcular_total")            return computeQuote(a, conversationMessages, callId);
   if (name === "buscar_cliente")            return await computeLookup(a);
-  if (name === "validar_direccion")         return await computeZone(a);
+  if (name === "validar_direccion")         return await computeZone(a, callId);
   if (name === "consultar_pedido")          return await computeOrderLookup(a);
   if (name === "registrar_incidencia")      return await computeIncident(a, conversationMessages);
   if (name === "eliminar_alergia_guardada") return await computeRemoveAllergy(a, conversationMessages);
@@ -1747,6 +1761,33 @@ function confirmationMatchesDeliveredSummary(messages, order) {
   return false;
 }
 
+// ZONA DE REPARTO — gate determinista (16-08).
+//
+// AGUJERO REAL que cierra: `validar_direccion` devolvia dentro_de_zona=false y el
+// prompt le PEDIA al modelo que ofreciera recogida o se despidiera. Nada impedia que
+// el modelo llamara igualmente a submit_order: un reparto a 12 km entraba en cocina.
+// De los 14 gates deterministas que existian, ninguno miraba la zona.
+//
+// CRITERIO (coherente con la politica ya escrita):
+//  - Solo bloquea un "out_of_zone" EXPLICITO. "unknown" y los fallos tecnicos pasan:
+//    un error de geocodificacion no puede costar una venta (fail-open deliberado).
+//  - El margen de cortesia de 1 km ya lo aplica delivery-zone.service, asi que aqui
+//    "out_of_zone" ya significa fuera de zona Y fuera del margen.
+//  - Solo aplica a domicilio. Si el cliente se pasa a recogida, deja de aplicar solo.
+//  - El veredicto tiene que ser de ESTA direccion: si el cliente la cambia, el
+//    veredicto viejo no vale y no se bloquea con un dato caduco.
+function zonaFueraDeReparto(order, session) {
+  const s = session || {};
+  const o = order || {};
+  if (o.orderType !== "delivery") return false;
+  if (s.zoneStatus !== "out_of_zone") return false;
+  const dirActual = _huellaDireccion(o.address || s.address);
+  if (!dirActual) return false;
+  // El veredicto solo vale para la direccion sobre la que se calculo.
+  if (s.zoneAddress && s.zoneAddress !== dirActual) return false;
+  return true;
+}
+
 async function handleSubmitOrder(callId, args, conversationMessages = []) {
   const _sess = getOrCreateOrderSession(callId);
   if (["dispatching", "dispatched", "farewell_sent", "ended"].includes(_sess.closureState)) {
@@ -1885,6 +1926,23 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     allergenConflicts: validation.allergenConflicts || [],
     requiredAction: validation.requiredAction || null
   });
+
+  // ZONA DE REPARTO — va DELANTE de todo lo demas: si no llegamos a esa direccion,
+  // el resto del pedido da igual. Retryable: en cuanto el cliente cambie a recogida
+  // (o de otra direccion) el gate deja de disparar solo, sin bucle.
+  if (zonaFueraDeReparto(order, _sess)) {
+    console.warn("[ZONA] pedido a domicilio FUERA de zona bloqueado | call=" + callId);
+    return {
+      ok: false,
+      delivered: false,
+      order,
+      reply: "Esa dirección se nos queda fuera de la zona de reparto, no llegamos hasta ahí. Si te viene bien, puedes pasarte a recogerlo por el local y te lo dejo todo preparado.",
+      validation,
+      requiredAction: "resolve_delivery_zone",
+      retryable: true,
+      reason: "delivery_zone_out"
+    };
+  }
 
   // Gate fail-closed: una validación fallida no puede producir ningún efecto
   // operativo. La firma tampoco se reserva, para permitir corregir y reintentar.
@@ -3411,6 +3469,8 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
 module.exports = {
   generateMartaReply,
+  zonaFueraDeReparto,
+  computeZone,
   sanitizeReply,
   buildModelMessages,
   buildSystemPrompt,
