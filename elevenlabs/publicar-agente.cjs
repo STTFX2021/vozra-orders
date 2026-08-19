@@ -133,6 +133,29 @@ function diferencias(deseado, real, ruta = "") {
     return;
   }
 
+  // CANDADO DEL SECRETO (19-08). El secreto con el que ElevenLabs se autentica
+  // contra nuestro backend es la pieza mas fragil de todo esto: si se publica uno
+  // equivocado, el backend lo rechaza (falla cerrado) y SARAH DEJA DE FUNCIONAR EN
+  // TODAS LAS LLAMADAS. No es hipotetico: el 19-08 el .env local tenia el ID del
+  // agente ("agent_78...") en ELEVENLABS_CUSTOM_LLM_SECRET.
+  // Por eso publicar un secreto DISTINTO al que ya tiene el agente exige decirlo
+  // a proposito con --cambiar-secreto.
+  const secretoDeseado = ((cuerpo.conversation_config.agent.prompt.custom_llm || {}).request_headers || {}).VOZRA_LLM_SECRET;
+  const secretoActual  = (((actual.conversation_config.agent.prompt.custom_llm || {}).request_headers) || {}).VOZRA_LLM_SECRET;
+  if (secretoDeseado && secretoActual && secretoDeseado !== secretoActual) {
+    if (!process.argv.includes("--cambiar-secreto")) {
+      console.error("\n  ⛔  ABORTADO: el secreto del backend NO coincide con el que tiene el agente.");
+      console.error("      El de tu entorno empieza por: " + String(secretoDeseado).slice(0, 8) + "…");
+      console.error("      El del agente empieza por:    " + String(secretoActual).slice(0, 8) + "…");
+      console.error("");
+      console.error("      Publicar un secreto equivocado tumba TODAS las llamadas.");
+      console.error("      El valor bueno es el de Railway → Variables → ELEVENLABS_CUSTOM_LLM_SECRET.");
+      console.error("      Si de verdad quieres cambiarlo: añade --cambiar-secreto\n");
+      process.exit(1);
+    }
+    console.warn("\n  ⚠️  Vas a CAMBIAR el secreto del backend. Actualizalo tambien en Railway o las llamadas fallaran.\n");
+  }
+
   const res = await api("PATCH", `/v1/convai/agents/${agentId}`, cuerpo);
   console.log(`\nPublicado. Nueva versión: ${res.version_id}\n`);
 })().catch(e => { console.error("ERROR: " + e.message); process.exit(1); });
