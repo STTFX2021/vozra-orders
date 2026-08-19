@@ -2913,6 +2913,91 @@ function registeredCustomerDirective(nombre, direccion) {
     `6) Si es para RECOGER, NO menciones ninguna direcci\u00f3n: la recogida es en el local.`;
 }
 
+
+// ─── IDIOMA — regla anti-rebote determinista (16-08) ────────────────────────
+//
+// HISTORIA, para que no se vuelva a borrar:
+//   24-jun 1de43df  se anade detectLang(): deteccion de idioma EN CODIGO.
+//   28-jun bd11a80  "make brain the single system prompt source" LO BORRA.
+//   28-jun f86d83f  se anade un test que comprueba que el modelo recibe UN system
+//                   prompt — no que el idioma se respete. La suite se quedo verde
+//                   y la garantia desaparecio durante dos meses.
+//
+// El detectLang original tenia un fallo real: miraba SOLO el ultimo mensaje y le
+// bastaba UN marcador, asi que un "ciao" o un "ok" sueltos cambiaban el idioma de
+// la llamada entera. Eso es lo que la regla del prompt llama "rebote".
+//
+// Esta version implementa la regla tal y como esta escrita:
+//   - Idioma de apertura: espanol.
+//   - Solo cambia con una frase ENTERA y CLARA en otro idioma.
+//   - Una palabra suelta o un prestamo ("ok", "ciao", "pizza", un nombre propio)
+//     NO cambia nada.
+//   - Una vez establecido, SE QUEDA el resto de la llamada.
+const LANG_MARKERS = {
+  en: { name: "inglés",    words: ["the","please","thanks","thank","hello","hi","hey","good evening","good morning","i","i'd","i'm","would","like","want","can","could","for","with","without","and","you","your","do","have","gluten","pickup","pick up","delivery","order","yes"] },
+  fr: { name: "francés",   words: ["je","voudrais","bonjour","bonsoir","salut","s'il","plaît","merci","une","avec","sans","pour","aimerais","j'aimerais","vous","est-ce","oui","commander","emporter","livraison"] },
+  de: { name: "alemán",    words: ["ich","möchte","moechte","hallo","bitte","danke","eine","einen","mit","ohne","guten","gerne","hätte","haette","abholen","lieferung","bestellen","ja","nein","und","für","fuer"] },
+  it: { name: "italiano",  words: ["vorrei","grazie","buongiorno","buonasera","per favore","senza","vorremmo","puoi","posso","asporto","consegna","ordinare"] },
+  pt: { name: "portugués", words: ["quero","olá","ola","obrigado","obrigada","uma","sem","gostaria","boa noite","bom dia","você","voce","levar","entrega","pedir"] }
+};
+const ES_MARKERS = ["quiero","quería","queria","quisiera","por favor","gracias","hola","buenas","una","unas","para","con","sin","ponme","dame","me pones","recoger","domicilio","pedir","sí","vale","oye","tú","que","de","el","la","los","las","es","está","me","te","lo"];
+
+// Minimos para considerar que una frase ESTABLECE un idioma. Son el corazon de la
+// regla anti-rebote: sin ellos, "ok" bastaba para cambiar de idioma.
+const _MIN_PALABRAS_FRASE = 3;   // "ciao" o "ok" nunca llegan
+const _MIN_MARCADORES     = 2;   // un solo prestamo no basta
+
+function _normalizaIdioma(text) {
+  return " " + String(text || "").toLowerCase().replace(/[^\p{L}'\s]/gu, " ").replace(/\s+/g, " ").trim() + " ";
+}
+function _scoreLang(text, words) {
+  const t = _normalizaIdioma(text);
+  let score = 0;
+  for (const w of words) if (t.includes(" " + w + " ")) score++;
+  return score;
+}
+
+// Idioma que ESTABLECE una frase suelta: "es", un codigo (en/fr/de/it/pt), o null
+// si no establece nada (demasiado corta, ambigua, o solo un prestamo).
+function idiomaDeFrase(texto) {
+  const t = _normalizaIdioma(texto);
+  const palabras = t.trim() ? t.trim().split(" ").length : 0;
+  if (palabras < _MIN_PALABRAS_FRASE) return null;   // "ciao", "ok", "sí"
+  const es = _scoreLang(texto, ES_MARKERS);
+  let best = null, bestScore = 0;
+  for (const code of Object.keys(LANG_MARKERS)) {
+    const sc = _scoreLang(texto, LANG_MARKERS[code].words);
+    if (sc > bestScore) { bestScore = sc; best = code; }
+  }
+  if (best && bestScore >= _MIN_MARCADORES && bestScore > es) return best;
+  if (es >= _MIN_MARCADORES && es >= bestScore) return "es";
+  return null;                                        // incierto: no toca nada
+}
+
+// Directiva que se inyecta en el turno. Extraida a funcion propia A PROPOSITO: si
+// vive suelta dentro de generateMartaReply no hay forma de probar que sigue ahi, y
+// eso es justo lo que permitio que la garantia desapareciera dos meses.
+function directivaDeIdioma(incomingMessages) {
+  const idi = idiomaDeLaLlamada(incomingMessages);
+  if (!idi) return null;
+  return "IDIOMA OBLIGATORIO DE ESTA RESPUESTA: el cliente está hablando en " + idi.name +
+    ". Responde EXCLUSIVAMENTE en " + idi.name + ", nunca en español. Los nombres de los platos NO se traducen. " +
+    "La comanda a cocina (submit_order: notes, kitchenNote y modificadores) sigue SIEMPRE en español.";
+}
+
+// Idioma de LA LLAMADA: recorre todos los turnos del cliente en orden. Lo que no
+// establece idioma, no lo cambia. Devuelve {code,name} o null (= espanol).
+function idiomaDeLaLlamada(incomingMessages) {
+  let actual = null;
+  for (const m of (incomingMessages || [])) {
+    if (!m || m.role !== "user" || !m.content) continue;
+    const cand = idiomaDeFrase(m.content);
+    if (cand === "es") actual = null;
+    else if (cand) actual = cand;
+  }
+  return actual ? { code: actual, name: LANG_MARKERS[actual].name } : null;
+}
+
 async function generateMartaReply(callId, incomingMessages, callerPhone = null) {
   const provider = getProvider("la-locanda");
   const terminalSession = getOrCreateOrderSession(callId);
@@ -3236,6 +3321,11 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
     if (directiva) messages.push({ role: "system", content: directiva });
   } catch (_) {}
 
+  // IDIOMA: se inyecta al FINAL (maxima recencia) y lo decide el codigo, no el
+  // modelo. Es la garantia que se perdio el 28-06 con bd11a80.
+  const _dirIdioma = directivaDeIdioma(incomingMessages);
+  if (_dirIdioma) messages.push({ role: "system", content: _dirIdioma });
+
   if (confirmacionPendienteDeEnviar(incomingMessages)) {
     messages.push({ role: "system", content:
       "EL CLIENTE YA HA CONFIRMADO el pedido en su último mensaje. Está AUTORIZADO: llama a submit_order AHORA con el pedido tal cual está. " +
@@ -3469,6 +3559,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
 module.exports = {
   generateMartaReply,
+  idiomaDeFrase,
+  idiomaDeLaLlamada,
+  directivaDeIdioma,
   zonaFueraDeReparto,
   computeZone,
   sanitizeReply,

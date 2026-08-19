@@ -1,0 +1,503 @@
+============================================================
+ CARPETA: D:\VOZRA\vozra_proyecto_completo_20260620\vozra-orders\backend
+============================================================
+
+--- 1/4a LLAMADAS COMPLETAS (conversacionales) ---
+◇ injected env (18) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+
+╔══════════════════════════════════════════════════════╗
+║  Hoy pide desde casa de su madre                     ║
+╚══════════════════════════════════════════════════════╝
+   ✓ se le reconoce y se le PREGUNTA por la de siempre (no se asume)
+   ✓ la dirección nueva se detecta
+   ✓ LO QUE DICE EN VIVO MANDA: se usa la de hoy, no la guardada
+   ✓ no se le vuelve a preguntar la dirección después de darla
+[SALIDA] pregunta repetida eliminada (direccion) | call=conv2-1787126631270
+   ✓ el guardián tumba un segundo '¿a qué dirección?'
+[SALIDA] pregunta repetida eliminada (tipo_entrega) | call=conv2-1787126631270
+   ✓ tampoco se le pregunta si es domicilio o recogida
+   ✓ y no se le repite el nombre en cada frase
+
+╔══════════════════════════════════════════════════════╗
+║  Mañana vuelve a pedir desde su casa                 ║
+╚══════════════════════════════════════════════════════╝
+   ✓ la ficha NO se ha sobrescrito: su dirección sigue siendo la suya
+   ✓ si la nueva no trae número, se conserva el de la guardada
+   ✓ una dirección nueva SIN número sí obliga a pedir el número
+
+────────────────────────────────────────────────────────
+10 pasos ok / 0 fallidos
+◇ injected env (18) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+
+╔══════════════════════════════════════════════════════╗
+║  Llama: 'mi pedido ha llegado destrozado'            ║
+╚══════════════════════════════════════════════════════╝
+   ✓ se detecta que es una queja de un pedido YA ENTREGADO
+   ✓ las demás formas de contarlo también se detectan
+   ✓ y se nota que está enfadado cuando lo está
+   ✓ REGLA DEL OWNER: la reposición va por el mismo canal, no se le manda a recogerlo
+   ✓ el ticket a cocina avisa con el teléfono para llamar al cliente
+
+╔══════════════════════════════════════════════════════╗
+║  Y AL REVÉS: nada de incidencias fantasma            ║
+╚══════════════════════════════════════════════════════╝
+   ✓ CASO REAL: 'no, no hace falta' (rechazando un entrante) NO es una queja
+   ✓ CASO REAL: '¿qué dato te falta?' tampoco
+   ✓ un pedido normal con la palabra 'pizza' no dispara nada
+   ✓ un problema SIN entrega previa no basta
+
+────────────────────────────────────────────────────────
+9 pasos ok / 0 fallidos
+◇ injected env (18) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+
+╔══════════════════════════════════════════════════════╗
+║  El modelo NO manda order_type. ¿Se atasca?          ║
+╚══════════════════════════════════════════════════════╝
+   ✓ el tipo de pedido se resuelve SIN que el modelo lo mande
+   ✓ y el cálculo sale adelante
+[SALIDA] pregunta repetida eliminada (tipo_entrega) | call=sin-ot-1787126632180
+   ✓ CASO REAL: esa frase NO llega a la voz si ya está respondido
+   ✓ confirmar la dirección YA implica que es a domicilio
+
+╔══════════════════════════════════════════════════════╗
+║  Pero si NO se sabe, sí se pregunta (una vez)        ║
+╚══════════════════════════════════════════════════════╝
+   ✓ cliente nuevo sin decir nada: ahí SÍ hay que preguntarlo
+   ✓ y si el cliente lo CAMBIA, manda lo nuevo
+
+╔══════════════════════════════════════════════════════╗
+║  Lo mismo con el resto de datos                      ║
+╚══════════════════════════════════════════════════════╝
+   ✓ teléfono, nombre y dirección también se resuelven de la sesión
+
+────────────────────────────────────────────────────────
+7 pasos ok / 0 fallidos
+◇ injected env (18) from .env // tip: ⌘ suppress logs { quiet: true }
+
+╔══════════════════════════════════════════════════════╗
+║  A) El cliente dice que es celíaco                   ║
+╚══════════════════════════════════════════════════════╝
+   ✓ sin que él lo mencione, NO se le ofrece base sin gluten
+   ✓ si él lo menciona, SÍ se le ofrece con su suplemento
+   ✓ 'sin TACC' y 'apto celíacos' se reconocen como gluten
+   ✓ el gluten es INTRÍNSECO: no se puede 'quitar', se sustituye la base
+
+╔══════════════════════════════════════════════════════╗
+║  B) Cambia el pedido después de oír el resumen       ║
+╚══════════════════════════════════════════════════════╝
+   ✓ primer pedido: una Abruzzo, 15 €
+   ✓ cambiado el pedido, el total se rehace
+   ✓ el pedido NO acumula: dos Margaritas, no Abruzzo + Margaritas
+   ✓ CRÍTICO: la confirmación del resumen VIEJO no vale para el nuevo
+   ✓ y el guardián NO se salta el resumen nuevo
+   ✓ un 'sí' con matiz NO autoriza el envío
+
+────────────────────────────────────────────────────────
+10 pasos ok / 0 fallidos
+◇ injected env (18) from .env // tip: ⌘ suppress logs { quiet: true }
+
+╔══════════════════════════════════════════════════════╗
+║  'Ponme lo de siempre'                               ║
+╚══════════════════════════════════════════════════════╝
+   ✓ CASO REAL: 'quiero lo mismo' se reconoce
+   ✓ todas las formas de decirlo
+   ✓ y no se confunde con un pedido normal
+
+╔══════════════════════════════════════════════════════╗
+║  Se resuelve contra el pedido REAL, no se inventa    ║
+╚══════════════════════════════════════════════════════╝
+   ✓ sin teléfono no hay historial que consultar
+   ✓ sin teléfono devuelve null (nunca inventa un pedido)
+   ✓ sin historial devuelve null y la llamada puede seguir
+   ✓ el prompt le prohíbe inventarse el pedido anterior
+   ✓ y una vez resuelto, el pedido pasa por el cruce de alergias normal
+
+────────────────────────────────────────────────────────
+8 pasos ok / 0 fallidos
+◇ injected env (18) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+
+╔══════════════════════════════════════════════════════╗
+║  LLAMADA 1 — cliente nuevo, declara alergia          ║
+╚══════════════════════════════════════════════════════╝
+   ✓ el teléfono se localiza en el historial aunque no sea el último turno
+   ✓ la dirección dictada se detecta y deja de ser un dato pendiente
+   ✓ a un cliente NUEVO no se le dice 'la de siempre'
+   ✓ no se le vuelve a pedir la dirección ni el teléfono
+   ✓ la alergia es SUYA, así que va a la ficha (no es de un acompañante)
+   ✓ declarar una alergia NO abre una incidencia ni regala el pedido
+   ✓ el código cruza la alergia con el plato y AVISA
+   ✓ pero NO bloquea el pedido (política del owner 28-07)
+   ✓ el aviso le dice a Sarah QUÉ decir, con plato e ingrediente
+   ✓ pedir que le quiten el ingrediente NO le borra la alergia de la ficha
+   ✓ quitados los langostinos, el conflicto queda resuelto
+   ✓ la sugerencia es UNA sola y cubre bebida y postre (regla del owner 16-08)
+   ✓ dicho que no, la sugerencia queda cerrada y no se repite
+[SALIDA] pregunta repetida eliminada (sugerencia) | call=conv-test-1-1787126633966
+   ✓ el guardián tumba una segunda sugerencia aunque la redacte distinto
+[SALIDA] importe corregido | call=conv-test-1-1787126633966 | dijo=40 | real=15
+   ✓ el total es el que dice el código, no el que se invente el modelo
+   ✓ sabe leer los importes que se dicen en voz alta
+
+╔══════════════════════════════════════════════════════╗
+║  LLAMADA 2 — vuelve días después. ¿Se acuerda?       ║
+╚══════════════════════════════════════════════════════╝
+   ✓ con la ficha cargada, se le reconoce por su nombre
+   ✓ se le PREGUNTA por la dirección de siempre, no se asume
+   ✓ el prompt lleva su alergia guardada
+   ✓ LO IMPORTANTE: avisa SOLO, sin que el cliente diga nada
+   ✓ el aviso incluye la oferta de quitarlo
+   ✓ EL CLIENTE MANDA: si la quiere igual, se le sirve
+   ✓ y el alérgeno sigue constando para el ticket de cocina
+   ✓ su alergia SIGUE en la ficha después de todo
+
+────────────────────────────────────────────────────────
+24 pasos ok / 0 fallidos
+
+--- 1/4b TESTS DE LAS ULTIMAS LLAMADAS ---
+◇ injected env (18) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+══ SÍ y NO: que se entiendan a la primera ════════
+  ok  REGLA DEL OWNER: la oferta es la frase que él dictó (16-08)
+  ok  esa oferta cubre entrante Y bebida: con pedir una, está respondida
+  ok  CASO REAL: el resumen ya leído y contestado NO se repite
+  ok  si el cliente NO ha contestado, sí se puede repetir
+  ok  un turno vacío (no se le entendió) permite repetir
+  ok  una pregunta que nunca se hizo no se da por hecha
+  ok  la insistencia del upsell tampoco se repite
+  ok  CASO REAL: 'sí, está bien' es una afirmación simple
+  ok  el prompt sabe que 'algo más' y 'lo dejamos así' son preguntas de cierre
+  ok  CASO REAL: 'no, estoy bien' cierra el upsell
+  ok  REGLA: el aviso se inyecta por turno, no dentro de calcular_total
+  ok  el prompt mantiene que decide el cliente
+
+12 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌘ enable debugging { debug: true }
+══ La ficha no se toca por quitar un ingrediente ══
+  ok  CASO REAL: '¿le podéis quitar los langostinos?' NO borra la alergia
+  ok  las demás formas de pedirlo en cocina tampoco la borran
+  ok  'ya no soy alérgico al marisco' SÍ la borra
+  ok  las demás bajas explícitas también
+  ok  una frase cualquiera no toca nada
+  ok  REGLA DEL OWNER: el topping no se pone y punto
+  ok  REGLA DEL OWNER: salsa con alérgeno → se SUSTITUYE, según el alérgeno
+  ok  la regla sirve para TODOS los alérgenos, no solo el marisco
+  ok  el prompt distingue quitar ingrediente de borrar la ficha
+  ok  la base sin gluten solo se ofrece si él lo menciona
+
+10 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+══ Bucles de la llamada real 06-08 ═══════════════
+  ok  CASO REAL: 'una Coca Cola para cada pizza' resuelve el upsell de bebida
+  ok  la bebida ya en la comanda también lo resuelve
+  ok  si NO ha pedido la categoría ofrecida, el upsell sigue pendiente
+  ok  ofrecido un entrante, pedir bebida NO lo da por resuelto
+  ok  sin oferta registrada no se inventa que está cubierto
+  ok  CASO REAL: cuenta las veces que se ha insistido
+  ok  cuenta también la variante de '¿Qué bebida o complemento…?'
+  ok  una conversación normal no acumula insistencias
+  ok  CASO REAL: el mismo resumen con '&' o 'y' es el mismo resumen
+  ok  puntuación y mayúsculas distintas no rompen la confirmación
+  ok  un resumen DISTINTO no cuela como confirmación
+  ok  CASO REAL: 'Sí, por favor' tras el resumen SÍ confirma
+  ok  sin afirmación del cliente NO se da por confirmado
+  ok  si el pedido ha cambiado tras el resumen, hay que resumir de nuevo
+  ok  CASO REAL: '¿qué dato te falta?' NO es una queja de pedido entregado
+  ok  CASO REAL: 'no, no hace falta' NO es una queja
+  ok  CASO REAL: declarar una alergia NO abre incidencia ni regala el pedido
+  ok  un pedido normal con la palabra 'pizza' no dispara nada
+  ok  CASO REAL 02-08: la queja de verdad SÍ se sigue detectando
+  ok  'me faltaba una pizza en el pedido que me trajeron' SÍ es queja
+  ok  un problema SIN entrega previa no basta para abrir incidencia
+  ok  CASO REAL: perfil SIN dirección guardada nunca dice 'la de siempre'
+  ok  perfil CON dirección guardada sí conserva la fórmula
+  ok  CASO REAL: el bloqueo por alérgeno dice el plato, el ingrediente y la alergia
+  ok  si el alérgeno NO se puede quitar, se recomienda otro plato
+  ok  cada dato que falta se nombra en concreto
+  ok  CASO REAL: 'tengo un amigo con alergia' es de un TERCERO
+  ok  otros acompañantes también se reconocen
+  ok  si la alergia es SUYA, sí va a la ficha
+  ok  una frase normal no se confunde con una alergia ajena
+  ok  CASO REAL: una oferta hecha en voz cuenta como ofrecida
+
+31 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+══ Llamadas reales 06-08 ═════════════════════════
+  ok  CASO REAL: NUNCA se dice 'la calle de siempre, la de siempre'
+  ok  sin calle legible se dice 'la dirección de siempre', sin duplicar
+  ok  con calle legible sí se usa la fórmula con el nombre de la calle
+  ok  CASO REAL: la dirección dictada en la llamada se detecta
+  ok  una frase cualquiera NO se confunde con una dirección
+  ok  CASO REAL: a un cliente NUEVO se le prohíbe decirle 'la de siempre'
+  ok  CASO REAL: dictada la dirección, ya NO consta como dato pendiente
+  ok  un cliente REGISTRADO sí conserva la fórmula 'la de siempre'
+  ok  CASO REAL: el prompt separa PLATO + INGREDIENTE en plato + extra
+  ok  los disparadores simples están recogidos
+  ok  sigue rechazando lo que NO está en la carta de ninguna forma
+
+11 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+══ Upselling en cascada (entrante → bebida → postre) ══
+  ok  la prioridad es entrante, bebida, postre
+  ok  pedido solo de pizza → se ofrece ENTRANTE
+  ok  CASO REAL: pizza + Coca-Cola → NO se ofrece otra bebida
+  ok  con entrante y bebida ya pedidos → toca POSTRE
+  ok  con entrante y postre ya pedidos → toca BEBIDA
+  ok  con las TRES categorías → no hay nada que ofrecer (no se bloquea)
+  ok  una ensalada cuenta como entrante
+  ok  si el item no trae categoría, se lee de lo que dijo el cliente
+  ok  cada categoría tiene su frase y NO enumera productos
+  ok  la frase de bebida es la CANÓNICA del contrato del prompt
+  ok  la oferta no enumera el menú entero (el postre queda para después)
+  ok  el prompt lleva el mismo orden de prioridad
+
+12 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+══ El total que se le dice al cliente ════════════
+  ok  CASO REAL: Abruzzo + Coca-Cola son 17,50 € y NO 32
+  ok  CASO REAL: calcular DOS veces no duplica el pedido
+  ok  tres cálculos seguidos tampoco acumulan
+  ok  dos Abruzzo SÍ suman lo que tienen que sumar
+
+══ Lo que sale por la voz lo decide el código ════
+[SALIDA] importe corregido | call=guard-1 | dijo=32 | real=17.5
+  ok  CASO REAL: un total inventado se corrige con el real
+  ok  un total CORRECTO no se toca
+[SALIDA] pregunta repetida eliminada (sugerencia) | call=guard-3
+  ok  CASO REAL: una pregunta ya respondida no llega a la voz
+  ok  una pregunta NUEVA sí pasa
+  ok  un turno normal pasa intacto
+
+9 ok / 0 fail
+◇ injected env (18) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+══ No preguntes lo que ya sabes ══════════════════
+  ok  CASO REAL: las tres frases distintas son todas 'sugerencia'
+  ok  CASO REAL: tras contestar a la primera, la segunda ya está cubierta
+  ok  INVARIANTE: la frase de upsell que se emite SE RECONOCE como sugerencia
+  ok  CASO REAL: '¿qué te apetece pedir?' NO es una sugerencia
+  ok  pero '¿te apetece un postre?' SÍ es sugerencia
+  ok  sin respuesta del cliente, la sugerencia NO cuenta como hecha
+  ok  las peticiones de dirección se reconocen todas como una
+  ok  CASO REAL: dictada la dirección, no se vuelve a pedir ni a confirmar
+  ok  CASO REAL: confirmada la entrega, no se repregunta domicilio/recogida
+  ok  teléfono y nombre también se clasifican
+  ok  dado el teléfono, no se vuelve a pedir
+  ok  un turno normal no tiene intención de pregunta
+  ok  el resumen se distingue de una sugerencia
+  ok  el backend inyecta 'LO QUE YA SABES' en cada turno
+  ok  REGLA DEL OWNER: la reposición va por el mismo canal que el original
+
+15 ok / 0 fail
+
+--- 2/4 SUITE COMPLETA ---
+
+> vozra-orders-backend@0.1.0 test
+> node test-orders-fase4.cjs && node test-orders-fase5.cjs && node test-orders-fase6.cjs && node test-system-prompt-contract.cjs && node test-submit-order-validation-gate.cjs && node test-allergen-authority-20260803.cjs && node test-transactional-authority-20260803.cjs && node test-pid-fixes-20260728.cjs && node test-deterministic-closure-20260805.cjs && node test-demo-callback.cjs && node test-zona-reparto-20260818.cjs && node test-idioma-antirebote-20260818.cjs
+
+
+[1m══ P0 — Happy Path ══════════════════════════════[0m
+
+[32m✅ TEST-001[0m [P0] Pedido simple recogida
+[32m✅ TEST-002[0m [P0] Pedido simple domicilio con dirección completa
+[32m✅ TEST-003[0m [P0] Modificador extra de queso
+[32m✅ TEST-004[0m [P0] Modificador sin cebolla (remove)
+[32m✅ TEST-005[0m [P0] Doble pepperoni (double vs extra)
+[32m✅ TEST-006[0m [P0] Frase natural compleja (producto + tamaño + 2 modificadores)
+[33m⏭  TEST-007[0m [P0] Mitad y mitad [90m→ IMPLEMENTADO en el camino real (LLM: campo half_and_half, precio = la más cara). Probado en test-pid-fixes (F7). El motor legacy de fase4 no se toca.[0m
+[32m✅ TEST-008[0m [P0] Cambio de tamaño tras mencionarlo
+[32m✅ TEST-009[0m [P0] Cambio de producto antes de confirmar
+
+[1m══ P1 — Alergias y Seguridad ════════════════════[0m
+
+[32m✅ TEST-010[0m [P1] Alergia al gluten / celiaquía
+[32m✅ TEST-011[0m [P1] Intolerancia a la lactosa
+[32m✅ TEST-012[0m [P1] Alergia grave a frutos secos
+
+[1m══ P1 — Flujos de Cliente ═══════════════════════[0m
+
+[32m✅ TEST-013[0m [P1] Cliente pide hablar con persona
+[33m⏭  TEST-014[0m [P1] Transferencia por catering (regla de proveedor) [90m→ requiere provider-profile config — pendiente Fase 5[0m
+[32m✅ TEST-015[0m [P1] Cliente corrige tras confirmación pendiente
+[32m✅ TEST-016[0m [P1] Dirección incompleta sin número
+[32m✅ TEST-017[0m [P1] Teléfono con longitud insuficiente (menos de 9 dígitos)
+[32m✅ TEST-018[0m [P1] Producto inventado no existe en menú
+
+[1m══ P2 — Robustez y Edge Cases ═══════════════════[0m
+
+[33m⏭  TEST-019[0m [P2] Cocina no confirma ACK (timeout) [90m→ YA cubierto en test-orders-fase6 (Kitchen ACK Monitor: warning/critical).[0m
+[33m⏭  TEST-020[0m [P2] Dispatch fallido fallback al segundo canal [90m→ YA cubierto en test-orders-fase5 (Telegram→Discord).[0m
+[33m⏭  TEST-021[0m [P2] Todos los canales de dispatch fallan [90m→ YA cubierto en test-orders-fase5 (todos fallan → failed_dispatch).[0m
+[33m⏭  TEST-022[0m [P2] WhatsApp no disponible, Telegram OK [90m→ YA cubierto en test-orders-fase5 (fallback de canales).[0m
+[33m⏭  TEST-023[0m [P2] Telegram no disponible, Discord OK [90m→ YA cubierto en test-orders-fase5 (Telegram→Discord).[0m
+[33m⏭  TEST-024[0m [P2] Discord no disponible [90m→ YA cubierto en test-orders-fase5 (fallback a fichero).[0m
+[32m✅ TEST-025[0m [P2] Cliente se enfada — Marta mantiene tono calmado
+[32m✅ TEST-026[0m [P2] STT ruidoso — 'marga rita sin seboy a'
+[32m✅ TEST-027[0m [P2] Producto similar al menú (pizza romana vs napolitana)
+[32m✅ TEST-028[0m [P2] Cliente cancela en cualquier punto del flujo
+
+[1m══ RESUMEN ══════════════════════════════════════[0m
+
+[32m✅ Pasados:  20[0m
+[31m❌ Fallidos: 0[0m
+[33m⏭  Skipped:  8[0m
+   Total:    28
+
+◇ injected env (18) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+
+[1m══ P1/P2 — Dispatch y ACK ═══════════════════════[0m
+
+[32m✅ TEST-019[0m [P1] Dispatch exitoso — Telegram (canal primario)
+[32m✅ TEST-020[0m [P1] Fallback a Discord cuando Telegram falla
+[32m✅ TEST-021[0m [P2] Fallback a file cuando Telegram y Discord fallan
+[32m✅ TEST-022[0m [P2] Todos los canales fallan → failed_dispatch
+[32m✅ TEST-023[0m [P2] Ledger registra todos los intentos de dispatch
+[32m✅ TEST-024[0m [P2] Dispatch no modifica pedido ya enviado (idempotencia)
+
+[1m══ RESUMEN Fase 5 ═══════════════════════════════[0m
+
+[32m✅ Pasados:  6[0m
+[31m❌ Fallidos: 0[0m
+[33m⏭  Skipped:  0[0m
+   Total:    6
+
+◇ injected env (18) from .env // tip: ⌘ suppress logs { quiet: true }
+
+[1m══ Fase 6 — Kitchen ACK Monitor ═════════════════[0m
+
+[32m✅ ACK-001[0m ACK recibido antes del warning → accepted_by_kitchen
+[32m✅ ACK-002[0m ACK acknowledged (sin accepted/rejected) → kitchen_acknowledged
+[32m✅ ACK-003[0m Cocina rechaza el pedido → rejected_by_kitchen
+[32m✅ ACK-004[0m Warning dispara si cocina no responde en tiempo
+[32m✅ ACK-005[0m Critical dispara si cocina no responde tras timeout largo
+[32m✅ ACK-006[0m Ledger registra ack_warning y ack_critical
+[32m✅ ACK-007[0m Ledger registra kitchen_accepted en ACK exitoso
+[32m✅ ACK-008[0m cancelWatch detiene los timers sin alertas
+[32m✅ ACK-009[0m startKitchenWatch lanza error si pedido no está en sent_to_kitchen
+[32m✅ ACK-010[0m ACK doble idempotente — no dispara error ni altera status
+
+[1m══ RESUMEN Fase 6 ═══════════════════════════════[0m
+
+[32m✅ Pasados:  10[0m
+[31m❌ Fallidos: 0[0m
+   Total:    10
+
+◇ injected env (18) from .env // tip: ⌘ enable debugging { debug: true }
+✅ Sarah allergen silence: four prohibitions hold across conversations without a declaration
+✅ Sarah contract: ambiguous fulfilment, single drink upsell and caller-ID privacy
+✅ Sarah style: fillers, three-minute target and priority order
+✅ System prompt contract: single brain prompt, multilingual anti-bounce and single final confirmation
+✅ Language regression: ciao / ok / un Margherita, por favor keep Spanish opening
+◇ injected env (18) from .env // tip: ⌘ enable debugging { debug: true }
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-8853
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-5016
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-6921
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-3219
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-6321
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-1018
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-1354
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-3254
+[NOTIFY] cliente avisado | canal=test | to=undefined | sid=undefined
+✅ P0 validation gate: invalid orders have zero operational effects and remain retryable
+◇ injected env (18) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+══ Autoridad determinista de alérgenos ══════════
+  ok  1. perfil alérgico + Abruzzo se AVISA pero NO bloquea
+  ok  2. Abruzzo sin langostinos queda resuelta sin repreguntar
+  ok  3 y 6. integración turno a turno reevalúa y reabre
+  ok  4. submit_order con alérgeno declarado NO se niega: va a cocina anotado
+  ok  5. B&B sin conflicto no genera alerta falsa
+  ok  modificadores añadidos también participan en el cross-check
+
+6 escenarios ok / 0 fail
+◇ injected env (18) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-6609
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[GATE] order_type fuera del enum, se ignora | recibido="takeaway_maybe"
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-5446
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-7342
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-7474
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-6656
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-3924
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+✅ Transactional authority: revisions, fingerprints, quote, surcharge, summary, confirmation and effects PASS
+◇ injected env (18) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+══ Fixes 2026-07-28 — contrato de prompt ═════════
+✅ F1 el prompt NO enseña a empezar alertas con 'Oye'
+✅ F1 no repetir como descubrimiento lo que el cliente declara
+✅ F1 lógica retirable vs intrínseco presente
+✅ F1 regla de apoyo retirable/intrínseco presente
+✅ F1 no afirmar 100% seguro por su cuenta
+✅ F1 el conflicto retirable se AVISA, no bloquea
+✅ F4 el prompt YA NO manda sumar tiempo de preparación
+✅ F4 da el RANGO honesto de entrega
+✅ F4 sigue prohibiendo la hora concreta y sumar a la hora actual
+✅ F4 no dice 'está en camino'
+✅ F4 con la cocina cerrada el rango se cuenta desde la APERTURA
+✅ F4 última orden 30 minutos antes del cierre
+✅ F2 detecta oferta de bebida
+✅ F2 detecta oferta de postre
+✅ F2 detecta oferta de entrante para compartir
+✅ F2 NO dispara en un resumen normal con bebida ya pedida
+✅ F2 NO dispara en saludo ni al tomar platos
+✅ F2 caso real: ofreció bebida en un turno previo del historial
+✅ F2 el prompt mantiene 'EXACTAMENTE UNA vez'
+✅ F3-A cliente reconocido por CALLER ID (precargado) NO oye la pregunta
+✅ F3-B cliente encontrado tras DICTAR el teléfono NO oye la pregunta
+✅ F3-neg cliente NUEVO (no registrado) SÍ conserva la pregunta
+✅ F3 no altera un turno neutro de un cliente registrado
+✅ F5 streetOnly extrae la calle en varios formatos
+✅ F5 la directiva reconoce por nombre y nombra SOLO la calle
+✅ F5 la directiva NUNCA verbaliza número/piso (privacidad)
+✅ ONTO marisco en PIZZA es retirable
+✅ ONTO marisco en PASTA/RISOTTO es intrínseco
+✅ ONTO gluten y lácteo SIEMPRE intrínsecos
+✅ ONTO frutos secos: en pesto intrínseco, por encima retirable
+✅ ONTO removableAllergens solo lista los retirables
+✅ ONTO datos REALES del menú: Abruzzo langostinos retirable, frutti di mare no
+✅ F1 el prompt usa el dato '(se puede quitar)' de la carta
+✅ F6 parseRestrictions normaliza jsonb/string/null a {allergies,preferences}
+✅ F6 mergeRestrictions acumula sin duplicar (case-insensitive)
+✅ F6 mergeRestrictions parte de perfil vacío
+✅ F7 mitad y mitad: precio = la pizza MÁS CARA
+✅ F7 mitad y mitad: cruza las alergias de LAS DOS mitades y las avisa
+✅ F8 registrado sin número en el turno → usa la dirección guardada (con número)
+✅ F8 el cliente cambia la dirección (con número) → usa esa
+✅ F8 nueva sin número y sin guardada → number null (se pedirá el número)
+✅ F8 'una para cada piso' (STT de pizza) deriva las bebidas por nº de pizzas
+✅ F9 encuentra el teléfono aunque NO sea el último turno
+✅ F9 acepta el teléfono con separadores y sin él da null
+✅ F10 customer_name NO es obligatorio (cliente registrado no falla)
+✅ F10 submit_order acepta removed_allergies (borrar alergia guardada)
+✅ F11 calcular_total expone los suplementos de un extra con precio
+✅ F11 sin extras de pago no hay aviso de suplementos
+✅ F11 el prompt obliga a avisar del suplemento
+══ RESUMEN ═══════════════════════════════════════
+✅ Pasados: 49   ❌ Fallidos: 0
+◇ injected env (18) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-9993
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-4728
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-4379
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[CUST] perfil guardado con consentimiento | tel ***008
+[DB] pedido guardado (pre-dispatch) | ORD-20260819-7709
+[NOTIFY] cliente avisado | canal=undefined | to=undefined | sid=undefined
+[CUST] lookup error | profile read failed
+✅ Deterministic closure: allergy profile, upsell, extras, versioning, summary, consent and End Call PASS
+  OK  compone número español en E.164
+  OK  acepta E.164 explícito
+  OK  elimina trunk prefix británico
+  OK  no confunde un móvil italiano con el prefijo internacional
+  OK  normaliza móviles argentinos con 0 y 15
+  OK  rechaza números demasiado cortos
+{"event":"demo_callback_attempt","stage":"received","requestId":"a9f738c0-d0ca-4470-991e-94bcad97b214","phone":"+346***456","country":"ES","ip":"127.0.0.1"}
+{"event":"demo_callback_attempt","stage":"rejected","reason":"consent","requestId":"a9f738c0-d0ca-4470-991e-94bcad97b214","phone":"+346***456","country":"ES","ip":"127.0.0.1"}
