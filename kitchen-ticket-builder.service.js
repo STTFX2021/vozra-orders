@@ -110,9 +110,28 @@ function buildTextTicket(order, validationResult = {}) {
     lines.push("");
   }
 
+  // ── FUERA DE ÚLTIMA ORDEN (decisión de sam 19-08) ────────────────────────
+  // El pedido ha entrado dentro de los últimos minutos antes de cerrar el turno.
+  // NO se ha bloqueado a propósito: bloquearlo perdería la venta y no hay forma de
+  // dejarlo programado para el turno siguiente (submit_order no tiene campo de
+  // hora). Mismo criterio que el contador de incidencias: DECIDE EL LOCAL.
+  // Al cliente no se le ha dicho nada; esto es información interna.
+  if (order.ultimaOrden) {
+    const uo = order.ultimaOrden;
+    lines.push(SEP2);
+    lines.push("⏰⏰  FUERA DE ÚLTIMA ORDEN — CONFIRMAR CON ENCARGADO  ⏰⏰");
+    lines.push(SEP2);
+    lines.push(`    Entró a ${uo.faltanMin} min del cierre (cierra a las ${uo.cierraHHMM}h).`);
+    lines.push(`    El límite del local son ${uo.limiteMin} min.`);
+    lines.push("    DECIDE TÚ si da tiempo. El sistema NO lo ha rechazado solo.");
+    if (order.phone) lines.push(`📞  Si no da tiempo, llamar al cliente: ${order.phone}`);
+    lines.push(SEP2);
+    lines.push("");
+  }
+
   // ── CABECERA ─────────────────────────────────────────────────────────────
   lines.push(SEP2);
-  lines.push(`🍕 PEDIDO ${order.orderId}${order.incidencia ? "  ·  ⚠️ REPOSICIÓN SIN CARGO" : ""}`);
+  lines.push(`🍕 PEDIDO ${order.orderId}${order.incidencia ? "  ·  ⚠️ REPOSICIÓN SIN CARGO" : ""}${order.ultimaOrden ? "  ·  ⏰ FUERA DE ÚLTIMA ORDEN" : ""}`);
   lines.push(`📅 ${date}  ⏰ ${time}h`);
   lines.push(`${typeLabel}`);
   lines.push(SEP);

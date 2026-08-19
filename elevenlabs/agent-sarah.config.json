@@ -1,0 +1,99 @@
+{
+  "_comentario": [
+    "FUENTE DE VERDAD del agente Sarah en ElevenLabs. NO se edita el panel a mano.",
+    "Se publica con: node elevenlabs/publicar-agente.cjs   (necesita ELEVENLABS_API_KEY)",
+    "Se comprueba con: node test-elevenlabs-config-20260819.cjs",
+    "Los ${...} se sustituyen desde el entorno al publicar. NUNCA metas secretos aquí."
+  ],
+  "agent_id": "agent_7801kte3e78te9ga2xc076bxsw9e",
+  "conversation_config": {
+    "agent": {
+      "first_message": "PizzeriaLaLocandaCancelada,te atiende Sarah¿enqué puedoayudarte?",
+      "language": "es",
+      "prompt": {
+        "llm": "custom-llm",
+        "temperature": 0.25,
+        "max_tokens": -1,
+        "timezone": "Europe/Madrid",
+        "backup_llm_config": {
+          "preference": "disabled"
+        },
+        "custom_llm": {
+          "url": "https://vozra-orders-production.up.railway.app/v1",
+          "model_id": "vozra-marta-orders",
+          "api_type": "chat_completions",
+          "request_headers": {
+            "VOZRA_LLM_SECRET": "${ELEVENLABS_CUSTOM_LLM_SECRET}",
+            "X-ElevenLabs-Conversation-Id": {
+              "variable_name": "system__conversation_id"
+            }
+          }
+        },
+        "built_in_tools": {
+          "end_call": {
+            "type": "system",
+            "name": "end_call",
+            "description": "",
+            "response_timeout_secs": 20,
+            "disable_interruptions": false,
+            "interruption_mode": "allow",
+            "force_pre_tool_speech": false,
+            "pre_tool_speech": "auto",
+            "assignments": [],
+            "params": {
+              "system_tool_type": "end_call"
+            }
+          },
+          "play_keypad_touch_tone": {
+            "type": "system",
+            "name": "play_keypad_touch_tone",
+            "description": "",
+            "response_timeout_secs": 20,
+            "disable_interruptions": false,
+            "interruption_mode": "allow",
+            "force_pre_tool_speech": false,
+            "pre_tool_speech": "auto",
+            "assignments": [],
+            "params": {
+              "system_tool_type": "play_keypad_touch_tone",
+              "use_out_of_band_dtmf": true,
+              "suppress_turn_after_dtmf": false
+            }
+          }
+        },
+        "_prompt_desde": "elevenlabs/prompt-sarah.md"
+      }
+    },
+    "turn": {
+      "speculative_turn": false,
+      "turn_timeout": 5,
+      "soft_timeout_config": {
+        "timeout_seconds": 4,
+        "message": "Un momentito, por favor.",
+        "additional_soft_timeout_messages": [
+          "Déjame apuntarlo."
+        ],
+        "use_llm_generated_message": false,
+        "randomize_fillers": false,
+        "max_soft_timeouts_per_generation": 2
+      }
+    },
+    "tts": {
+      "model_id": "eleven_flash_v2_5",
+      "voice_id": "dNjJKg63Fr5AXwIdkATa",
+      "stability": 0.63,
+      "speed": 1.05,
+      "similarity_boost": 0.81,
+      "optimize_streaming_latency": 1
+    },
+    "conversation": {
+      "max_duration_seconds": 600,
+      "background_sound": {
+        "source_type": "preset",
+        "source_id": "restaurant",
+        "volume": 0.05,
+        "crossfade_loop": true
+      }
+    }
+  }
+}

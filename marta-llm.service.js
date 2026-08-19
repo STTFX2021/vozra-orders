@@ -1788,6 +1788,69 @@ function zonaFueraDeReparto(order, session) {
   return true;
 }
 
+
+// ─── ÚLTIMA ORDEN — aviso al local, sin bloquear (decision de sam 19-08) ────
+//
+// Regla del owner (06-08): no se toman pedidos para un turno cuando faltan menos
+// de `ultima_orden_min` minutos para que cierre. Hasta hoy eso SOLO se interpolaba
+// como texto en el prompt: cero cumplimiento.
+//
+// POR QUE NO BLOQUEA (decision de sam 19-08, opcion B): `submit_order` no tiene
+// ningun campo de hora, asi que "ofrece el turno siguiente" no se puede cumplir —
+// el cliente diria que si y no habria donde apuntarlo. Un gate duro seria un
+// callejon sin salida que PIERDE LA VENTA. Mismo criterio que el contador de
+// incidencias: el pedido entra, el ticket avisa, y DECIDE EL LOCAL.
+// Al cliente no se le dice nada: es informacion interna.
+//
+// Fail-open: si no se puede saber el horario, no hay aviso (nunca al reves).
+function _hhmmAMin(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || "").trim());
+  return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null;
+}
+
+// Minutos que faltan para que cierre el turno EN CURSO, y a que hora cierra.
+// null si la cocina esta cerrada (entonces el pedido es para la proxima apertura)
+// o si el horario no es legible.
+function cierreDelTurnoEnCurso(ks) {
+  if (!ks || !ks.openNow) return null;
+  const ahora = _hhmmAMin(ks.nowHHMM);
+  if (ahora == null) return null;
+  let mejor = null;
+  for (const w of (ks.todayWindows || [])) {
+    const o = _hhmmAMin(w.open), c = _hhmmAMin(w.close);
+    if (o == null || c == null) continue;
+    // "24:00" y los turnos que cruzan medianoche cierran al dia siguiente.
+    const cruzaMedianoche = c <= o;
+    const cierre = cruzaMedianoche ? c + 1440 : c;
+    // OJO (fallo real cazado por el test): a la 01:40, con turno 20:00-02:00, el
+    // cliente sigue DENTRO del turno que empezo ayer. Comparar la hora tal cual
+    // nunca casaba, porque 100 < 1200. Hay que mirar tambien el dia siguiente.
+    const candidatos = cruzaMedianoche ? [ahora, ahora + 1440] : [ahora];
+    for (const t of candidatos) {
+      if (t >= o && t < cierre) {
+        const faltan = cierre - t;
+        if (mejor == null || faltan < mejor.faltanMin) mejor = { faltanMin: faltan, cierraHHMM: w.close };
+      }
+    }
+  }
+  return mejor;
+}
+
+function ultimaOrdenMin(provider) {
+  const c = (provider && provider.config && provider.config.compensacion) || {};
+  return Number.isFinite(c.ultima_orden_min) ? c.ultima_orden_min : 30;
+}
+
+// Funcion PURA: recibe el estado de cocina, no lo consulta. Asi se puede probar
+// sin depender de la hora real, que es lo que hacia intestable la regla.
+function avisoUltimaOrden(ks, limiteMin) {
+  const limite = Number.isFinite(limiteMin) ? limiteMin : 30;
+  const cierre = cierreDelTurnoEnCurso(ks);
+  if (!cierre) return null;
+  if (cierre.faltanMin >= limite) return null;
+  return { faltanMin: cierre.faltanMin, cierraHHMM: cierre.cierraHHMM, limiteMin: limite };
+}
+
 async function handleSubmitOrder(callId, args, conversationMessages = []) {
   const _sess = getOrCreateOrderSession(callId);
   if (["dispatching", "dispatched", "farewell_sent", "ended"].includes(_sess.closureState)) {
@@ -1917,6 +1980,17 @@ async function handleSubmitOrder(callId, args, conversationMessages = []) {
     const da = resolveDeliveryAddress(args.address, (_sess && _sess.registeredAddress) || null);
     if (da) patch.address = { street: null, number: da.number, floor: null, city: null, raw: da.raw };
   }
+
+  // ULTIMA ORDEN: no frena el pedido, marca el ticket para que decida el local.
+  try {
+    const _prov = getProvider("la-locanda");
+    const _aviso = avisoUltimaOrden(getKitchenStatus(_prov.slug || "la-locanda"), ultimaOrdenMin(_prov));
+    if (_aviso) {
+      patch.ultimaOrden = _aviso;
+      console.warn("[ULTIMA-ORDEN] pedido dentro de los " + _aviso.limiteMin +
+        " min previos al cierre | faltan=" + _aviso.faltanMin + " | call=" + callId);
+    }
+  } catch (e) { console.error("[ULTIMA-ORDEN] no se pudo comprobar el horario | " + e.message); }
   const draftResult = applyDraftSnapshot(callId, patch);
   let order = updateOrderSession(callId, patch);
   let validation = {};
@@ -3559,6 +3633,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
 module.exports = {
   generateMartaReply,
+  avisoUltimaOrden,
+  cierreDelTurnoEnCurso,
+  ultimaOrdenMin,
   idiomaDeFrase,
   idiomaDeLaLlamada,
   directivaDeIdioma,
