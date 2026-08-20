@@ -613,7 +613,7 @@ ${(() => {
    - PROHIBIDO dar una hora concreta ("sobre las nueve y media") ni sumar minutos a la hora actual. PROHIBIDO afirmar que ya "está en camino".
    - No lo repitas en cada turno: se dice UNA vez, o cuando el cliente pregunte.
    - CON LA COCINA CERRADA el rango se cuenta DESDE LA APERTURA, no desde ahora: "Ahora mismo la cocina está cerrada, abrimos a las [hora]. Tu pedido te llegaría sobre las [hora + rango]". Se aceptan pedidos igualmente.
-   - ÚLTIMA ORDEN: no se toman pedidos para un turno cuando faltan menos de ${comp.ultima_orden_min || 30} minutos para que cierre. En ese caso dilo y ofrece el turno siguiente.
+   - ÚLTIMA ORDEN: el pedido se ACEPTA SIEMPRE, también a última hora. TÚ NO RECHAZAS NINGÚN PEDIDO POR LA HORA. El ticket sale marcado para el encargado y decide el local (decisión de sam, 19-08, opción B). Si el cliente pregunta, dile que lo entras y que el local se lo confirma.
 5. UPSELLING (OBLIGATORIO EXACTAMENTE UNA vez en TODOS los pedidos, antes del resumen): UNA sola sugerencia, con naturalidad. Si el cliente la rechaza, no insistas.
    ORDEN DE PRIORIDAD (se ofrece la PRIMERA categoría que NO esté ya en el pedido):
      1º ENTRANTE / algo para picar   → "¿Te pongo algo para picar, un entrante para compartir?"
@@ -2454,15 +2454,23 @@ const _NUM_ES = {
   veinticinco:25, veintiseis:26, veintisiete:27, veintiocho:28, veintinueve:29,
   treinta:30, cuarenta:40, cincuenta:50, sesenta:60, setenta:70, ochenta:80,
   noventa:90, cien:100, ciento:100, doscientos:200, trescientos:300,
-  cuatrocientos:400, quinientos:500
+  cuatrocientos:400, quinientos:500,
+  // Faltaban de seiscientos en adelante: un importe que el guardián no sabe leer
+  // es un importe que se le cuela. "Serían seiscientos euros" pasaba intacto.
+  seiscientos:600, setecientos:700, ochocientos:800, novecientos:900, mil:1000
 };
 const _NUM_ES_PATRON = Object.keys(_NUM_ES).join("|") + "|y";
 
 /** "treinta y dos euros con cincuenta" → 32.5 · "17,50 euros" → 17.5 · si no, null */
 function importeHablado(texto) {
-  const t = String(texto || "").toLowerCase()
+  let t = String(texto || "").toLowerCase()
     .normalize("NFD").replace(/[̀-ͯ]/g, "");
-  const cifra = t.match(/(\d{1,3})(?:[.,](\d{1,2}))?\s*(?:€|euros?)/);
+  // "veinte euros Y cincuenta céntimos" es exactamente lo mismo que "...CON
+  // cincuenta", pero el separador era solo "con" y devolvía null. Caso real:
+  // salía "20 euros con 50 y cincuenta centimos" — el guardián corregía la
+  // primera mitad y dejaba la segunda pegada detrás.
+  t = t.replace(/\s+y\s+([\da-z\s]+?)\s*centimos?/g, " con $1");
+  const cifra = t.match(/(\d{1,4})(?:[.,](\d{1,2}))?\s*(?:€|euros?)/);
   if (cifra) {
     const cent = cifra[2] ? Number((cifra[2] + "0").slice(0, 2)) : 0;
     return Number(cifra[1]) + cent / 100;
@@ -2480,6 +2488,81 @@ function importeHablado(texto) {
 }
 
 /**
+ * TODOS los importes que el CÓDIGO ha calculado para esta llamada.
+ *
+ * Hasta ahora el guardián comparaba cualquier importe dicho contra el total, y
+ * reescribía al total todo lo que no cuadrase. Efecto real, verificado: el
+ * mensaje que genera el propio backend — "El pedido tiene cuatro euros con
+ * cincuenta de suplementos en total" — salía por la voz como "...veinte euros
+ * con cincuenta de suplementos", porque el guardián lo confundía con el total.
+ * El guardián de importes inventados estaba inventando importes.
+ *
+ * La regla correcta no es "solo vale el total": es "solo vale lo que calculó el
+ * código". Un precio de línea, un suplemento y el total de suplementos son tan
+ * legítimos como el total del pedido. Lo que no está en esta lista, no existe.
+ */
+function importesLegitimos(order) {
+  const vals = [];
+  const add = v => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) vals.push(Math.round(n * 100) / 100);
+  };
+  add(order.quotedTotal);
+  add(order.estimatedTotal);
+  add(order.quotedSurchargeTotal);
+  for (const s of (order.quotedSurcharges || [])) add(s && s.importe_eur);
+  for (const it of (order.items || [])) {
+    if (!it) continue;
+    add(it.price); add(it.unitPrice); add(it.lineTotal); add(it.importe_eur);
+    for (const m of (it.modifiers || [])) add(m && (m.price != null ? m.price : m.importe_eur));
+  }
+  return vals;
+}
+
+// ─── HONESTIDAD: LO QUE SARAH NO PUEDE DECIR NUNCA ───────────────────────────
+// Caso real (llamada de prueba, cliente inventado "Pedro Porro", 19-08): Sarah
+// dijo "Aquí estás, Pedro" y "la dirección de siempre" a alguien que NO estaba en
+// la base de datos, y luego se inventó una excusa de privacidad para tapar que le
+// faltaban datos. El código SÍ sabía la verdad — buscar_cliente devolvió
+// encontrado:false — pero la prohibición vivía SOLO en el prompt, y gpt-4.1-mini
+// la cumple a veces. Es el mismo patrón de bd11a80: la regla existía, el mecanismo
+// no. Estos dos filtros son ese mecanismo.
+
+// Reconocer a alguien a quien no conocemos. Solo se aplica si el perfil NO está
+// registrado: entonces NINGUNA de estas frases puede ser verdad jamás.
+const _RX_RECONOCIMIENTO_FALSO = [
+  /aqu[ií]\s+(?:est[aá]s|te\s+tengo)/i,
+  /ya\s+te\s+ten[gí]a?\b/i,
+  /te\s+(?:tengo|veo)\s+(?:aqu[ií]|registrad|apuntad)/i,
+  /(?:la|tu)\s+(?:direcci[oó]n\s+)?de\s+siempre/i,
+  /(?:como|igual\s+que)\s+(?:la\s+|el\s+)?(?:[uú]ltima\s+vez|siempre|otra\s+vez)/i,
+  /\b(?:tengo|veo)\s+(?:aqu[ií]\s+)?(?:tus?|tu)\s+(?:datos|direcci[oó]n|ficha|tel[eé]fono)/i,
+  /(?:tienes|ten[ií]as)\s+(?:guardad|apuntad|registrad)/i,
+  /tu\s+(?:pedido\s+)?habitual/i,
+  /lo\s+de\s+siempre/i
+];
+
+// Excusarse en la privacidad para tapar que faltan datos. No existe tal norma:
+// es mentira, y una mentira dicha con voz convencida es peor que un silencio.
+const _RX_EXCUSA_PRIVACIDAD = [
+  /por\s+(?:motivos?|temas?|razones)\s+de\s+(?:privacidad|seguridad|protecci[oó]n\s+de\s+datos)/i,
+  /por\s+(?:privacidad|seguridad|protecci[oó]n\s+de\s+datos)\b/i,
+  /(?:protecci[oó]n|pol[ií]tica)\s+de\s+datos/i,
+  /no\s+(?:puedo|estoy\s+autorizada?)\s+(?:a\s+)?(?:darte|facilitarte|compartir|revelar|decirte|proporcionarte)[^.?!]{0,60}\b(?:dato|informaci[oó]n|direcci[oó]n|tel[eé]fono)/i
+];
+
+/** Elimina las FRASES completas que casan alguno de los patrones. */
+function borraFrasesQueCasan(texto, patrones, motivo, callId) {
+  const frases = String(texto).split(/(?<=[.?!])\s+/).filter(Boolean);
+  const quedan = frases.filter(f => {
+    if (!patrones.some(rx => rx.test(f))) return true;
+    console.warn("[SALIDA] " + motivo + " eliminado | call=" + callId + " | frase=" + f.trim());
+    return false;
+  });
+  return quedan.length === frases.length ? texto : quedan.join(" ");
+}
+
+/**
  * GUARDIÁN DE SALIDA — lo que sale por la voz lo decide EL CÓDIGO, no el modelo.
  *
  * "Se buscó el fallo, que era que teníamos que endurecer las reglas e incorporarlas
@@ -2494,8 +2577,10 @@ function importeHablado(texto) {
  *
  * Este guardián corrige la respuesta ANTES del TTS:
  *   1. Un importe que no cuadra con el total calculado → se corrige o se calla.
- *   2. Una pregunta cuya intención YA está cubierta → se elimina.
- *   3. Con el pedido ya despachado → solo pasa la despedida.
+ *   2. Reconocer a un cliente que NO está registrado → se elimina.
+ *   3. Excusarse en la privacidad para tapar un dato que falta → se elimina.
+ *   4. Una pregunta cuya intención YA está cubierta → se elimina.
+ *   5. Con el pedido ya despachado → solo pasa la despedida.
  */
 function guardianDeSalida(texto, callId, incomingMessages) {
   let t = String(texto || "");
@@ -2513,22 +2598,41 @@ function guardianDeSalida(texto, callId, incomingMessages) {
   // mirase dígitos no habría servido para nada.
   const real = order.quotedTotal != null ? order.quotedTotal
              : (order.estimatedTotal != null ? order.estimatedTotal : null);
+  const _P = _NUM_ES_PATRON;
+  const _cents = "(?:\\d{1,2}|(?:" + _P + ")(?:\\s+(?:" + _P + "))*)";
   const rxImporte = new RegExp(
-    "((?:\\d{1,3}(?:[.,]\\d{1,2})?|(?:" + _NUM_ES_PATRON + ")(?:\\s+(?:" + _NUM_ES_PATRON + "))*)" +
-    "\\s*(?:€|euros?)(?:\\s+con\\s+(?:\\d{1,2}|(?:" + _NUM_ES_PATRON + ")(?:\\s+(?:" + _NUM_ES_PATRON + "))*))?)", "gi");
+    "((?:\\d{1,4}(?:[.,]\\d{1,2})?|(?:" + _P + ")(?:\\s+(?:" + _P + "))*)" +
+    "\\s*(?:€|euros?)(?:\\s+con\\s+" + _cents + "|\\s+y\\s+" + _cents + "\\s+c[eé]ntimos?)?)", "gi");
+  const legitimos = importesLegitimos(order);
   t = t.replace(rxImporte, (bloque) => {
     const dicho = importeHablado(bloque);
-    if (dicho == null) return bloque;
+    // Vale cualquier importe que haya salido del código, no solo el total.
+    if (dicho != null && legitimos.some(v => Math.abs(dicho - v) < 0.01)) return bloque;
+    // FAIL-CLOSED: un importe que no sabemos leer es, por definición, un importe
+    // que no viene del código. Antes se dejaba pasar intacto y por ahí se colaban
+    // "mil doscientos euros" o cualquier forma que la tabla no cubriera.
     if (real == null) {
-      console.warn("[SALIDA] importe inventado sin total calculado | call=" + callId + " | dijo=" + dicho);
+      console.warn("[SALIDA] importe sin respaldo y sin total calculado | call=" + callId + " | bloque=" + bloque);
       return "";
     }
-    if (Math.abs(dicho - real) < 0.01) return bloque;
     console.warn("[SALIDA] importe corregido | call=" + callId + " | dijo=" + dicho + " | real=" + real);
     return formatEurosSpoken(real);
   });
 
-  // ── 2. NADA DE PREGUNTAS YA RESPONDIDAS ──────────────────────────────────
+  // ── 2. NO SE RECONOCE A QUIEN NO CONOCEMOS ───────────────────────────────
+  // Si el perfil no está registrado, "aquí estás, Pedro" y "la de siempre" son
+  // mentira por definición. No se matiza: se borra la frase entera.
+  if (order.registeredFound !== true) {
+    t = borraFrasesQueCasan(t, _RX_RECONOCIMIENTO_FALSO, "reconocimiento falso", callId);
+  }
+
+  // ── 3. NADA DE EXCUSAS DE PRIVACIDAD ─────────────────────────────────────
+  // No existe ninguna norma de privacidad que impida a Sarah pedir un dato. Si
+  // le falta algo, lo pide; no se inventa una excusa que suena profesional.
+  t = borraFrasesQueCasan(t, _RX_EXCUSA_PRIVACIDAD, "excusa de privacidad", callId);
+  if (!t.trim()) t = "Perdona, ¿me lo repites?";
+
+  // ── 4. NADA DE PREGUNTAS YA RESPONDIDAS ──────────────────────────────────
   // Se trocea en frases y se cae cualquier pregunta cuya intención ya se cubrió.
   const frases = t.split(/(?<=[.?!])\s+/).filter(Boolean);
   // Se filtra por INTENCIÓN, no por signo de interrogación. Los mensajes que
@@ -2553,7 +2657,7 @@ function guardianDeSalida(texto, callId, incomingMessages) {
   // seguía saliendo por la voz.
   t = quedan.length ? quedan.join(" ") : "Perfecto, seguimos.";
 
-  // ── 3. DESPACHADO = SE ACABÓ ─────────────────────────────────────────────
+  // ── 5. DESPACHADO = SE ACABÓ ─────────────────────────────────────────────
   // Con el pedido ya en cocina no se resume, ni se sugiere, ni se pregunta nada:
   // caso real 09-08, siguió hablando tres turnos DESPUÉS de "va a cocina".
   if (["dispatched", "farewell_sent", "ended"].includes(order.closureState)) {

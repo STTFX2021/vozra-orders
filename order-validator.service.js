@@ -17,6 +17,7 @@
 const fs   = require("fs");
 const path = require("path");
 const { classifyAllergen } = require("./allergen-ontology.service.js");
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
 
 // ─── TAXONOMY LOADERS ────────────────────────────────────────────────────────
 
@@ -100,17 +101,42 @@ function validateRequiredSlots(order) {
 
 // ─── PHONE VALIDATION ────────────────────────────────────────────────────────
 
+/**
+ * BLOQUEA. Hasta el 20-08 esto solo devolvía WARNINGS, y `ok` solo mira `errors`:
+ * el sistema DETECTABA el teléfono malo, escribía un aviso que no leía nadie, y
+ * despachaba igual. Caso real (llamada de prueba "Pedro Porro"): un teléfono de
+ * SIETE dígitos entró a cocina como bueno. Un pedido a domicilio con un teléfono
+ * que no existe es un pedido que no puedes rescatar si algo sale mal.
+ *
+ * Se valida con libphonenumber-js, que ya estaba en package.json y solo se usaba
+ * en el formulario de demo de la web: en el flujo de pedidos no validaba nada.
+ * Se usa a propósito en vez de contar dígitos a mano, para no dejar en la calle
+ * al turista que da un número extranjero perfectamente válido.
+ *
+ * Devuelve { errors, warnings }.
+ */
 function validatePhone(phone) {
-  const warnings = [];
-  if (!phone) return warnings;
-  const digits = String(phone).replace(/\D/g, "");
-  if (digits.length !== 9) {
-    warnings.push({ code: "PHONE_LENGTH", message: `Teléfono con ${digits.length} dígitos (esperado: 9).` });
+  const errors = [], warnings = [];
+  if (!phone) return { errors, warnings };
+  const raw = String(phone).trim();
+  const digits = raw.replace(/\D/g, "");
+
+  let parsed = null;
+  try { parsed = parsePhoneNumberFromString(raw, "ES"); } catch (_) { parsed = null; }
+
+  if (parsed && parsed.isValid()) {
+    if (parsed.country === "ES" && !/^[6-9]/.test(String(parsed.nationalNumber))) {
+      warnings.push({ code: "PHONE_PREFIX", message: "Teléfono español que no empieza por 6, 7, 8 o 9." });
+    }
+    return { errors, warnings };
   }
-  if (!/^[6-9]/.test(digits)) {
-    warnings.push({ code: "PHONE_PREFIX", message: "Teléfono no empieza por 6, 7, 8 o 9 (móvil/fijo español)." });
-  }
-  return warnings;
+
+  errors.push({
+    code: "PHONE_LENGTH",
+    requiredAction: "resolve_phone",
+    message: `Teléfono no válido (${digits.length} dígitos). No se despacha un pedido con un teléfono que no existe.`
+  });
+  return { errors, warnings };
 }
 
 // ─── ALLERGEN CROSS-CHECK ─────────────────────────────────────────────────────
@@ -422,9 +448,10 @@ function validateOrder(order) {
   const slotErrors = validateRequiredSlots(order);
   errors.push(...slotErrors);
 
-  // 2. Teléfono
-  const phoneWarnings = validatePhone(order.phone);
-  warnings.push(...phoneWarnings);
+  // 2. Teléfono — BLOQUEA desde el 20-08 (antes solo avisaba y se despachaba igual)
+  const phoneCheck = validatePhone(order.phone);
+  errors.push(...phoneCheck.errors);
+  warnings.push(...phoneCheck.warnings);
 
   // 3. Items
   const itemIntegrity = validateItems(order);

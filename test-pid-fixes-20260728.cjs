@@ -96,8 +96,18 @@ test("F4 no dice 'está en camino'", () => {
 test("F4 con la cocina cerrada el rango se cuenta desde la APERTURA", () => {
   assert.ok(/se cuenta DESDE LA APERTURA/i.test(prompt), "daría el rango desde la hora actual con la cocina cerrada");
 });
-test("F4 última orden 30 minutos antes del cierre", () => {
-  assert.ok(/ÚLTIMA ORDEN/i.test(prompt) && /30 minutos para que cierre/i.test(prompt));
+// REESCRITO EL 20-08. Este test comprobaba que el prompt DIJERA "no se toman
+// pedidos... 30 minutos para que cierre". Esa regla se revocó el 19-08 (opción B
+// de sam: última orden NO bloquea; el ticket avisa al local y decide él), pero el
+// prompt siguió ordenando lo contrario y este test lo mantuvo clavado ahí. Es el
+// patrón de f86d83f: un test que comprueba lo que el prompt DICE fija la regla
+// vieja en su sitio. El COMPORTAMIENTO lo cubre test-ultima-orden-20260819.
+test("F4 el prompt NO ordena rechazar pedidos por la hora (decisión 19-08)", () => {
+  assert.ok(/ÚLTIMA ORDEN/i.test(prompt), "el prompt ya ni menciona la última orden");
+  assert.ok(!/no se toman pedidos/i.test(prompt),
+    "el prompt sigue ordenando rechazar pedidos a última hora, contra la decisión del 19-08");
+  assert.ok(/se ACEPTA SIEMPRE|NO RECHAZAS/i.test(prompt),
+    "el prompt no deja claro que el pedido entra igualmente");
 });
 
 // ── FALLO 2: UPSELLING UNA VEZ (detector determinista) ───────────────────────

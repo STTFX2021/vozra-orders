@@ -2,7 +2,7 @@
 
 > **Este es el sitio único con todo Vozra PID.** Solo PID (pizzería La Locanda). Roomy Food vive aparte en `../roomy-food` con su propia memoria. El histórico cronológico está en `SESSION_LOG.md`; este fichero es SIEMPRE el presente.
 
-**Última actualización:** 2026-08-08
+**Última actualización:** 2026-08-19
 **Owner:** sam (STTFX2021 / sttfx2021@gmail.com)
 
 ---
@@ -18,13 +18,54 @@ Agente de voz para pedidos telefónicos de la pizzería **La Locanda de Cancelad
 - **Supabase:** proyecto `vozra` (`igdbkndadrrljbycfekh`, eu-west-2), schema `vozra_orders` (orders, customers, call_logs, demo_callbacks, providers, usage_monthly, incidents). También existe `vozra_control` (control plane, uso Roomy/multi-tenant).
 
 ## 3. ESTADO DE DESPLIEGUE
-- **Commit desplegado en producción = HEAD = `2d44bea`** (08-08). `origin/main` y `main` local sincronizados. **No hay nada pendiente de push.**
-- Cadena 07/08-08: `ba788b7` → `ec63710` (dirección + plato con extra) → `86681e0` (incidencias fantasma) → `9ad667b` (mensaje ciego + alergia de acompañante) → **`2d44bea`** (el alérgeno deja de bloquear). Detalle en `NEXT_SESSION.md`.
-- ⚠️ Todo lo del 07/08-08 está desplegado pero **NO verificado en llamada real**. Las cinco pruebas están en `NEXT_SESSION.md`.
-- Todo lo del 28→31 de julio ESTÁ en producción: reconocimiento persistente, alergia no bloquea, borrado de alergia, suplementos, colgar al despedirse, **prompt cacheable**, `/admin/test-call` y **webhooks fail-closed**.
-- Cadena reciente: `…1e4e435` → `bb6288a` → `888767c` → `c93f4db` → `1844f06` → `bf2e5be` → **`84f8e94`** (HEAD).
-- ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo; `node --check` fallaba). Arreglado en `002a590`. **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
-- **Para desplegar:** commit → `git push origin main` (desde `backend/`) → Railway auto-despliega → llamada de prueba.
+- **Commit desplegado en producción = HEAD = `2d6bac2`** (19-08). Verificado por `/health`. Nada pendiente de push.
+- Cadena 18/19-08: `7bf3f4d` (el backend deja de pedir lo que ya tiene) → `fc12ae9` (gate de zona) → `f269d7f` (el test de zona estaba enganchado a un script que no corre nadie) → `bb33383` (idioma anti-rebote) → `0255f3e` (limpieza) → `a2f09ae` (última orden + config de ElevenLabs en git) → **`2d6bac2`** (candado del secreto).
+- **Para desplegar:** `SUBIR.bat "mensaje"` desde `backend/` en **cmd** (no PowerShell). Corre TODA la suite y solo hace push si sale verde. El `.bat` acaba en `pause`: si se lanza desde un agente, prefijar con `echo. |`.
+- ⚠️ Antes de decir "el fix no funciona", comprobar el commit en `/health`. Ha pasado varias veces probar contra código viejo sin pushear. **No fiarse de web_fetch, cachea.**
+- ⚠️ **Incidente 31-07 ya resuelto:** `4d44956` se desplegó ROTO (un backtick dentro del prompt-template-literal rompía el módulo). **Regla:** nunca usar backticks dentro del system prompt de `marta-llm.service.js`.
+
+## 3bis. REGLAS EN RUNTIME (trabajo del 18/19-08) — LO MÁS IMPORTANTE DE ESTE FICHERO
+
+**Principio, dictado por sam:** todas las reglas de **decisión** viven en el código. El prompt solo lleva **estilo** (cómo suena Sarah). Cero autoridad de decisión en el prompt.
+
+Una regla está en runtime cuando **la salida incorrecta es imposible**, no cuando está desaconsejada. Solo hay tres mecanismos válidos, y existen los tres:
+
+1. **Resolución** (`resolverDeSesion`) — el backend nunca pregunta lo que ya sabe.
+2. **Gate** (`requiredAction`) — nada avanza sin cumplir. Hay **13**.
+3. **Guardián de salida** (`guardianDeSalida`) — lo que contradiga 1 y 2 no llega a la voz.
+
+Si una regla no encaja en ninguno de los tres, es estilo y se queda en el prompt.
+
+**Regla para los tests:** un test que comprueba que *el prompt dice algo* no protege nada. Solo cuenta el que se pone rojo cuando el **comportamiento** se rompe, y hay que verificarlo desactivando el gate y viendo el rojo.
+
+**La prueba documental de por qué vuelven las regresiones** (tres commits, cuatro días):
+
+| Fecha | Commit | Qué pasó |
+|---|---|---|
+| 24-jun | `1de43df` | Se añade `detectLang()`: detección de idioma determinista **en código**. |
+| 28-jun | `bd11a80` | *"make brain the single system prompt source"* — **lo borra**. |
+| 28-jun | `f86d83f` | Test nuevo: comprueba que el modelo recibe **un** system prompt, no que el idioma se respete. |
+
+La garantía desapareció **dos meses** con la suite en verde. Entró por el PR #1, fusionado.
+
+**Migrado a runtime el 18/19-08:**
+
+| Regla | Mecanismo | Tests |
+|---|---|---|
+| Zona de reparto | `zonaFueraDeReparto` → `resolve_delivery_zone`. Fail-open en `unknown`; el veredicto va atado a la dirección sobre la que se calculó; pasarse a recogida lo desbloquea solo | 11 |
+| Idioma anti-rebote | `idiomaDeFrase` + `idiomaDeLaLlamada` + `directivaDeIdioma`. Mínimo 3 palabras y 2 marcadores para establecer idioma; una vez establecido se queda | 14 |
+| Última orden | `avisoUltimaOrden` → marca el ticket, **no bloquea** (opción B de sam) | 11 |
+| Config de ElevenLabs | `elevenlabs/` versionado + `publicar-agente.cjs` | 10 |
+
+**Sigue solo en el prompt** (estilo o impacto bajo): rango de entrega, teléfono en tres bloques, no recitar ingredientes, no preguntar tamaño ni base sin gluten.
+
+## 3ter. EL PANEL DE ELEVENLABS YA ESTÁ EN GIT
+`elevenlabs/agent-sarah.config.json` (ajustes), `elevenlabs/prompt-sarah.md` (solo estilo), `elevenlabs/publicar-agente.cjs` (diff y publicación), `elevenlabs/README.md`.
+
+- Sin argumentos, el script **solo enseña el diff**. Con `--publicar`, publica.
+- El secreto va como `${ELEVENLABS_CUSTOM_LLM_SECRET}`, nunca en el fichero. Hay un test que lo comprueba.
+- **Candado:** si el secreto del entorno no coincide con el del agente, aborta. Publicar uno equivocado tumba **todas** las llamadas (el backend falla cerrado). Cambiarlo de verdad exige `--cambiar-secreto` **y** actualizarlo en Railway a la vez.
+- **`first_message` va SIN espacios a propósito** (truco de TTS para que el saludo salga seguido). Con espacios suena lento. El 18-08 se "arregló" por error y estuvo así en producción varias horas.
 
 ## 4. El cerebro (`marta-llm.service.js`)
 - Entrada: `generateMartaReply(callId, incomingMessages, callerPhone)`. Historial formato OpenAI.

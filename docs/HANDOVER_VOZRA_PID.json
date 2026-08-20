@@ -1,0 +1,214 @@
+{
+  "_leeme": "Handover de Vozra PID. Estado real verificado contra el repo el 2026-08-19, no de memoria. Para retomar el proyecto en un chat nuevo: lee este fichero entero antes de tocar nada, y despues INVENTARIO_REGLAS_RUNTIME.md.",
+  "generado": "2026-08-19",
+  "commit_verificado": "2d6bac2",
+
+  "producto": {
+    "nombre": "Vozra PID",
+    "que_es": "Agente de voz que coge pedidos por telefono para una pizzeria. La agente se llama Sarah.",
+    "cliente_piloto": "Pizzeria La Locanda de Cancelada (Malaga)",
+    "estado": "En produccion, operativo end-to-end.",
+    "nota_de_nombres": "vozra-orders / vozra_orders son identificadores tecnicos provisionales (repo, package, schema). NO renombrar: vozra-orders = Vozra PID. 'Roomy' / 'SARA AI' es OTRO proyecto (room service de hotel), no mezclar."
+  },
+
+  "donde_esta_cada_cosa": {
+    "repo_local": "D:\\VOZRA\\vozra_proyecto_completo_20260620\\vozra-orders\\backend",
+    "repo_github": "https://github.com/STTFX2021/vozra-orders  (publico, se puede clonar sin credenciales)",
+    "git_root": "esta en backend/, no en la raiz del proyecto",
+    "produccion": "https://vozra-orders-production.up.railway.app",
+    "health": "GET /health devuelve el commit desplegado. Es la unica forma fiable de saber que hay en produccion.",
+    "carpeta_de_entregables": "C:\\Users\\Orochika\\Claude\\Projects\\04_Vozra_Orders  (documentos y ficheros para copiar a D:, NO es el repo)",
+    "base_de_datos": "Supabase proyecto 'vozra' (igdbkndadrrljbycfekh, eu-west-2), schema vozra_orders, tablas: customers, orders, incidents, call_logs",
+    "cocina": "Telegram, canal 'Cocina La Locanda', chat id -1003980888741 (con el -100 delante, es un fallo recurrente olvidarlo)",
+    "telefono": "+19014228104 (Twilio), asignado al agente de ElevenLabs"
+  },
+
+  "arquitectura": {
+    "cadena": "Telefono (Twilio) -> ElevenLabs (voz, agente Sarah) -> Custom LLM -> nuestro backend en Railway -> OpenAI gpt-4.1-mini -> ticket a Telegram",
+    "clave_del_diseno": "El cerebro esta DESACOPLADO de la voz: todo pasa por /v1/chat/completions. Se puede cambiar de proveedor de voz sin reescribir la logica.",
+    "fichero_nucleo": "marta-llm.service.js (~3500 lineas). Contiene buildSystemPrompt, generateMartaReply (tool-loop), handleSubmitOrder, computeQuote y todos los gates.",
+    "sin_SDKs": "Convencion del proyecto: https nativo para todo (OpenAI, Supabase via PostgREST, Telegram, ElevenLabs). No añadir SDKs.",
+    "modelo": "gpt-4.1-mini (no 4o-mini)",
+    "deploy": "Railway, auto-deploy desde main de GitHub. Tarda ~2 minutos."
+  },
+
+  "principio_rector": {
+    "regla": "Todas las reglas de DECISION viven en el codigo. El prompt solo lleva ESTILO (como suena Sarah). Cero autoridad de decision en el prompt.",
+    "por_que": "gpt-4.1-mini no puede decidir que regla aplica. Si una regla esta solo en el prompt, el modelo la cumple a veces. Por eso los fallos 'ya arreglados' volvian.",
+    "criterio": "Una regla esta en runtime cuando la salida incorrecta es IMPOSIBLE, no cuando esta desaconsejada.",
+    "tres_mecanismos_validos": [
+      "Resolucion (resolverDeSesion): el backend nunca pregunta lo que ya sabe",
+      "Gate (requiredAction): nada avanza sin cumplir",
+      "Guardian de salida (guardianDeSalida): lo que contradiga los dos anteriores no llega a la voz"
+    ],
+    "si_no_encaja": "Si una regla no encaja en ninguno de los tres, es estilo y se queda en el prompt.",
+    "regla_de_los_tests": "Un test que comprueba que el prompt DICE algo no protege nada. Solo cuenta el que se pone rojo cuando el COMPORTAMIENTO se rompe. Hay que verificarlo desactivando el gate y viendo el rojo, no darlo por hecho."
+  },
+
+  "la_prueba_documental": {
+    "que_demuestra": "El mecanismo exacto por el que vuelven las regresiones. Tres commits, cuatro dias.",
+    "secuencia": [
+      { "commit": "1de43df", "fecha": "2026-06-24", "que_paso": "Se añade detectLang(): deteccion de idioma DETERMINISTA en codigo." },
+      { "commit": "bd11a80", "fecha": "2026-06-28", "que_paso": "'make brain the single system prompt source' BORRA detectLang. La regla vuelve al prompt." },
+      { "commit": "f86d83f", "fecha": "2026-06-28", "que_paso": "Se añade un test que comprueba que el modelo recibe UN system prompt. NO que el idioma se respete. La suite se queda verde." }
+    ],
+    "resultado": "La garantia desaparecio dos meses sin que nadie se enterara. Entro por el PR #1, fusionado.",
+    "leccion": "Un test que ciega una regresion la fija en su sitio."
+  },
+
+  "gates_deterministas": {
+    "cuantos": 13,
+    "lista": [
+      { "id": "resolve_order_type", "protege": "no se calcula ni se despacha sin saber si es recogida o domicilio" },
+      { "id": "resolve_delivery_zone", "protege": "un domicilio fuera de zona NO llega a cocina", "añadido": "2026-08-18" },
+      { "id": "resolve_invalid_product", "protege": "no se acepta nada que no este en la carta" },
+      { "id": "resolve_allergen_conflict", "protege": "cruce de alergias (AVISA, no bloquea)" },
+      { "id": "resolve_allergy_persistence", "protege": "la alergia se guarda en la ficha" },
+      { "id": "offer_upsell", "protege": "se ofrece exactamente una vez" },
+      { "id": "capture_upsell_selection", "protege": "se registra la respuesta" },
+      { "id": "resolve_upsell", "protege": "no se repite la oferta" },
+      { "id": "obtain_surcharge_acceptance", "protege": "el cliente acepta los suplementos antes de cobrarlos" },
+      { "id": "present_current_summary", "protege": "el total se dice en voz alta antes de confirmar" },
+      { "id": "obtain_final_confirmation", "protege": "confirmacion explicita contra el resumen ENTREGADO" },
+      { "id": "resolve_order_persistence", "protege": "el pedido queda guardado antes de despachar" },
+      { "id": "resolve_profile_read", "protege": "no se continua si no se pudo leer el perfil de forma segura" }
+    ],
+    "otros_mecanismos": {
+      "guardianDeSalida": "intercepta el texto ANTES del TTS: corrige importes inventados, elimina preguntas ya respondidas, silencia turnos post-dispatch",
+      "resolverDeSesion": "resuelve order_type / telefono / nombre / direccion desde la sesion y el historial. El backend deja de pedir lo que ya tiene.",
+      "stripConsentIfRegistered": "borra por codigo la pregunta de guardar datos a un cliente ya registrado",
+      "sanitizeReply": "quita puntos suspensivos, muletillas y arranques tipo 'Entiendo'",
+      "importeHablado": "lee importes dichos en palabras ('treinta y dos euros') para que el guardian pueda compararlos",
+      "idiomaDeLaLlamada": "regla anti-rebote del idioma, en codigo",
+      "avisoUltimaOrden": "marca el ticket si el pedido entra a menos de N minutos del cierre"
+    }
+  },
+
+  "decisiones_del_owner": {
+    "_nota": "sam lleva 20 años en restauracion. Estas decisiones las toma el, y NO se revierten sin preguntarle. Varias ya se han revertido por error en el pasado.",
+    "alergenos": {
+      "regla": "Advertir -> asesorar -> MANDA EL CLIENTE. Nunca bloquear el pedido.",
+      "cocina": "Topping con alergeno = no se pone y punto. Salsa o base con alergeno = se SUSTITUYE (cual depende del alergeno; la salsa de tomate fue un EJEMPLO, no la respuesta universal).",
+      "ficha": "Quitar un ingrediente NO borra la alergia de la ficha. La ficha solo cambia si el cliente lo dice expresamente.",
+      "gluten": "La base sin gluten solo se ofrece si el cliente menciona el gluten por su cuenta. Suplemento 4,50 EUR por pizza.",
+      "acompañante": "La alergia de un acompañante va a la COMANDA, nunca a la ficha del titular.",
+      "fecha": "2026-07-28, reafirmada 2026-08-08"
+    },
+    "upsell": {
+      "frase_exacta": "¿Quieres acompañar tu pedido con una bebida o un postre?",
+      "regla": "UNA sola pregunta por llamada. Solo se puede repetir una pregunta si no se ha entendido la respuesta.",
+      "fecha": "2026-08-16"
+    },
+    "reposicion": {
+      "regla": "La reposicion va POR EL MISMO CANAL que el original. Si pidio a domicilio, se repone a domicilio.",
+      "verbatim_de_sam": "Despues de hacer un pedido a domicilio y joderlo lo ultimo que se le pregunta al cliente es que si quiere pasarse a recogerlo. Si hubiera querido ir el a recogerlo hubiera ido el de primeras.",
+      "fecha": "2026-08-16"
+    },
+    "ficha_de_cliente": {
+      "regla": "Recurrente entre sesiones pero DINAMICA, no rigida. Por eso se pregunta la direccion en vez de asumirla.",
+      "verbatim_de_sam": "Yo puedo llamar de casa de un amigo o familiar y ese dia lo quiero en esa direccion especial, por eso se le pregunta."
+    },
+    "nombre_del_cliente": "Solo al reconocerle al principio y al despedirse. En medio de la conversacion suena a robot.",
+    "cuando_dan_un_dato": "Dar las gracias y seguir. NO repetirlo de vuelta ni pedir que lo confirme.",
+    "ultima_orden": {
+      "regla": "Opcion B: NO bloquea. El pedido entra y el ticket sale con 'FUERA DE ULTIMA ORDEN - CONFIRMAR CON ENCARGADO'. Decide el local.",
+      "por_que_no_bloquea": "submit_order no tiene campo de hora, asi que 'ofrece el turno siguiente' no se puede cumplir. Un gate duro seria un callejon sin salida que pierde la venta.",
+      "fecha": "2026-08-19"
+    },
+    "para_llevar": "'Para llevar' = A DOMICILIO por norma general. No preguntar aclaracion.",
+    "normas_como_guia": "Cuando sam dice 'norma' se refiere a estilo de prompt, NO a un corte duro de la llamada."
+  },
+
+  "panel_de_elevenlabs": {
+    "agent_id": "agent_7801kte3e78te9ga2xc076bxsw9e",
+    "fuente_de_verdad": "elevenlabs/ en el repo. NO se edita el panel a mano.",
+    "ficheros": {
+      "elevenlabs/agent-sarah.config.json": "ajustes del agente",
+      "elevenlabs/prompt-sarah.md": "prompt del agente. SOLO estilo, sin decisiones",
+      "elevenlabs/publicar-agente.cjs": "sin argumentos enseña el diff repo/agente; con --publicar publica",
+      "elevenlabs/README.md": "la regla y el uso"
+    },
+    "ajustes_que_NO_se_tocan": [
+      "first_message SIN espacios entre palabras: es un truco de TTS para que el saludo salga seguido. Con espacios suena LENTO y sam ya se quejo. El 2026-08-18 se 'arreglo' por error y estuvo asi en produccion varias horas.",
+      "Backup LLM = disabled: era la causa de los fillers en ingles (Mm-hmm, Got it)",
+      "Speculative turn = off",
+      "temperature = 0.25 (estaba en 0.86, causa probable de la inconsistencia 'a veces si a veces no')"
+    ],
+    "voz": "Cristina (andaluza), voice_id dNjJKg63Fr5AXwIdkATa, modelo eleven_flash_v2_5",
+    "candado_del_secreto": "publicar-agente.cjs aborta si el secreto del entorno no coincide con el del agente. Publicar uno equivocado tumba TODAS las llamadas (el backend falla cerrado). Para cambiarlo de verdad hace falta --cambiar-secreto Y actualizarlo en Railway a la vez."
+  },
+
+  "variables_de_entorno": {
+    "_aviso": "NUNCA meter valores en git. El .env esta en .gitignore.",
+    "ELEVENLABS_API_KEY": "clave de la cuenta de ElevenLabs (empieza por sk_). La usa publicar-agente.cjs. Necesita permiso ElevenAgents = Write en el panel de API Keys.",
+    "ELEVENLABS_CUSTOM_LLM_SECRET": "contraseña que ElevenLabs enseña a nuestro backend (empieza por sk_). El valor bueno es el de Railway. NO es el agent_id.",
+    "trampa_conocida": "dotenv se queda con la PRIMERA linea si hay dos con el mismo nombre, y descarta la segunda en silencio. En el panel de ElevenLabs, 'Copy Key ID' copia el ID (un UUID), no la clave: la clave solo se ve al crearla."
+  },
+
+  "tests": {
+    "total_ficheros": 39,
+    "en_npm_test": 14,
+    "como_se_lanza_todo": "SUBIR.bat \"mensaje de commit\"  -> corre TODO y solo hace push si sale verde",
+    "los_de_comportamiento_recientes": {
+      "test-zona-reparto-20260818.cjs": "11 - el gate de zona de reparto",
+      "test-idioma-antirebote-20260818.cjs": "14 - la regla anti-rebote del idioma",
+      "test-ultima-orden-20260819.cjs": "11 - el aviso de ultima orden (caza un bug de turnos que cruzan medianoche)",
+      "test-elevenlabs-config-20260819.cjs": "10 - las decisiones del panel y que no haya secretos en git",
+      "test-conversacional-01..06": "llamadas completas turno a turno, incluida una alergia recordada entre dos llamadas distintas"
+    },
+    "huerfanos_no_los_ejecuta_nadie": [
+      "test-admin-test-call-20260731.cjs",
+      "test-webhook-security-20260731.cjs"
+    ]
+  },
+
+  "como_trabajar_en_esto": {
+    "sandbox_no_llega_a_D": "El bash del sandbox NO ve la unidad D:. Para leer el codigo, CLONAR el repo (es publico): git clone https://github.com/STTFX2021/vozra-orders.git",
+    "para_escribir_en_D": "Desktop Commander (start_process con shell cmd). Se cae a menudo; si no responde, reiniciar Claude Desktop entero.",
+    "windows": "PowerShell bloquea npm por ExecutionPolicy. USAR cmd. sam reincide en lanzar cosas desde C:\\WINDOWS\\system32.",
+    "receta_de_SUBIR": "cd /d D:\\VOZRA\\vozra_proyecto_completo_20260620\\vozra-orders\\backend && echo. | SUBIR.bat \"mensaje\"   (el 'echo. |' es imprescindible: el .bat acaba en pause)",
+    "timeouts": "start_process da timeout a los 180s aunque el proceso siga vivo. Recuperar con list_sessions + read_process_output(pid, offset:-80).",
+    "esperar_en_cmd": "ping -n N 127.0.0.1 >nul   (timeout /t falla con 'No es compatible la redireccion de entradas')",
+    "verificar_despliegue": "curl -s https://vozra-orders-production.up.railway.app/health  y comparar el commit. NUNCA fiarse de web_fetch, cachea."
+  },
+
+  "deuda_tecnica_conocida": [
+    { "que": "fail-open de Supabase en customer-store.js", "impacto": "si la BD falla, se sigue como si el cliente no existiera", "estado": "sin arreglar" },
+    { "que": "order_count clavado en 0", "impacto": "no se sabe cuantos pedidos lleva un cliente", "estado": "sin arreglar" },
+    { "que": "reposicion_gratis = false", "impacto": "las reposiciones se derivan al encargado en vez de ofrecerse solas", "estado": "es configurable, decision pendiente de sam" },
+    { "que": "horas reales de La Locanda en openHours", "impacto": "siguen las de ejemplo 12-16 / 19-24", "estado": "sin confirmar con el local" },
+    { "que": "multi-tenant", "impacto": "la-locanda esta hardcodeado", "estado": "no bloquea vender al primer cliente" },
+    { "que": "half_and_half puede no validar bien", "estado": "sin verificar" },
+    { "que": "2 tests huerfanos", "impacto": "existen y no los ejecuta nadie", "estado": "ver lista arriba" }
+  ],
+
+  "pendientes": {
+    "bugs_reales_sin_arreglar": {
+      "_origen": "llamada real de prueba, cliente inventado 'Pedro Porro'",
+      "1": "un telefono de 7 digitos se acepta como valido",
+      "2": "Sarah dice 'Aqui estas, Pedro' y 'la direccion de siempre' a un cliente que NO existe en la BD",
+      "3": "Sarah se inventa una excusa de privacidad para tapar que le faltan datos"
+    },
+    "reglas_que_siguen_solo_en_el_prompt": [
+      "rango de entrega / prohibido dar hora concreta",
+      "telefono en tres bloques de tres",
+      "no recitar ingredientes salvo que pregunten",
+      "no preguntar tamaño ni base sin gluten"
+    ],
+    "otros": [
+      "Auditoria conjunta Vozra + Control Center + Twin como un unico sistema (nunca empezada; falta identificar cual repo es el Control Center: vozra-insight-engine o vozra-voice-partner)",
+      "Recuperar 6 lineas de la rama fix/precio-extra-generico (facturacion de extras genericos, nunca fusionada)",
+      "Decidir que hacer con vozra-direct-demo (duplicado de sarah-speaks-direct)",
+      "Bot que revise conversaciones y proponga arreglos (acordado: detectar y proponer, NUNCA modificar solo)",
+      "post_call_webhook de ElevenLabs sin configurar (haria falta para el bot de analisis)",
+      "La auditoria formal del 2026-07-17 NO esta en el repo, solo se la referencia. Su riesgo top era S6 = invariantes criticos en prompt en vez de codigo."
+    ]
+  },
+
+  "avisos_importantes": [
+    "vozra-insight-engine es el Control Center y es parte fundamental del proyecto: NO silenciar sus notificaciones. El que se puede silenciar es vozra-s-digital-twin.",
+    "Las ramas del repo (10) estan todas entre 102 y 161 commits por detras. Fusionarlas traeria codigo viejo. NO fusionar sin revisar.",
+    "El .env local y el de Railway son DISTINTOS. El que vale para produccion es el de Railway.",
+    "Antes de decir 'el fix no funciona', verificar el commit en /health. Ha pasado varias veces que se probaba contra codigo viejo sin pushear."
+  ]
+}
