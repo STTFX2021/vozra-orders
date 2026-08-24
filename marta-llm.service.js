@@ -1242,7 +1242,14 @@ function resolveDeliveryAddress(argAddr, savedAddr) {
 async function computeLookup(args) {
   const phone = args && args.phone;
   let prof = null;
-  try { prof = phone ? await getCustomerByPhone(phone) : null; } catch (_) { prof = null; }
+  // FAIL-CLOSED (23-08): si Supabase falla, NO se puede decir "no te encuentro".
+  // Un registrado pasaria a "nuevo" en silencio. Se marca la consulta como fallida
+  // y el gate del dispatch de tools corta el turno igual que el lookup por caller ID.
+  try { prof = phone ? await getCustomerByPhone(phone, { throwOnError: true }) : null; }
+  catch (e) {
+    console.error("[CUST] buscar_cliente error | " + e.message);
+    return { encontrado: false, consulta_fallida: true };
+  }
   if (!prof) return { encontrado: false };
   return {
     encontrado: true,
@@ -3616,6 +3623,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
       let clienteDireccion = null;  // dirección guardada (para confirmarla SOLO si la pide)
       let alergiasEliminadas = null; // alergias que el cliente ha borrado en este turno
       let quoteOut = null;
+      let lookupFallido = false;   // buscar_cliente no pudo leer el perfil (Supabase caido)
       const toolMsgs = await Promise.all(calls.map(async tc => {
         const out = await toolOutput(tc, incomingMessages, callId);
         if (tc.function && tc.function.name === "calcular_total") quoteOut = out;
@@ -3626,6 +3634,9 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         if (tc.function && tc.function.name === "calcular_total" && out && out.aviso_suplementos && _yaAvisoSuplemento) {
           delete out.aviso_suplementos;
           out.suplementos_ya_avisados = true;
+        }
+        if (tc.function && tc.function.name === "buscar_cliente" && out && out.consulta_fallida === true) {
+          lookupFallido = true;
         }
         if (tc.function && tc.function.name === "buscar_cliente" && out && out.encontrado === true) {
           // Si el cliente ya corrigió su nombre en esta llamada, ese manda sobre el de la BD.
@@ -3649,6 +3660,17 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
         }
         return { role: "tool", tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(out) };
       }));
+      // GATE FAIL-CLOSED: la lectura del perfil fallo. Mismo corte que el lookup por
+      // caller ID (resolve_profile_read). Sin esto, el LLM diria "no te encuentro"
+      // a un cliente registrado solo porque la BD no respondio.
+      if (lookupFallido) {
+        return {
+          reply: "No he podido consultar tu perfil de forma segura. No voy a continuar hasta recuperar esos datos.",
+          dispatched: false,
+          action: "resolve_profile_read",
+          requiredAction: "resolve_profile_read"
+        };
+      }
       // `calcular_total` solo crea la cotización. La salida al cliente se controla
       // aquí y el resumen se registra únicamente al devolver exactamente este texto.
       if (quoteOut && !quoteOut.informationalOnly) {
@@ -3737,6 +3759,7 @@ async function generateMartaReply(callId, incomingMessages, callerPhone = null) 
 
 module.exports = {
   generateMartaReply,
+  computeLookup,
   avisoUltimaOrden,
   cierreDelTurnoEnCurso,
   ultimaOrdenMin,
